@@ -1,0 +1,5 @@
+{
+  "name": "Unity.RenderPipelines.Core.Runtime.Shared",
+  "references": [],
+  "allowUnsafeCode": true
+}

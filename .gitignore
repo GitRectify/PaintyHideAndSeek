@@ -1,0 +1,56 @@
+# Unity generated folders
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+UserSettings/
+
+# Unity generated files
+MemoryCaptures/
+Recordings/
+CrashReports/
+
+# Asset metadata should NOT be ignored
+# Keep .meta files in Git
+
+# Visual Studio
+.vs/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+
+# Rider / JetBrains
+.idea/
+
+# VS Code
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Unity cache / temporary files
+sysinfo.txt
+
+# Gradle
+.gradle/
+
+# Android build files
+*.apk
+*.aab
+
+# iOS / Xcode
+*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# Unity package manager temporary files
+.upmconfig.toml
+
+# Logs
+*.log
