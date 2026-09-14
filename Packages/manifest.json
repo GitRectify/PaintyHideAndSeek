@@ -1,6 +1,9 @@
 {
   "dependencies": {
+    "com.adjust.sdk": "https://github.com/adjust/unity_sdk.git?path=Assets/Adjust#v5.6.0",
     "com.unity.2d.sprite": "1.0.0",
+    "com.unity.inputsystem": "1.20.0",
+    "com.unity.render-pipelines.universal": "17.5.0",
     "com.unity.ugui": "2.5.0",
     "com.unity.modules.adaptiveperformance": "1.0.0",
     "com.unity.modules.ai": "1.0.0",
