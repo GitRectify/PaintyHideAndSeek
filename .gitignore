@@ -1,19 +1,29 @@
+# =========================
 # Unity generated folders
+# =========================
+
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# =========================
+# Builds
+# =========================
+
 [Bb]uild/
 [Bb]uilds/
-[Ll]ogs/
-UserSettings/
 
-# Unity generated files
-MemoryCaptures/
-Recordings/
-CrashReports/
+# Common generated builds
+*.apk
+*.aab
 
-# Asset metadata should NOT be ignored
-# Keep .meta files in Git
+# =========================
+# IDE / Editor generated
+# =========================
 
 # Visual Studio
 .vs/
@@ -22,27 +32,38 @@ CrashReports/
 *.suo
 *.user
 *.userprefs
+*.pidb
+*.opendb
+*.VC.db
 
-# Rider / JetBrains
+# Rider / IntelliJ
 .idea/
 
-# VS Code
-.vscode/
+# VS Code local config
+# Uncomment if your team does not share VS Code settings
+# .vscode/
 
-# OS generated files
+# =========================
+# Unity / IDE generated files
+# =========================
+
+ExportedObj/
+.consulo/
+
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# =========================
+# OS files
+# =========================
+
+# macOS
 .DS_Store
+
+# Windows
 Thumbs.db
 Desktop.ini
-
-# Unity cache / temporary files
-sysinfo.txt
-
-# Gradle
-.gradle/
-
-# Android build files
-*.apk
-*.aab
 
 # iOS / Xcode
 *.xcworkspace
@@ -52,5 +73,25 @@ DerivedData/
 # Unity package manager temporary files
 .upmconfig.toml
 
-# Logs
+# =========================
+# Crash / temporary files
+# =========================
+
+sysinfo.txt
+*.tmp
 *.log
+
+# =========================
+# Blender backup files
+# =========================
+
+*.blend1
+*.blend1.meta
+
+# =========================
+# IMPORTANT:
+# Do NOT ignore normal Unity .meta files
+# =========================
+
+# Never add:
+# *.meta
