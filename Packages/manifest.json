@@ -1,11 +1,20 @@
 {
   "dependencies": {
     "com.adjust.sdk": "https://github.com/adjust/unity_sdk.git?path=Assets/Adjust#v5.6.0",
+    "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity",
     "com.unity.2d.sprite": "1.0.0",
+    "com.unity.ai.navigation": "2.0.14",
     "com.unity.inputsystem": "1.20.0",
+    "com.unity.microsoft.gdk": "1.7.0",
+    "com.unity.microsoft.gdk.tools": "1.7.0",
     "com.unity.mobile.notifications": "2.4.3",
+    "com.unity.multiplayer.center": "1.0.1",
+    "com.unity.purchasing": "5.4.3",
+    "com.unity.recorder": "5.1.7",
     "com.unity.render-pipelines.universal": "17.5.0",
+    "com.unity.timeline": "1.8.13",
     "com.unity.ugui": "2.5.0",
+    "com.unity.visualscripting": "1.9.12",
     "com.unity.modules.adaptiveperformance": "1.0.0",
     "com.unity.modules.ai": "1.0.0",
     "com.unity.modules.androidjni": "1.0.0",
@@ -39,5 +48,23 @@
     "com.unity.modules.video": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
     "com.unity.modules.xr": "1.0.0"
-  }
+  },
+  "scopedRegistries": [
+    {
+      "name": "AppLovin MAX Unity",
+      "url": "https://unity.packages.applovin.com/",
+      "scopes": [
+        "com.applovin.mediation.ads",
+        "com.applovin.mediation.adapters",
+        "com.applovin.mediation.dsp"
+      ]
+    },
+    {
+      "name": "package.openupm.com",
+      "url": "https://package.openupm.com",
+      "scopes": [
+        "com.google.external-dependency-manager"
+      ]
+    }
+  ]
 }
