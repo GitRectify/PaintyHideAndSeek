@@ -1,3 +1,12 @@
+# Version 1.2.188 - Jul 13, 2026
+* iOS Resolver - Change how project path is determined to support the new
+  Swift Xcode project type.
+
+# Version 1.2.187 - Jan 20, 2026
+* General - Enable Editor DLLs by default, to fix initialization errors.
+* Android Resolver - Fix issue with nested m2repository directories. Fixes #716
+* iOS Resolver - Add support for using Swift Package Manager.
+
 # Version 1.2.186 - May 19, 2025
 * iOS Resolver - Set `validateReferences` to off by default,
   to prevent errors when running without iOS Support installed.

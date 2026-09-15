@@ -65,6 +65,7 @@ GameObject:
   - component: {fileID: 37}
   - component: {fileID: 38}
   - component: {fileID: 75}
+  - component: {fileID: 76}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -153,8 +154,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 30}
-  - component: {fileID: 1890854930}
   - component: {fileID: 1890854929}
+  - component: {fileID: 1890854930}
   m_Layer: 0
   m_Name: EventSystem
   m_TagString: Untagged
@@ -225,8 +226,8 @@ GameObject:
   m_Component:
   - component: {fileID: 58}
   - component: {fileID: 46}
-  - component: {fileID: 83}
   - component: {fileID: 2132278845}
+  - component: {fileID: 83}
   m_Layer: 0
   m_Name: Panel
   m_TagString: Untagged
@@ -260,7 +261,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 34}
-  - component: {fileID: 85}
+  - component: {fileID: 295993660}
   m_Layer: 0
   m_Name: RootManager
   m_TagString: Untagged
@@ -312,7 +313,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 36}
-  - component: {fileID: 88}
+  - component: {fileID: 1609528992}
   m_Layer: 0
   m_Name: AdMgr
   m_TagString: Untagged
@@ -1386,6 +1387,18 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!114 &76
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: af3862fd9092fa844b6936102a9eb7a2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NotificationScheduler
 --- !u!114 &78
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1434,18 +1447,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2176fbc22797201a95576cfeeda6534, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
---- !u!114 &85
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 15}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c5e024054607b1ac5111707d5ba8642d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!114 &86
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1456,18 +1457,6 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6c1784cfc328b58d96e64bdcff409b34, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
---- !u!114 &88
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 18}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 39462b43ca6784501beeab96a9972b65, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!114 &95
@@ -1512,6 +1501,33 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!114 &295993660
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 15}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9bd2006b217d21645a77796aa6e64d3d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RootManager
+  loadingAdsUI: {fileID: 0}
+  InterNative: 0
+  OnInterPlayGame: 0
+  InterInApp: 0
+  InterPlayGame: 0
+  InterEndGame: 0
+  OnBanner: 0
+  PoseReward: 0
+  isNativeNew: 0
+  LoadingShow: 0
+  EndInter_AoA: 0
+  PercentClick: 0
+  Interdelay: 0
+  TimeAdsStart: 0
+  TypeAppOpen: 0
 --- !u!114 &835434554
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1573,12 +1589,12 @@ MonoBehaviour:
       m_Calls: []
   m_FontData:
     m_Font: {fileID: 10102, guid: 0000000000000000e000000000000000, type: 0}
-    m_FontSize: 14
+    m_FontSize: 50
     m_FontStyle: 0
     m_BestFit: 0
-    m_MinSize: 10
-    m_MaxSize: 40
-    m_Alignment: 0
+    m_MinSize: 3
+    m_MaxSize: 50
+    m_Alignment: 4
     m_AlignByGeometry: 0
     m_RichText: 1
     m_HorizontalOverflow: 0
@@ -1770,6 +1786,18 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
+--- !u!114 &1609528992
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 18}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c2a0ae4c69fcfe648a2d60c06e7488f8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AdMgr
 --- !u!114 &1687124157
 MonoBehaviour:
   m_ObjectHideFlags: 0
