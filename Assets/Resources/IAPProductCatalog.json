@@ -1,1 +1,32 @@
-{"appleSKU":"","appleTeamID":"","enableCodelessAutoInitialization":true,"enableUnityGamingServicesAutoInitialization":false,"products":[{"id":"com.cdt.mega.mechagame.removeads","type":1,"storeIDs":[],"defaultDescription":{"googleLocale":21,"title":"Remove Ads","description":"Remove Ads Game"},"screenshotPath":"","applePriceTier":0,"googlePrice":{"data":[499,0,0,131072],"num":4.99},"pricingTemplateID":"","descriptions":[],"payouts":[]}]}
+{
+    "appleSKU": "",
+    "appleTeamID": "",
+    "enableCodelessAutoInitialization": true,
+    "enableUnityGamingServicesAutoInitialization": false,
+    "products": [
+        {
+            "id": "com.cdt.mega.mechagame.removeads",
+            "type": 1,
+            "storeIDs": [],
+            "defaultDescription": {
+                "googleLocale": 21,
+                "title": "Remove Ads",
+                "description": "Remove Ads Game"
+            },
+            "screenshotPath": "",
+            "applePriceTier": 0,
+            "googlePrice": {
+                "data": [
+                    499,
+                    0,
+                    0,
+                    131072
+                ],
+                "num": 4.99
+            },
+            "pricingTemplateID": "",
+            "descriptions": [],
+            "payouts": []
+        }
+    ]
+}
