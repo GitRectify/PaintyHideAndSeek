@@ -3284,7 +3284,7 @@ GameObject:
   - component: {fileID: 1944404406}
   - component: {fileID: 1944404405}
   m_Layer: 0
-  m_Name: Button Start
+  m_Name: ButtonStart
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -3744,7 +3744,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!1 &226
 GameObject:
   m_ObjectHideFlags: 0
@@ -5365,7 +5365,6 @@ GameObject:
   - component: {fileID: 1447}
   - component: {fileID: 2286}
   - component: {fileID: 2285}
-  - component: {fileID: 2282}
   - component: {fileID: 2281}
   - component: {fileID: 2280}
   m_Layer: 0
@@ -6897,7 +6896,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!1 &401
 GameObject:
   m_ObjectHideFlags: 0
@@ -15406,11 +15405,6 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
---- !u!95 &1003 stripped
-Animator:
-  m_CorrespondingSourceObject: {fileID: 1052211567512822981, guid: 31137ef9cf82b2d41a6abe1c37e3a59f, type: 3}
-  m_PrefabInstance: {fileID: 3070806365208312778}
-  m_PrefabAsset: {fileID: 0}
 --- !u!95 &1004
 Animator:
   serializedVersion: 7
@@ -37938,10 +37932,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 1859}
   m_LocalEulerAnglesHint: {x: 0, y: -0, z: -0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 1, y: 1}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_SizeDelta: {x: 340, y: 340}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!224 &1476
 RectTransform:
@@ -41762,6 +41756,7 @@ RectTransform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1695}
+  - {fileID: 74562655}
   m_Father: {fileID: 1505}
   m_LocalEulerAnglesHint: {x: 0, y: -0, z: -0}
   m_AnchorMin: {x: 1, y: 0}
@@ -46282,7 +46277,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 2095}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 1329580550}
+        m_TargetAssemblyTypeName: CameraController, Assembly-CSharp
+        m_MethodName: ToggleFreeLook
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &2095
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -46601,18 +46608,6 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 8204c7b1fe61728a6756284ce98431ae, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
---- !u!114 &2282
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 315}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b6c60e3dc3412ea40214acaeca93af2f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!114 &2285
@@ -47222,6 +47217,81 @@ MonoBehaviour:
     m_VerticalOverflow: 0
     m_LineSpacing: 1
   m_Text: Home
+--- !u!1 &74562654
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 74562655}
+  - component: {fileID: 74562657}
+  - component: {fileID: 74562656}
+  m_Layer: 0
+  m_Name: GunIcon
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &74562655
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 74562654}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1668}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 120, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &74562656
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 74562654}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
+  m_Material: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_RaycastTarget: 0
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 21300000, guid: 94e4456f78ba47844b248cd6c85b0a88, type: 3}
+  m_Type: 0
+  m_PreserveAspect: 1
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!222 &74562657
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 74562654}
+  m_CullTransparentMesh: 1
 --- !u!114 &74590963
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -47811,7 +47881,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 143327226}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 771299539}
+        m_TargetAssemblyTypeName: JoystickMover, Assembly-CSharp
+        m_MethodName: Jump
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &143327226
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -48327,7 +48409,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 186023438}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnHomeClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &186023438
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -48628,7 +48722,39 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d0b148fe25e99eb48b9724523833bab1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.EventSystems.EventTrigger
-  m_Delegates: []
+  m_Delegates:
+  - eventID: 2
+    callback:
+      m_PersistentCalls:
+        m_Calls:
+        - m_Target: {fileID: 771299539}
+          m_TargetAssemblyTypeName: JoystickMover, Assembly-CSharp
+          m_MethodName: EvtRotateRightDown
+          m_Mode: 0
+          m_Arguments:
+            m_ObjectArgument: {fileID: 0}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+            m_IntArgument: 0
+            m_FloatArgument: 0
+            m_StringArgument: 
+            m_BoolArgument: 0
+          m_CallState: 2
+  - eventID: 3
+    callback:
+      m_PersistentCalls:
+        m_Calls:
+        - m_Target: {fileID: 771299539}
+          m_TargetAssemblyTypeName: JoystickMover, Assembly-CSharp
+          m_MethodName: EvtRotateUp
+          m_Mode: 0
+          m_Arguments:
+            m_ObjectArgument: {fileID: 0}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+            m_IntArgument: 0
+            m_FloatArgument: 0
+            m_StringArgument: 
+            m_BoolArgument: 0
+          m_CallState: 2
 --- !u!114 &222883319
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -49366,7 +49492,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 270033721}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 2
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &270033721
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -50248,7 +50386,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 402416154}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935813}
+        m_TargetAssemblyTypeName: Mode1FirstPersonGun, Assembly-CSharp
+        m_MethodName: ToggleProne
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &402416154
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -50476,7 +50626,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 414485320}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 693404310}
+        m_TargetAssemblyTypeName: ChameleonPaint, Assembly-CSharp
+        m_MethodName: ToggleDrawing
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &414485320
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -51200,7 +51362,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 537347310}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 8
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &537347310
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -51464,7 +51638,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 557006048}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 693404310}
+        m_TargetAssemblyTypeName: ChameleonPaint, Assembly-CSharp
+        m_MethodName: CloseDrawing
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &557006048
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -52096,7 +52282,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 627817636}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnExtraClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &627817636
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -52309,7 +52507,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 656421099}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: Toggle
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &656421099
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -52383,7 +52593,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 657801932}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 7
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &657801932
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -52590,14 +52812,12 @@ MonoBehaviour:
   doiDangButtonName: Btn_DoiDang
   paintCanvasName: PaintUICanvas
   posePanelName: PosePanel
-  rewardSlots: 0300000004000000
-  simulateRewardInEditor: 1
-  poseBlendDuration: 0.25
   pickSprite: {fileID: 21300000, guid: 75903da50f5f9dc4aabf313e56700a9b, type: 3}
   gateOnSprite: {fileID: 21300000, guid: 2cf3300625c8ba0458818c25a436f683, type: 3}
   gateOffSprite: {fileID: 21300000, guid: 8b37a6b25c10183459d27217db29f5e2, type: 3}
-  font: {fileID: 0}
-  activeSlot: -1
+  rewardSlots: 0300000004000000
+  simulateRewardInEditor: 1
+  poseBlendDuration: 0.25
 --- !u!114 &667358527
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -52841,43 +53061,39 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ChameleonPaint
   characterRootName: Player
-  environmentRootName: Room
   panelScale: 1.4
-  closeIcon: {fileID: 21300000, guid: abcca6051e14b7c41bafaae8ce9fae13, type: 3}
   pickerIcon: {fileID: 21300000, guid: 6c0b835538a261347956ad3ba4feccb0, type: 3}
   eraserIcon: {fileID: 21300000, guid: 5508b9f78b1f5fa4aa6d416e00b21fb1, type: 3}
   paintIcon: {fileID: 21300000, guid: 49c9b1957138f1c43a572105e09b5be1, type: 3}
-  pickBgSprite: {fileID: 21300000, guid: 8f1e5dc2a8268b542a83aab77ff7e9ab, type: 3}
-  noPickBgSprite: {fileID: 21300000, guid: 51d5827707e94ad4ba888f3326e78509, type: 3}
+  cursorIconSize: 110
   sizeTrackSprite: {fileID: 21300000, guid: 2ca7149697e573f429c300c55d34c1dc, type: 3}
   sizeFillSprite: {fileID: 21300000, guid: 6a16f03830db8cb4892c176781676bcb, type: 3}
   sizeHandleSprite: {fileID: 21300000, guid: d500216b7d051d243bfcf2fe3d4a736a, type: 3}
-  sizeRingSprite: {fileID: 21300000, guid: 90e9d823b80497a4cb5558418286c029, type: 3}
   sizeDotSprite: {fileID: 21300000, guid: d500216b7d051d243bfcf2fe3d4a736a, type: 3}
+  sizeRingSprite: {fileID: 21300000, guid: 90e9d823b80497a4cb5558418286c029, type: 3}
   brushIconSprite: {fileID: 21300000, guid: 5c7769f98dae3d74284d1a441ea72fa7, type: 3}
   sizePreviewDotMin: 12
   sizePreviewDotMax: 44
-  cursorIconSize: 110
-  cursorTouchLift: 120
   goopSprayPrefab: {fileID: 1709254077376921, guid: 7057050c776ac7c43be169ab48da3841, type: 3}
   goopEmitCount: 1
   goopInterval: 0.04
   goopSpraySpeed: 1.5
+  cursorTouchLift: 120
+  pickBgSprite: {fileID: 21300000, guid: 8f1e5dc2a8268b542a83aab77ff7e9ab, type: 3}
+  noPickBgSprite: {fileID: 21300000, guid: 51d5827707e94ad4ba888f3326e78509, type: 3}
+  closeIcon: {fileID: 21300000, guid: abcca6051e14b7c41bafaae8ce9fae13, type: 3}
+  paintGateButton: {fileID: 414485319}
+  gateOnSprite: {fileID: 21300000, guid: 2cf3300625c8ba0458818c25a436f683, type: 3}
+  gateOffSprite: {fileID: 21300000, guid: 8b37a6b25c10183459d27217db29f5e2, type: 3}
   eyedropTrueAlbedo: 1
+  environmentRootName: Room
   eyedropIgnoreShadow: 1
   eyedropBrightness: 0.85
   loupeEnabled: 1
   loupeZoom: 5
   loupeSize: 240
   loupePos: {x: -210, y: 124}
-  metallic: 0
-  roughness: 0.5
-  paintGateButton: {fileID: 414485319}
-  gateOnSprite: {fileID: 21300000, guid: 2cf3300625c8ba0458818c25a436f683, type: 3}
-  gateOffSprite: {fileID: 21300000, guid: 8b37a6b25c10183459d27217db29f5e2, type: 3}
   bodyColorSampleStride: 8
-  drawingOn: 0
-  mode: 0
 --- !u!114 &701181726
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -53473,7 +53689,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 748839252}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 3
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &748839252
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -53566,23 +53794,23 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::JoystickMover
   characterRootName: Player
-  joystick: {fileID: 1899169570}
-  moveRelativeToCamera: 1
-  faceMovement: 1
   moveSpeed: 12
   acceleration: 80
-  gravity: 70
+  moveRelativeToCamera: 1
+  faceMovement: 1
   turnSpeed: 12
   climbStepHeight: 4
-  fpTurnSpeed: 120
+  gravity: 70
   jumpHeight: 8
   unstickAfter: 0.6
+  fpTurnSpeed: 120
+  joystick: {fileID: 1899169570}
   rotateButtonName: Btn_XoayNhanVat
   rotateLeftButtonName: ButtonRotationLeft
   rotateRightButtonName: ButtonRotationRight
   rotateButtonSpeed: 120
-  rotateActiveSprite: {fileID: 21300000, guid: 2cf3300625c8ba0458818c25a436f683, type: 3}
-  rotateInactiveSprite: {fileID: 21300000, guid: 8b37a6b25c10183459d27217db29f5e2, type: 3}
+  rotOnSprite: {fileID: 21300000, guid: 2cf3300625c8ba0458818c25a436f683, type: 3}
+  rotOffSprite: {fileID: 21300000, guid: 8b37a6b25c10183459d27217db29f5e2, type: 3}
 --- !u!114 &785915547
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -53656,7 +53884,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 792627125}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnReviveClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &792627125
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -53978,7 +54218,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 838468937}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: Close
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &838468937
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -54932,7 +55184,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1019548522}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnGiveUpClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1019548522
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -55070,7 +55334,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1042436618}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 5
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1042436618
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -55761,8 +56037,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LoadingScreen
   duration: 1.2
-  canvasGO: {fileID: 389}
-  fill: {fileID: 1532113081}
 --- !u!114 &1134601897
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -57438,52 +57712,113 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CameraController
   characterRootName: Player
-  distance: 33
-  followLerp: 8
   targetHeight: 2
   pitch: 22
-  yaw: 0
-  minPitch: 5
-  maxPitch: 80
+  distance: 33
+  followLerp: 8
+  stairCamSmooth: 6
   orbitSpeed: 80
   orbitDragSpeed: 0.22
-  zoomScrollSpeed: 5
-  zoomPinchSpeed: 0.08
+  minPitch: 5
+  maxPitch: 80
   minDistance: 12
   maxDistance: 60
-  firstPerson: 0
-  tpsSide: 2.5
-  tpsLookAhead: 11.5
+  zoomScrollSpeed: 5
+  zoomPinchSpeed: 0.08
   tpsBack: 10
   tpsHeight: 5.5
+  tpsSide: 2.5
+  tpsLookAhead: 11.5
   tpsLookHeight: 1.7
   tpsLookSide: 0.5
   tpsAvoidWalls: 1
-  aimPitchDeg: 0
-  proneBack: 0.12
-  proneLerpSpeed: 6
   proneHeightDrop: 2.5
   proneLookDrop: 1.8
-  stairCamSmooth: 6
+  proneBack: 0.12
+  proneLerpSpeed: 6
+  firstPerson: 0
   staticCameraInMenu: 1
   homeCameraName: Camera
   swapHomeCamera: 1
-  scoutClampToRoom: 1
-  freePanSpeed: 40
-  scoutFloorMargin: 2
-  scoutCeilMargin: 3
-  spotFocusHeight: 3
-  spotLerp: 6
   spotZoomOutBy: 30
   spotZoomTime: 3
+  spotFocusHeight: 3
+  spotLerp: 6
+  freePanSpeed: 40
+  scoutClampToRoom: 1
+  scoutFloorMargin: 2
+  scoutCeilMargin: 3
   _freeLook: 0
-  _proneOn: 0
-  orbitButtons: {fileID: 174}
-  orbitDir: 0
-  pitchDir: 0
-  spotView: 0
-  spotBot: {fileID: 0}
-  spotTarget: {fileID: 0}
+  yaw: 0
+--- !u!1 &1333250096
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1333250098}
+  - component: {fileID: 1333250097}
+  m_Layer: 0
+  m_Name: RootManagerFalse
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1333250097
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1333250096}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9bd2006b217d21645a77796aa6e64d3d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RootManager
+  isShowAds: 0
+  isCapInter: 0
+  isShowAoA: 0
+  isNativeNew: 0
+  isInterNet: 0
+  loadingAdsUI: {fileID: 0}
+  number: 0
+  Interdelay: 0
+  TimeAdsStart: 0
+  TypeAppOpen: 0
+  PercentClick: 0
+  nativeBag: 
+  EndInter_AoA: 0
+  OnBanner: 0
+  InterNative: 0
+  PoseReward: 0
+  LoadingShow: 1
+  InterInApp: 0
+  InterPlayGame: 0
+  InterEndGame: 0
+  OnInterPlayGame: 0
+--- !u!224 &1333250098
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1333250096}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 0, y: 0, z: 0}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1334278391
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -57562,7 +57897,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: HIDE! Seekers search in 300s
+  m_Text: 
 --- !u!114 &1354127213
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -57764,7 +58099,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1362591748}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 6
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1362591748
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -57979,7 +58326,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1405491030}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 693404310}
+        m_TargetAssemblyTypeName: ChameleonPaint, Assembly-CSharp
+        m_MethodName: ToggleErase
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1405491030
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -58053,7 +58412,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1410828027}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935813}
+        m_TargetAssemblyTypeName: Mode1FirstPersonGun, Assembly-CSharp
+        m_MethodName: Fire
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1410828027
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -58074,7 +58445,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: c493397677360a04389d37066f14c889, type: 3}
+  m_Sprite: {fileID: 21300000, guid: a0152d05a03c1074d8b7f1c93570ece2, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
@@ -58187,7 +58558,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1417385013}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2042773276}
+        m_TargetAssemblyTypeName: SettingsUI, Assembly-CSharp
+        m_MethodName: Show
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1417385013
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -58612,7 +58995,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1463650133}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnX2GoldClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1463650133
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -59043,7 +59438,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1520665591}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnNextClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1520665591
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -59306,7 +59713,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f9161dc428f5008438e341421e913254, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CharacterSelect
-  characters: []
+  characters:
+  - {fileID: 838}
+  - {fileID: 841}
   buttonLabels:
   - Player
   - Player 2
@@ -59606,7 +60015,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1574958414}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnNextClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1574958414
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -59680,7 +60101,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1588321153}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 693404310}
+        m_TargetAssemblyTypeName: ChameleonPaint, Assembly-CSharp
+        m_MethodName: ToggleEyedrop
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1588321153
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -60062,7 +60495,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1637022155}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 4
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1637022155
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -60290,18 +60735,18 @@ MonoBehaviour:
       m_Calls: []
   m_FontData:
     m_Font: {fileID: 10102, guid: 0000000000000000e000000000000000, type: 0}
-    m_FontSize: 14
+    m_FontSize: 46
     m_FontStyle: 0
     m_BestFit: 0
-    m_MinSize: 10
-    m_MaxSize: 40
-    m_Alignment: 0
+    m_MinSize: 4
+    m_MaxSize: 46
+    m_Alignment: 4
     m_AlignByGeometry: 0
     m_RichText: 1
-    m_HorizontalOverflow: 0
-    m_VerticalOverflow: 0
+    m_HorizontalOverflow: 1
+    m_VerticalOverflow: 1
     m_LineSpacing: 1
-  m_Text: 
+  m_Text: FIRE
 --- !u!114 &1658275837
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -60529,7 +60974,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1711132155}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 1
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1711132155
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -60693,7 +61150,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1732786443}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 665543143}
+        m_TargetAssemblyTypeName: PoseSelectorUI, Assembly-CSharp
+        m_MethodName: SlotNoads
+        m_Mode: 3
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1732786443
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -61794,7 +62263,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1862384274}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnGiveUp2Clicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1862384274
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -61838,14 +62319,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WallClimber
   characterRootName: Player
+  climbSpeed: 8
+  freeMoveTurnSpeed: 12
   climbAnySurface: 1
   wallTag: Wall
   groundTag: Ground
-  climbSpeed: 8
-  freeMoveTurnSpeed: 12
-  minWallSteepness: 50
   wallCheckDistance: 4
   groundCheckDistance: 9
+  minWallSteepness: 50
   climbUpIcon: {fileID: 21300000, guid: 7f69c0702bbd33740ae80d113ba7b763, type: 3}
   climbDownIcon: {fileID: 21300000, guid: 9b6ac8699a3fce64882592e5ca0f567b, type: 3}
 --- !u!114 &1866248146
@@ -62153,10 +62634,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FixedJoystick
   handleRange: 1
-  deadZone: 0.1
+  deadZone: 0
   axisOptions: 0
-  snapX: 0
-  snapY: 0
+  snapX: 1
+  snapY: 1
   background: {fileID: 1475}
   handle: {fileID: 1860}
 --- !u!114 &1912710897
@@ -62290,7 +62771,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: WAIT! Hiders are hiding... 10s
+  m_Text: 
 --- !u!114 &1936950929
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -62419,7 +62900,39 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d0b148fe25e99eb48b9724523833bab1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.EventSystems.EventTrigger
-  m_Delegates: []
+  m_Delegates:
+  - eventID: 2
+    callback:
+      m_PersistentCalls:
+        m_Calls:
+        - m_Target: {fileID: 771299539}
+          m_TargetAssemblyTypeName: JoystickMover, Assembly-CSharp
+          m_MethodName: EvtRotateLeftDown
+          m_Mode: 0
+          m_Arguments:
+            m_ObjectArgument: {fileID: 0}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+            m_IntArgument: 0
+            m_FloatArgument: 0
+            m_StringArgument: 
+            m_BoolArgument: 0
+          m_CallState: 2
+  - eventID: 3
+    callback:
+      m_PersistentCalls:
+        m_Calls:
+        - m_Target: {fileID: 771299539}
+          m_TargetAssemblyTypeName: JoystickMover, Assembly-CSharp
+          m_MethodName: EvtRotateUp
+          m_Mode: 0
+          m_Arguments:
+            m_ObjectArgument: {fileID: 0}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+            m_IntArgument: 0
+            m_FloatArgument: 0
+            m_StringArgument: 
+            m_BoolArgument: 0
+          m_CallState: 2
 --- !u!114 &1944074942
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -62537,7 +63050,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1944404406}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935815}
+        m_TargetAssemblyTypeName: BotSeekController, Assembly-CSharp
+        m_MethodName: SkipGrace
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1944404406
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -62690,7 +63215,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1957025514}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnX2GoldClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1957025514
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -62861,19 +63398,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5a74ff1d633655d4c8505db76523e193, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameController
-  popupRate: {fileID: 385}
-  btnRate: {fileID: 385}
-  btnRemoveAds1: {fileID: 304}
-  btnRemoveAds2: {fileID: 304}
   txtCoin: []
+  seeker: 0
   head: {fileID: 0}
-  poseReward3: {fileID: 0}
-  poseReward4: {fileID: 0}
-  poseReward5: {fileID: 0}
-  poseReward6: {fileID: 0}
-  poseReward7: {fileID: 0}
-  poseReward8: {fileID: 0}
-  poseReward9: {fileID: 0}
   isReward3: 0
   isReward4: 0
   isReward5: 0
@@ -62881,6 +63408,18 @@ MonoBehaviour:
   isReward7: 0
   isReward8: 0
   isReward9: 0
+  poseReward3: {fileID: 0}
+  poseReward4: {fileID: 0}
+  poseReward5: {fileID: 0}
+  poseReward6: {fileID: 0}
+  poseReward7: {fileID: 0}
+  poseReward8: {fileID: 0}
+  poseReward9: {fileID: 0}
+  popupRate: {fileID: 385}
+  btnRate: {fileID: 385}
+  numberRate: 0
+  btnRemoveAds1: {fileID: 304}
+  btnRemoveAds2: {fileID: 304}
 --- !u!114 &1969501626
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -62944,7 +63483,7 @@ MonoBehaviour:
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
+          m_IntArgument: 2
           m_FloatArgument: 0
           m_StringArgument: 
           m_BoolArgument: 1
@@ -63312,7 +63851,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 2018428713}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 2114935808}
+        m_TargetAssemblyTypeName: HideModeResultUI, Assembly-CSharp
+        m_MethodName: OnHomeClicked
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &2018428713
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -63549,7 +64100,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 2055137970}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 771299539}
+        m_TargetAssemblyTypeName: JoystickMover, Assembly-CSharp
+        m_MethodName: ToggleRotateButtons
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &2055137970
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -63657,9 +64220,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AnimTester
   characterRootName: Player
-  font: {fileID: 0}
-  anim: {fileID: 1003}
-  activePose: 0
 --- !u!114 &2076581122
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -64030,18 +64590,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 752e8b038aeb52146b4f545c09f373e8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HideModeResultUI
-  winCoinRange: {x: 50, y: 100}
-  loseCoinRange: {x: 30, y: 50}
-  victory:
-    root: {fileID: 256}
-    icon: []
-    label: []
-    value: []
-  defeat:
-    root: {fileID: 244}
-    icon: []
-    label: []
-    value: []
   panelCaught: {fileID: 21300000, guid: 09a22098c7e8fc048b3d8d4a5696d3df, type: 3}
   titleCaught: {fileID: 21300000, guid: 8b73a6a0d72a172459571c19aa530aff, type: 3}
   titleTimeUp: {fileID: 21300000, guid: d573ab0e4c3437e458f0cee5fa8e342d, type: 3}
@@ -64060,6 +64608,8 @@ MonoBehaviour:
   iconHome: {fileID: 21300000, guid: d66143c57675d8543a0b9bdeef5a935b, type: 3}
   iconNext: {fileID: 21300000, guid: b298cda479d4b2e449d8c8878c17dd05, type: 3}
   iconAds: {fileID: 21300000, guid: c9b26e89747fcd147b61405761bf80aa, type: 3}
+  winCoinRange: {x: 50, y: 100}
+  loseCoinRange: {x: 30, y: 50}
 --- !u!114 &2114935809
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -64179,35 +64729,35 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Mode1FirstPersonGun
   playerName: Player
-  armBoneName: mixamorig:RightArm
-  aimMinPitch: -35
-  aimMaxPitch: 55
   aimYawSpeed: 0.18
   aimPitchSpeed: 0.12
+  aimMinPitch: -35
+  aimMaxPitch: 55
+  aimInvertY: 0
+  armBoneName: mixamorig:RightArm
   armPitchFactor: 1
   aimGunAtCrosshair: 1
-  aimAlongBarrel: 1
-  aimAtCrosshair: 1
-  aimInvertY: 0
   gunAimsForward: 0
+  aimAlongBarrel: 1
   crosshairAtImpact: 1
   crosshairAimDistance: 3
   crosshairMaxScreenY01: 0.78
   aimStabilized: 1
-  aimAssist: 0
-  bulletLife: 3
-  bulletSpeed: 160
-  bulletSize: 1.2
-  bulletColor: {r: 1, g: 0.85, b: 0.2, a: 1}
-  bulletPrefab: {fileID: 1709254077376921, guid: 82656baf48ebf7049819bced0424e7b5, type: 3}
-  muzzleForward: 2.5
-  muzzleUp: -0.5
-  muzzleLocalOffset: {x: 0, y: 0, z: 0}
-  fireBgSprite: {fileID: 21300000, guid: c493397677360a04389d37066f14c889, type: 3}
+  fireBgSprite: {fileID: 21300000, guid: a0152d05a03c1074d8b7f1c93570ece2, type: 3}
   gunIcon: {fileID: 21300000, guid: 94e4456f78ba47844b248cd6c85b0a88, type: 3}
-  font: {fileID: 0}
   namOnSprite: {fileID: 21300000, guid: 1267266c48052244597b6e9ab67693f7, type: 3}
   namOffSprite: {fileID: 21300000, guid: 7bf1756793eb11d4fbc224c1def33842, type: 3}
+  bulletPrefab: {fileID: 1709254077376921, guid: 82656baf48ebf7049819bced0424e7b5, type: 3}
+  bulletSpeed: 160
+  bulletSize: 1.2
+  bulletLife: 3
+  bulletColor: {r: 1, g: 0.85, b: 0.2, a: 1}
+  aimAssist: 0
+  muzzlePoint: {fileID: 0}
+  muzzleLocalOffset: {x: 0, y: 0, z: 0}
+  aimAtCrosshair: 1
+  muzzleForward: 2.5
+  muzzleUp: -0.5
 --- !u!114 &2114935814
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -64235,78 +64785,79 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BotSeekController
   roomRootName: Room
-  playerName: Player2
+  playerName: Player
   botNames:
   - Bot1
   - Bot2
   - Bot3
   - Bot4
-  startButtonName: Button Start
+  startButtonName: ButtonStart
+  graceTime: 100
+  roundTime: 45
   seekerHuntTime: 60
   walkSpeed: 9
-  graceTime: 8
-  roundTime: 45
-  scanTime: 1.4
-  stuckEscapeTime: 4
   arriveDistance: 2.5
   repathInterval: 1
-  botGravity: 70
-  botClimbStepHeight: 4
+  scanTime: 1.4
+  stuckEscapeTime: 4
   recheckTime: 25
   searchGridCell: 28
+  botGravity: 70
+  botClimbStepHeight: 4
   playerScaleInMode2: 0.5
   botAvoidRadius: 9
-  camoStrength: 0.85
-  camoRefresh: 0.3
+  botAvoidStrength: 1.3
+  camoAffectsVision: 1
   minVisionRange: 14
   camoMatchTolerance: 0.45
-  botAvoidStrength: 1.3
-  visionAngle: 100
-  catchRange: 11
+  camoStrength: 0.85
+  camoRefresh: 0.3
   playerColorRefresh: 0.75
   visionRange: 46
-  camoAffectsVision: 1
-  loseTrack: 4
-  investigateTime: 5
+  visionAngle: 100
+  catchRange: 11
   minCatchRange: 3
   spotHold: 1.4
+  loseTrack: 4
+  investigateTime: 5
   highExposureBoost: 1
   exposedHeightAboveFloor: 25
   highVisionRange: 200
   proximityReveal: 1
-  sniffMaxHold: 8
-  sniffCamoMul: 0.3
   sniffRadius: 10
   sniffTime: 5
-  sniffMaxHeight: 12
+  sniffMaxHold: 8
+  sniffCamoMul: 0.3
   sniffExposedSpeedup: 2.5
   sniffCooldown: 4
+  sniffMaxHeight: 12
   sniffThroughFurniture: 1
   searchEscalation: 1
-  escalationSniffSpeedup: 0.35
-  escalationRangeBoost: 0.5
   escalationFullTime: 90
   escalationCamoErode: 0.6
+  escalationSniffSpeedup: 0.35
+  escalationRangeBoost: 0.5
   packConverge: 1
   convergeRadius: 60
   convergeInterval: 1.5
-  predictMinSpeed: 2
+  predictiveSearch: 1
   predictLead: 1.2
   predictMaxDist: 30
-  predictiveSearch: 1
+  predictMinSpeed: 2
   homeInWhenLost: 1
   homeInChance: 0.8
   homeInStartFraction: 0.667
   chasePlayer: 1
   gunObjectName: gun
   handBoneName: mixamorig:RightHand
-  bulletSize: 1.2
-  bulletLife: 3
   fireInterval: 0.7
   bulletSpeed: 160
+  bulletSize: 1.2
+  bulletLife: 3
   bulletColor: {r: 1, g: 0.55, b: 0.15, a: 1}
-  bulletPrefab: {fileID: 1709254077376921, guid: 82656baf48ebf7049819bced0424e7b5, type: 3}
-  hideUI: {fileID: 2114935808}
+  caughtPopupDelay: 3
+  spotShootDelay: 3
+  hideUI: {fileID: 0}
 --- !u!114 &2114935816
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -64319,19 +64870,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c23785b8631288c43a8441ef9471f9ca, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BotHideController
+  hideDelay: 5
+  walkSpeed: 12
   walkTimeout: 8
   arriveDistance: 1.5
-  hideDelay: 30
-  walkSpeed: 10
-  wallHideChance: 0.5
-  wallHideMinHeight: 6
   minHideSeparation: 20
   spotRandomness: 2.5
+  wallHideChance: 0.5
+  wallHideMinHeight: 6
   wallHideMaxHeight: 16
   wallClingOffset: 2
-  seekTime: 60
-  autoStartIfStandalone: 1
-  botScaleInMode1: 0.5
   roomRootName: Room
   playerName: Player
   botNames:
@@ -64339,18 +64887,10 @@ MonoBehaviour:
   - Bot2
   - Bot3
   - Bot4
-  armed: 0
+  seekTime: 300
+  autoStartIfStandalone: 1
   hideCountdown: 0
-  triggered: 0
-  seeking: 0
-  over: 0
-  scaleBots: 0
-  timer: 0
-  seekTimer: 0
-  hiderTotal: 0
-  bots: []
-  hideObjects: []
-  climbSurfaces: []
+  botScaleInMode1: 0.5
   hideUI: {fileID: 2114935808}
 --- !u!114 &2125737204
 MonoBehaviour:
@@ -64366,7 +64906,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.RawImage
   m_Material: {fileID: 0}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_RaycastTarget: 1
+  m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
@@ -64497,7 +65037,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8726979537375711145, guid: baa0d0800e6124a49940b35f619dc5c3, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -64518,7 +65058,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2851645928761040417, guid: 31137ef9cf82b2d41a6abe1c37e3a59f, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6320753020504478709, guid: 31137ef9cf82b2d41a6abe1c37e3a59f, type: 3}
       propertyPath: m_LocalPosition.x
@@ -64581,4 +65121,5 @@ SceneRoots:
   - {fileID: 719}
   - {fileID: 748}
   - {fileID: 766}
+  - {fileID: 1333250098}
   - {fileID: 1845}

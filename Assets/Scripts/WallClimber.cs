@@ -4,68 +4,75 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-// Large new class this session. Movement/climb logic + a runtime-built on-screen up/down button
-// UI (mirrors the SceneUI-based UI-building pattern confirmed in earlier sessions).
+// Movement/climb logic + a runtime-built on-screen up/down button UI.
+// Re-verified method by method against raw Ghidra output. Fields (names, order, offsets,
+// attributes), the nested State enum, and every method's accessibility match dump.cs
+// (TypeDefIndex 9724). All string literals are confirmed against Dumpstringliteral.json.
 public class WallClimber : MonoBehaviour
 {
-    // ---------------- Inspector-tunable fields (defaults come from the decompiled ctor,
-    // which is exactly the compiled form of C# field initializers — written here as field
-    // initializers per the standing convention rather than as a custom constructor) ----------------
+    private enum State
+    {
+        Grounded = 0,
+        OnWall = 1
+    }
+
+    [Header("Character")]
     public string characterRootName = "Player";
+    public float climbSpeed = 8f;
+    [Tooltip("How fast the chameleon turns to face its travel direction while free-roaming OFF the wall (open space, no wall nearby). 0 = keep facing wherever it was.")]
+    public float freeMoveTurnSpeed = 12f;
+
+    [Header("Detection")]
+    [Tooltip("Climb ANY solid object you lean against — wall, table, chair, props… The floor (Ground) and characters (player/bots) are always excluded. Turn OFF to climb only Wall-tagged surfaces.")]
     public bool climbAnySurface = true;
+    [Tooltip("Used only when 'Climb Any Surface' is OFF: only colliders with this tag are climbable.")]
     public string wallTag = "Wall";
     public string groundTag = "Ground";
-    public float climbSpeed = 8f;
-    public float freeMoveTurnSpeed = 12f;
-    public float minWallSteepness = 50f;
     public float wallCheckDistance = 4f;
     public float groundCheckDistance = 9f;
+    [Tooltip("Only surfaces steeper than this (degrees the surface normal is tilted from straight up) count as climbable WALLS. Walkable ramps / staircases at or below this are walked up normally — never treated as a wall to cling to. Keep above the player's slopeLimit (45°).")]
+    public float minWallSteepness = 50f;
 
-    // NOTE: accessibility (public vs private) on the tunables above is inferred from the Unity
-    // idiom of Inspector-exposed defaults set in a field initializer — not separately confirmed.
+    [Header("Climb button icons (Assets/Texture2D)")]
+    [Tooltip("Up / climb button icon (top.png). Falls back to a generated triangle when unset.")]
     public Sprite climbUpIcon;
+    [Tooltip("Down button icon (doww.png). Falls back to a generated triangle when unset.")]
     public Sprite climbDownIcon;
 
-    // ---------------- internal state ----------------
+    private State state;
     private Transform character;
     private Renderer[] charRends;
-    private CharacterController cc;
-    private Animator anim;
-    private Joystick joystick;
-    private Camera cam;
-    private BotSeekController seek;
-    private GameModeManager gmm;
-    private CameraController camCtrl;
-    private PoseSelectorUI poseSel;
-    private Font font;
-    private GameObject climbCanvas;
-
-    // NOTE: typed as int (not bool) — confirmed via SetClimb assigning `(uint)held` into these,
-    // and Update() doing integer subtraction (up - down) to get a -1/0/1 climb direction.
+    // int, not bool: SetClimb stores (uint)held, and Update computes up - down as -1/0/1.
     private int up;
     private int down;
-
-    // 0 = not climbing, 1 = on a wall. Confirmed via get_IsOnWall (`state == 1`).
-    private int state;
-
+    private Font font;
+    private CharacterController cc;
+    private Joystick joystick;
+    private Camera cam;
+    private Animator anim;
+    private GameModeManager gmm;
+    private CameraController camCtrl;
+    private BotSeekController seek;
+    private PoseSelectorUI poseSel;
+    private GameObject climbCanvas;
     private readonly RaycastHit[] _hits = new RaycastHit[16];
     private readonly Vector3[] _probeDirs = new Vector3[4];
-    private readonly Dictionary<Collider, bool> _isCharacterCache = new Dictionary<Collider, bool>();
 
-    // ---------------- static (from .cctor) ----------------
-    // NOTE: the actual 4 float values are embedded as a raw byte blob in the game's
-    // <PrivateImplementationDetails> class (a compiler-generated array-initializer field), which
-    // isn't in the string-literal dump and isn't otherwise recoverable from this decompile. These
-    // are height fractions (0..1) sampled between the character capsule's bottom and top in
-    // TryGetWall — placeholder values below, MUST be corrected from the real binary/game data.
-    private static readonly float[] WallProbeHeightFractions = { 0.2f, 0.5f, 0.8f, 0.95f }; // TODO: unconfirmed — real values not recoverable from this dump
+    // CONFIRMED: .cctor fills this from the metadata blob
+    // <PrivateImplementationDetails>.1EA60047B9BF4176B2692BA4F93A56901549CDBC4B01F11DD8D16E697454CF72
+    // (dump.cs: "Metadata offset 0x70D588"). The 16 bytes there in global-metadata.dat, read as
+    // little-endian floats, are 0.15, 0.45, 0.7, 0.92: the heights (as a fraction of the capsule,
+    // bottom to top) that TryGetWall probes at.
+    private static readonly float[] _probeHeights = { 0.15f, 0.45f, 0.7f, 0.92f };
+
+    private readonly Dictionary<Collider, bool> _isCharacterCache = new Dictionary<Collider, bool>();
 
     private static readonly int SpeedHash = Animator.StringToHash("Speed");
     private static readonly int PoseHash = Animator.StringToHash("Pose");
 
     // ================= properties =================
 
-    public bool IsOnWall => state == 1;
+    public bool IsOnWall => state == State.OnWall;
 
     // True when not currently on a wall, but chasing the player and near a climbable one — used
     // to suppress some other system's rotation control while approaching a wall.
@@ -73,7 +80,7 @@ public class WallClimber : MonoBehaviour
     {
         get
         {
-            if (state == 1) return false;
+            if (state == State.OnWall) return false;
             if (character == null) return false;
             if (seek == null) return false;
             if (!seek.Active) return false;
@@ -82,26 +89,26 @@ public class WallClimber : MonoBehaviour
         }
     }
 
-    public bool IsNearWall()
+    private bool IsNearWall()
     {
         return TryGetWall(out Vector3 _);
     }
 
-    public bool HasUserPose
+    // Raw reads poseSel.activeSlot directly and tests its sign bit, i.e. activeSlot >= 0. That field
+    // is private in PoseSelectorUI (per dump.cs), so this uses PoseSelectorUI.HasPose, whose body
+    // is the identical test.
+    private bool HasUserPose
     {
         get
         {
             if (poseSel == null) return false;
-            // CONFIRMED: decoded the raw sign-bit bit-trick byte-by-byte — it is exactly
-            // "activeSlot >= 0" (i.e. some pose slot is selected), not just a plausible guess.
-            return poseSel.activeSlot >= 0;
+            return poseSel.HasPose;
         }
     }
 
     // ================= lifecycle =================
 
-    // FIXED: this entire method was missing from the previous draft — it's a public API other
-    // classes call directly (e.g. ChameleonPaint.GroundPlayer() calls wallClimber.DropToGround()).
+    // Public API called from other classes (BotSeekController.GroundPlayer calls it).
     // Matches the raw WallClimber$$DropToGround exactly: unlike the two "fell off the wall" resets
     // inside Update(), this path does NOT gate on HasUserPose before forcing Pose back to 0 — that
     // asymmetry is confirmed in the raw code, not an inconsistency to "fix".
@@ -112,7 +119,7 @@ public class WallClimber : MonoBehaviour
         Grounding.ToFloor(character, charRends);
         up = 0;
         down = 0;
-        state = 0;
+        state = State.Grounded;
 
         if (poseSel != null)
         {
@@ -123,7 +130,7 @@ public class WallClimber : MonoBehaviour
         anim.SetInteger(PoseHash, 0);
     }
 
-    public void Start()
+    private void Start()
     {
         GameObject resolved = PlayerRef.Resolve(characterRootName);
         if (resolved != null)
@@ -138,7 +145,7 @@ public class WallClimber : MonoBehaviour
             Debug.LogWarning("[WallClimber] Character '" + characterRootName + "' not found.");
         }
 
-        joystick = UnityEngine.Object.FindFirstObjectByType<Joystick>();
+        joystick = UnityEngine.Object.FindFirstObjectByType<Joystick>(FindObjectsInactive.Include);
         cam = Camera.main;
         seek = UnityEngine.Object.FindFirstObjectByType<BotSeekController>();
         gmm = UnityEngine.Object.FindFirstObjectByType<GameModeManager>();
@@ -204,7 +211,7 @@ public class WallClimber : MonoBehaviour
         MakeButton(canvasTransform, "ClimbDown", triangle, circle, true, new Vector2(-70f, 160f), -1, climbDownIcon);
     }
 
-    public void Update()
+    private void Update()
     {
         if (character == null) return;
 
@@ -231,7 +238,7 @@ public class WallClimber : MonoBehaviour
         bool notInteracting;
         if (seek != null && seek.Active && seek.chasePlayer)
         {
-            if (state == 1)
+            if (state == State.OnWall)
             {
                 showClimbUI = true;
             }
@@ -264,11 +271,11 @@ public class WallClimber : MonoBehaviour
 
         if (notInteracting)
         {
-            if (state != 1) return;
+            if (state != State.OnWall) return;
 
             // Was climbing, but the chase ended — drop back to the ground.
             Grounding.ToFloor(character, charRends);
-            state = 0;
+            state = State.Grounded;
             if (poseSel != null)
             {
                 poseSel.ClearSelection();
@@ -291,13 +298,13 @@ public class WallClimber : MonoBehaviour
 
         Vector2 joyDir = joystick != null ? joystick.Direction : Vector2.zero;
 
-        if (state != 1)
+        if (state != State.OnWall)
         {
             // Not climbing yet — only start if the "up" button is held and a wall is in range.
             if (up < 1) return;
             if (!TryGetWall(out Vector3 _)) return;
 
-            state = 1;
+            state = State.OnWall;
             if (anim == null) return;
             if (HasUserPose) return;
             anim.SetInteger(PoseHash, 1);
@@ -328,18 +335,13 @@ public class WallClimber : MonoBehaviour
                 }
                 if (moveMag > 0.01f)
                 {
-                    // LOW CONFIDENCE BLOCK: the decompile for this specific facing-rotation
-                    // sub-step is genuinely ambiguous — the raw disassembly appears to reuse the
-                    // character's OWN current rotation's y/z quaternion components as if they
-                    // were vector components for the LookRotation "forward"/"upwards" args, which
-                    // wouldn't make geometric sense. Two unnamed helper calls in this stretch
-                    // (extracting camHoriz components) couldn't be fully resolved either. Given
-                    // the overwhelming pattern elsewhere of pure register/stack-slot reuse causing
-                    // exactly this kind of misleading appearance, this is implemented as the
-                    // idiomatic version instead — face the movement direction, upright — but this
-                    // block should be verified against actual game behavior rather than trusted.
+                    // CONFIRMED by decoding the two unnamed helpers' ARM64 bytes in libil2cpp.so:
+                    // FUN_02349bd8 (RVA 0x2249BD8) takes a Vector3* and normalizes it
+                    // (Vector3.Normalize), and FUN_02349a84 (RVA 0x2249A84) returns the Vector3
+                    // statics at +0x18 (Vector3.up). Ghidra showed the rotation's y/z as the
+                    // arguments only because it lost track of the helpers' float return registers.
                     Quaternion currentRot = character.rotation;
-                    Quaternion targetRot = Quaternion.LookRotation(camHoriz, Vector3.up);
+                    Quaternion targetRot = Quaternion.LookRotation(Vector3.Normalize(camHoriz), Vector3.up);
                     character.rotation = Quaternion.Slerp(currentRot, targetRot, dt * freeMoveTurnSpeed);
                 }
             }
@@ -373,7 +375,7 @@ public class WallClimber : MonoBehaviour
 
             // Climbing down and touched ground — drop off the wall.
             Grounding.ToFloor(character, charRends);
-            state = 0;
+            state = State.Grounded;
             if (anim == null) return;
             if (HasUserPose) return;
             anim.SetInteger(PoseHash, 0);
@@ -383,7 +385,7 @@ public class WallClimber : MonoBehaviour
         {
             // Holding "down" and no longer touching a wall — fell off while descending.
             Grounding.ToFloor(character, charRends);
-            state = 0;
+            state = State.Grounded;
             up = 0;
             down = 0;
             if (anim == null) return;
@@ -464,7 +466,7 @@ public class WallClimber : MonoBehaviour
         {
             Transform hitT = _hits[i].transform;
             if (hitT == character) continue;
-            if (hitT != null && hitT.IsChildOf(character)) continue;
+            if (hitT.IsChildOf(character)) continue;
 
             Collider col = _hits[i].collider;
             if (col is CharacterController) continue;
@@ -503,9 +505,9 @@ public class WallClimber : MonoBehaviour
         bool found = false;
         float bestDist = float.MaxValue;
 
-        for (int h = 0; h < WallProbeHeightFractions.Length; h++)
+        for (int h = 0; h < _probeHeights.Length; h++)
         {
-            float t = Mathf.Clamp01(WallProbeHeightFractions[h]);
+            float t = Mathf.Clamp01(_probeHeights[h]);
             Vector3 probeOrigin = new Vector3(pos.x, bottomY + (topY - bottomY) * t, pos.z);
 
             for (int d = 0; d < _probeDirs.Length; d++)
@@ -515,7 +517,7 @@ public class WallClimber : MonoBehaviour
                 {
                     Transform hitT = _hits[i].transform;
                     if (hitT == character) continue;
-                    if (hitT != null && hitT.IsChildOf(character)) continue;
+                    if (hitT.IsChildOf(character)) continue;
 
                     Collider col = _hits[i].collider;
                     if (!IsClimbable(col)) continue;
@@ -540,7 +542,7 @@ public class WallClimber : MonoBehaviour
         return found;
     }
 
-    public void SetClimb(int dir, bool held)
+    private void SetClimb(int dir, bool held)
     {
         if (dir < 1)
         {
@@ -695,18 +697,14 @@ public class WallClimber : MonoBehaviour
         iconRt.sizeDelta = hasCustomIcon ? new Vector2(120f, 110f) : new Vector2(74f, 74f);
         iconRt.localEulerAngles = (flip && !hasCustomIcon) ? new Vector3(0f, 0f, 180f) : Vector3.zero;
 
-        // NOTE: the button's press/release wiring below is only partially decompiled. What's
-        // confirmed: a compiler-generated closure capturing `this` and `dir` is constructed, and
-        // a ClimbHold component is added to `go`. The two closure callback bodies
-        // (<MakeButton>b__0 / <MakeButton>b__1) were never in the pasted dump — only their names
-        // and the fact two System.Action instances get built and stashed somewhere on the
-        // ClimbHold instance. Given the closure captures `this`+`dir`, the obvious inferred call
-        // is SetClimb(dir, true/false) on press/release, but this is INFERRED, not confirmed —
-        // left as TODOs rather than guessed field names.
+        // CONFIRMED: raw stores two Actions at ClimbHold +0x20 and +0x28, which dump.cs names onDown
+        // and onUp. Their bodies, WallClimber.<>c__DisplayClass51_0.<MakeButton>b__0/b__1
+        // (RVA 0x2287044 / 0x2287068, closure fields <>4__this and dir), were decoded from their
+        // ARM64 bytes: each loads (this, dir), sets held = 1 / 0, and branches straight to SetClimb
+        // (file offset 0x2281DE4). So press = SetClimb(dir, true), release = SetClimb(dir, false).
         ClimbHold hold = SceneUI.GetOrAdd<ClimbHold>(go);
-        // TODO: not decompiled — inferred shape only, exact field names on ClimbHold unconfirmed:
-        // hold.onPress = () => SetClimb(dir, true);
-        // hold.onRelease = () => SetClimb(dir, false);
+        hold.onDown = () => SetClimb(dir, true);
+        hold.onUp = () => SetClimb(dir, false);
     }
 
     private Image NewImage(string name, Transform parent, Color color, Sprite sprite)
@@ -719,7 +717,7 @@ public class WallClimber : MonoBehaviour
         return img;
     }
 
-    private Text NewText(string name, Transform parent, string content, int size, int anchor, Color color)
+    private Text NewText(string name, Transform parent, string content, int size, TextAnchor anchor, Color color)
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
@@ -727,7 +725,7 @@ public class WallClimber : MonoBehaviour
         txt.font = font;
         txt.text = content;
         txt.fontSize = size;
-        txt.alignment = (TextAnchor)anchor;
+        txt.alignment = anchor;
         txt.color = color;
         txt.horizontalOverflow = HorizontalWrapMode.Overflow;
         txt.verticalOverflow = VerticalWrapMode.Overflow;

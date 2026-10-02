@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 // Ad functionality intentionally disabled.
@@ -8,25 +9,34 @@ public class RootManager : MonoBehaviour
     public static RootManager Instance { get; private set; }
 
     // Kept only for scene/prefab serialization compatibility.
+    public bool isShowAds;      // 0x20
+    public bool isCapInter;     // 0x21 - interstitial cooldown passed (see GameController.TimerCapInter)
+    public bool isShowAoA;      // 0x22
+    public bool isNativeNew;    // 0x23 - Remote Config "IsNativeNew"
+    public bool isInterNet;     // 0x24
+
     public GameObject loadingAdsUI;
 
-    // Compatibility fields kept so other reconstructed scripts do not immediately
-    // fail if they still reference the old ad configuration.
-    public bool InterNative;
-    public bool OnInterPlayGame;
-    public bool InterInApp;
-    public bool InterPlayGame;
-    public bool InterEndGame;
-    public bool OnBanner;
-    public bool PoseReward;
-    public bool isNativeNew;
-    public bool LoadingShow;
-    public bool EndInter_AoA;
-
-    public int PercentClick;
+    public int number;          // 0x30 - set via SetNumber: 0 = menu, 1 = in a round, 2 = result screen
     public int Interdelay;
     public int TimeAdsStart;
     public int TypeAppOpen;
+    public int PercentClick;
+
+    [SerializeField]
+    private List<bool> nativeBag = new List<bool>();
+    private int nativeBagIndex;
+
+    // Remote Config flags (all set in Remote()).
+    public bool EndInter_AoA;
+    public bool OnBanner;
+    public bool InterNative;
+    public bool PoseReward;
+    public bool LoadingShow;
+    public bool InterInApp;
+    public bool InterPlayGame;
+    public bool InterEndGame;
+    public bool OnInterPlayGame;
 
     // Compatibility-only flag. Ads are disabled, so it remains false.
     public bool IsShowingAd { get; set; } = false;
@@ -55,6 +65,9 @@ public class RootManager : MonoBehaviour
     // Kept for compatibility with reconstructed callers.
     public void SetNumber(int value)
     {
-        PercentClick = value;
+        if (Instance != null)
+        {
+            PercentClick = value;
+        }
     }
 }

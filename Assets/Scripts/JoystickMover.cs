@@ -2,168 +2,147 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-// NOTE: Drives character movement from the on-screen Joystick (Joystick Pack asset).
-// Supports third-person (optionally camera-relative) and first-person strafing, wall-climbing
-// hand-off via WallClimber, free-look camera pass-through via CameraController, and a "wedged"
-// recovery system that teleports the player back to their last known-free position if they get
-// stuck against geometry.
+// Re-verified method by method against raw Ghidra output. Fields (names, order, attributes,
+// offsets) and method accessibility match dump.cs (TypeDefIndex 9682). All string literals are
+// confirmed against Dumpstringliteral.json.
+//
+// Decoded helpers: FUN_022f7090 = Vector3.zero, FUN_02349ca4 = Vector2.magnitude,
+// FUN_02349ac8 = Vector3.magnitude, FUN_023701ec = Vector3.Normalize() (in place, not inlined; the
+// .normalized property is what gets inlined in CameraRelative). The 0.05 (0x3D4CCCCD) fminnm is
+// Mathf.Min(Time.deltaTime, 0.05f).
+//
+// Inlined in raw: CameraController.FreeLook / IsFirstPerson (private _freeLook / firstPerson reads),
+// GameModeManager.PlayerFrozen (backing field), Vector3.MoveTowards, Mathf.Clamp / Clamp01 / Max.
+// Ghidra printed the Ready log's bools as Boolean.ToString(true); they are the null checks.
+// fpTurnSpeed is declared but not used by any method.
+//
+// Convention: where raw jumps to the NullReferenceException stub, the C# just dereferences
+// naturally; explicit null checks are kept only where raw really skips.
 public class JoystickMover : MonoBehaviour
 {
-    [SerializeField] private string characterRootName = "Player";
-    [SerializeField] private Joystick joystick;
-    [SerializeField] private bool moveRelativeToCamera = true;
-    [SerializeField] private bool faceMovement = true;
-    [SerializeField] private float moveSpeed = 12f;
-    [SerializeField] private float acceleration = 80f;
-    [SerializeField] private float gravity = 70f;
-    [SerializeField] private float turnSpeed = 12f;
-    [SerializeField] private float climbStepHeight = 4f;
-    // NOTE: confirmed field (default 120) but not referenced by any method pasted so far —
-    // likely used by a first-person camera/look script not yet decompiled. Unused here.
-    [SerializeField] private float fpTurnSpeed = 120f;
-    [SerializeField] private float jumpHeight = 8f;
-    [SerializeField] private float unstickAfter = 0.6f;
+    [Header("Character")]
+    public string characterRootName = "Player";
+    public float moveSpeed = 20f;
+    [Tooltip("Acceleration/deceleration (u/s²) for smooth movement: pushing the joystick gradually accelerates to `moveSpeed`, while releasing it gradually decelerates to zero (avoiding jerky stops). Lower values ​​result in smoother, more fluid motion; higher values ​​provide snappier, more responsive control. Setting this to a very high value (e.g., 999) results in instantaneous response, mimicking the original behavior.")]
+    public float acceleration = 80f;
+    private Vector3 _moveVel;
+    public bool moveRelativeToCamera = true;
+    public bool faceMovement = true;
+    public float turnSpeed = 12f;
+    [Tooltip("Tallest stair step (world units) the player can walk up. Kept CONSTANT in world space across the Play Now 0.5x scaling by compensating the CharacterController.stepOffset for the player's scale — Room2's staircases have ~4u risers, which the default stepOffset (0.3) can't climb.")]
+    public float climbStepHeight = 4f;
+    [Tooltip("Downward acceleration (world u/s²). A CharacterController has NO gravity of its own — without this the player FLOATS when walking DOWN stairs / off a ledge. Big because the world is large (player ~14u tall).")]
+    public float gravity = 70f;
+    private float _vy;
+    [Tooltip("Jump height in WORLD UNITS for the Seeker-mode 'Jump' button. The character rises to about this height then falls back under gravity (no jump animation needed). Tune this for a higher/lower hop — do NOT change 'gravity' (it's shared with normal falling, so lowering it would make walking DOWN stairs float too). At gravity 70, height 8 ≈ a 1-second hop.")]
+    public float jumpHeight = 8f;
+    [Tooltip("Stuck recovery: if the player pushes to move but makes ~no progress (wedged inside a concave furniture/plant collider) for this long, snap it back to the last spot it moved freely. Concave room colliders can TRAP the CharacterController with no way to push out, so a teleport-back is the reliable escape. 0 = disable.")]
+    public float unstickAfter = 0.6f;
+    private Vector3 _lastFreePos;
+    private bool _haveFreePos;
+    private float _stuckTimer;
+    private bool _joyHidden;
+    [Tooltip("First-person (Mode 1) turn speed in degrees/sec when pushing the joystick left/right.")]
+    public float fpTurnSpeed = 120f;
 
-    [SerializeField] private string rotateButtonName = "Btn_XoayNhanVat"; // NOTE: Vietnamese, "rotate character button"
-    [SerializeField] private string rotateLeftButtonName = "ButtonRotationLeft";
-    [SerializeField] private string rotateRightButtonName = "ButtonRotationRight";
-    [SerializeField] private float rotateButtonSpeed = 120f;
+    [Header("Joystick Pack")]
+    [Tooltip("Drag a Joystick Pack joystick here (Fixed/Floating/Dynamic/Variable). Auto-found if left empty.")]
+    public Joystick joystick;
 
-    // NOTE: these two Sprite fields are confirmed to exist (read via fixed field offsets 0xc0
-    // and 0xc8 in ShowRotateButtons to swap _rotBtnImg's sprite based on the `on` state) but
-    // their real names weren't in the paste — named here by inferred purpose, unconfirmed.
-    [SerializeField] private Sprite rotateActiveSprite = null;
-    [SerializeField] private Sprite rotateInactiveSprite = null;
+    [Header("Character rotation buttons (Btn_XoayNhanVat toggles the two rotation buttons)")]
+    [Tooltip("On/Off button; two rotary knobs (left/right)—push to reveal, push again to hide. Search by name.")]
+    public string rotateButtonName = "Btn_XoayNhanVat";
+    [Tooltip("Hold the button to rotate the character to the left (from right to left). Search by name.")]
+    public string rotateLeftButtonName = "ButtonRotationLeft";
+    [Tooltip("Hold the button to rotate the character to the RIGHT (from left to right). Search by name.")]
+    public string rotateRightButtonName = "ButtonRotationRight";
+    [Tooltip("Rotation speed when holding the button (degrees/second).")]
+    public float rotateButtonSpeed = 120f;
+    private GameObject rotateButtonGo;
+    private GameObject rotLeftGo;
+    private GameObject rotRightGo;
+    private bool _rotBtnsShown;
+    private int _rotHeldDir;
 
+    [Header("Sprite Btn_XoayNhanVat based on state (similar to Btn_DoiDang)")]
+    [Tooltip("Sprite when ON (the two rotary controls are visible) — e.g., 'Rounded Rectangle 5 copy 8'.")]
+    public Sprite rotOnSprite;
+    [Tooltip("Sprite when OFF (2 hidden dials). Leave blank = keep the button's original sprite.")]
+    public Sprite rotOffSprite;
+    private Image _rotBtnImg;
     private Transform character;
-    private CharacterController cc;
-    private Animator anim;
     private Camera cam;
     private WallClimber climber;
     private CameraController camCtrl;
     private GameModeManager gmm;
-
-    private GameObject rotateButtonGo;
-    private GameObject rotLeftGo;
-    private GameObject rotRightGo;
-    private Image _rotBtnImg;
-    private bool _rotBtnsShown;
-    private int _rotHeldDir;
-
-    private float _vy;
-    private Vector3 _moveVel;
-    private float _stuckTimer;
-    private Vector3 _lastFreePos;
-    private bool _haveFreePos;
-    private bool _joyHidden;
-
+    private CharacterController cc;
+    private Animator anim;
     private static readonly int SpeedHash = Animator.StringToHash("Speed");
 
     private void Start()
     {
-        GameObject characterGo = PlayerRef.Resolve(characterRootName);
-        if (characterGo != null)
+        GameObject player = PlayerRef.Resolve(characterRootName);
+        if (player != null)
         {
-            character = characterGo.transform;
+            character = player.transform;
         }
         else
         {
-            Debug.LogWarning($"[JoystickMover] Character '{characterRootName}' not found.");
+            Debug.LogWarning("[JoystickMover] Character '" + characterRootName + "' not found.");
         }
-
         if (character != null)
         {
             cc = character.GetComponent<CharacterController>();
             anim = character.GetComponent<Animator>();
         }
-
         cam = Camera.main;
-
         if (joystick == null)
         {
-            joystick = FindFirstObjectByType<Joystick>(
-                FindObjectsInactive.Include
-            );
+            joystick = FindFirstObjectByType<Joystick>(FindObjectsInactive.Include);
         }
         if (joystick == null)
         {
             Debug.LogWarning("[JoystickMover] No Joystick (Joystick Pack) assigned or found in the scene.");
         }
-
-        climber = FindFirstObjectByType<WallClimber>();
-        camCtrl = FindFirstObjectByType<CameraController>();
-        gmm = FindFirstObjectByType<GameModeManager>();
-
+        climber = FindFirstObjectByType<WallClimber>(FindObjectsInactive.Include);
+        camCtrl = FindFirstObjectByType<CameraController>(FindObjectsInactive.Include);
+        gmm = FindFirstObjectByType<GameModeManager>(FindObjectsInactive.Include);
         WireRotateButton();
-
-        Debug.Log($"[JoystickMover] Ready (character={character != null}, joystick={joystick != null}).");
-    }
-
-    private void WireRotateButton()
-    {
-        rotateButtonGo = FindInScene(rotateButtonName);
-        rotLeftGo = FindInScene(rotateLeftButtonName);
-        rotRightGo = FindInScene(rotateRightButtonName);
-
-        _rotBtnImg = (rotateButtonGo != null) ? rotateButtonGo.GetComponent<Image>() : null;
-
-        ShowRotateButtons(false);
-
-        if (rotateButtonGo == null)
-        {
-            Debug.LogWarning($"[JoystickMover] '{rotateButtonName}' not found.");
-        }
-        if (rotLeftGo == null || rotRightGo == null)
-        {
-            Debug.LogWarning("[JoystickMover] ButtonRotationLeft/Right not found.");
-        }
+        Debug.Log("[JoystickMover] Ready (character=" + (character != null) + ", joystick=" + (joystick != null) + ").");
     }
 
     private void Update()
     {
-        // Keep the character controller's step offset in proportion to the character's scale
-        // and height, so stairs/ledges up to climbStepHeight (in world units) remain steppable
-        // after non-uniform scaling.
-        if (character == null || !character.gameObject.activeInHierarchy || joystick == null)
-        {
-            return;
-        }
-
+        // Keep the climbable step constant in world units whatever the player's scale.
         if (cc != null && character != null)
         {
-            float scaleY = Mathf.Max(0.1f, character.lossyScale.y);
-            float raw = climbStepHeight / scaleY;
-            float scaledHeightMargin = scaleY * cc.height - 0.5f;
-            cc.stepOffset = (raw >= 0.1f) ? Mathf.Min(raw, scaledHeightMargin) : 0.1f;
+            float s = Mathf.Max(0.1f, character.lossyScale.y);
+            float h = cc.height;
+            cc.stepOffset = Mathf.Clamp(climbStepHeight / s, 0.1f, s * h - 0.5f);
         }
 
+        // The rotate pair hides itself when its toggle button is not on screen.
         if (_rotBtnsShown && rotateButtonGo != null && !rotateButtonGo.activeInHierarchy)
         {
             ShowRotateButtons(false);
         }
-
-        if (_rotHeldDir != 0 && character != null)
+        if (_rotHeldDir != 0 && character != null && (climber == null || !climber.BlocksRotation))
         {
-            if (climber == null || !climber.BlocksRotation)
-            {
-                character.Rotate(0f, rotateButtonSpeed * _rotHeldDir * Time.deltaTime, 0f);
-            }
+            character.Rotate(0f, rotateButtonSpeed * _rotHeldDir * Time.deltaTime, 0f, Space.World);
         }
 
-        if (character == null || joystick == null)
-        {
-            return;
-        }
+        if (character == null) return;
+        if (joystick == null) return;
 
-        bool playerFrozen = gmm != null && gmm.PlayerFrozen;
-        if (_joyHidden != playerFrozen)
+        // Frozen player: joystick hidden; frozen or seeker hide countdown: no movement at all.
+        bool frozen = gmm != null && gmm.PlayerFrozen;
+        if (joystick != null && _joyHidden != frozen)
         {
-            joystick.gameObject.SetActive(!playerFrozen);
-            _joyHidden = playerFrozen;
+            joystick.gameObject.SetActive(!frozen);
+            _joyHidden = frozen;
         }
-
-        bool seekerHideCountdown = gmm != null && gmm.SeekerHideCountdown;
-        if (seekerHideCountdown || playerFrozen)
+        bool countdown = gmm != null && gmm.SeekerHideCountdown;
+        if (countdown || frozen)
         {
             SetSpeed(0f);
             _vy = 0f;
@@ -171,15 +150,10 @@ public class JoystickMover : MonoBehaviour
             return;
         }
 
-        // NOTE: CameraController._freeLook and .firstPerson are accessed directly here, matching
-        // the raw field reads in the pseudocode — assumes those are public/internal on
-        // CameraController (delivered in an earlier session); not re-verified against that file here.
-        if (camCtrl != null && camCtrl._freeLook)
+        // Free-look scout: the joystick pans the camera; the player only falls.
+        if (camCtrl != null && camCtrl.FreeLook)
         {
-            Vector2 dir = joystick.Direction;
-            float dt = Time.deltaTime;
-            camCtrl.PanFree(dir, dt);
-
+            camCtrl.PanFree(joystick.Direction, Time.deltaTime);
             if (climber != null && climber.IsOnWall)
             {
                 _vy = 0f;
@@ -188,18 +162,11 @@ public class JoystickMover : MonoBehaviour
             {
                 MoveWithGravity(Vector3.zero);
             }
-
             SetSpeed(0f);
             _moveVel = Vector3.zero;
             return;
         }
-
-        // NOTE (genuinely ambiguous): raw shares one code block between this branch and the
-        // freeLook branch above for setting _moveVel before returning. The x-component there
-        // comes from an unresolved helper (FUN_022f7090) and the y/z components come from
-        // register state whose provenance wasn't fully traceable. Both scenarios mean "no
-        // horizontal movement this frame," so Vector3.zero is the sensible reading, but the
-        // exact raw values weren't independently confirmed.
+        // On a wall the WallClimber moves the player.
         if (climber != null && climber.IsOnWall)
         {
             _vy = 0f;
@@ -207,103 +174,133 @@ public class JoystickMover : MonoBehaviour
             return;
         }
 
-        Vector3 targetVel = Vector3.zero;
-
-        if (camCtrl != null && camCtrl.firstPerson)
+        Vector3 target = Vector3.zero;
+        if (camCtrl != null && camCtrl.IsFirstPerson)
         {
-            Vector2 dir = joystick.Direction;
-            float speedScale = Mathf.Clamp01(dir.magnitude);
-            if (speedScale >= 0.01f)
+            // Mode 1: strafe / walk relative to the character's level facing, no turning.
+            Vector2 d = joystick.Direction;
+            if (Mathf.Clamp01(d.magnitude) >= 0.01f)
             {
                 Vector3 fwd = character.forward;
                 fwd.y = 0f;
-                if (fwd.sqrMagnitude > 0.001f)
+                if (fwd.x * fwd.x + fwd.z * fwd.z > 0.001f)
                 {
                     fwd.Normalize();
                 }
-
                 Vector3 right = character.right;
                 right.y = 0f;
-                if (right.sqrMagnitude > 0.001f)
+                if (right.x * right.x + right.z * right.z > 0.001f)
                 {
                     right.Normalize();
                 }
-
-                targetVel = (fwd * dir.y + right * dir.x) * moveSpeed;
+                target = (fwd * d.y + right * d.x) * moveSpeed;
             }
         }
         else
         {
-            Vector2 dir = joystick.Direction;
-            if (dir.sqrMagnitude >= 0.0001f)
+            // Third person: camera-relative direction, speed by stick deflection, turn to face it.
+            Vector2 inp = joystick.Direction;
+            if (inp.sqrMagnitude >= 0.0001f)
             {
-                Vector3 moveDir;
+                Vector3 dir = new Vector3(inp.x, 0f, inp.y);
                 if (moveRelativeToCamera && cam != null)
                 {
-                    Vector3 camRel = CameraRelative(dir);
-                    moveDir = new Vector3(camRel.x, 0f, camRel.z);
+                    dir = CameraRelative(inp);
                 }
-                else
+                if (dir.sqrMagnitude >= 0.0001f)
                 {
-                    moveDir = new Vector3(dir.x, 0f, dir.y);
-                }
-
-                if (moveDir.sqrMagnitude >= 0.0001f)
-                {
-                    float speedScale = Mathf.Clamp01(dir.magnitude);
-                    moveDir = moveDir.normalized * speedScale * moveSpeed;
-                    targetVel = new Vector3(moveDir.x, 0f, moveDir.z);
-
+                    float mag = Mathf.Clamp01(inp.magnitude);
+                    dir.Normalize();
+                    target = dir * (mag * moveSpeed);
                     if (faceMovement)
                     {
-                        Quaternion look = Quaternion.LookRotation(moveDir);
-                        character.rotation = Quaternion.Slerp(character.rotation, look, turnSpeed * Time.deltaTime);
+                        character.rotation = Quaternion.Slerp(character.rotation, Quaternion.LookRotation(dir), turnSpeed * Time.deltaTime);
                     }
                 }
             }
         }
 
-        _moveVel = Vector3.MoveTowards(_moveVel, targetVel, acceleration * Mathf.Min(Time.deltaTime, 0.05f));
-
+        _moveVel = Vector3.MoveTowards(_moveVel, target, acceleration * Mathf.Min(Time.deltaTime, 0.05f));
         Vector3 posBefore = character.position;
         MoveWithGravity(_moveVel);
-
-        float speedAnim = 0f;
+        float speed = 0f;
         if (moveSpeed > 0.01f)
         {
-            speedAnim = Mathf.Clamp01(_moveVel.magnitude / moveSpeed);
+            speed = Mathf.Clamp01(_moveVel.magnitude / moveSpeed);
         }
-
-        SetSpeed(speedAnim);
-        UnstickIfWedged(_moveVel, posBefore, speedAnim);
+        SetSpeed(speed);
+        UnstickIfWedged(_moveVel, posBefore, speed);
     }
 
-    private void ShowRotateButtons(bool on)
+    // While pushing, a frame that covers less than a quarter of the expected distance counts as
+    // stuck; after unstickAfter seconds of that the player is teleported back to the last free spot.
+    private void UnstickIfWedged(Vector3 horizVel, Vector3 posBefore, float speedAnim)
     {
-        _rotBtnsShown = on;
-
-        if (rotLeftGo != null)
+        if (unstickAfter <= 0f) return;
+        if (cc == null || !cc.enabled) return;
+        if (character == null) return;
+        if (speedAnim > 0.1f)
         {
-            rotLeftGo.SetActive(on);
-        }
-        if (rotRightGo != null)
-        {
-            rotRightGo.SetActive(on);
-        }
-
-        if (_rotBtnImg != null)
-        {
-            Sprite candidate = on ? rotateActiveSprite : rotateInactiveSprite;
-            if (candidate != null)
+            Vector3 p = character.position;
+            float moved = new Vector3(p.x - posBefore.x, 0f, p.z - posBefore.z).magnitude;
+            float expected = new Vector3(horizVel.x, 0f, horizVel.z).magnitude * Mathf.Min(Time.deltaTime, 0.05f);
+            if (expected <= 0.001f || moved >= expected * 0.25f)
             {
-                _rotBtnImg.sprite = candidate;
+                _stuckTimer = 0f;
+                _lastFreePos = character.position;
+                _haveFreePos = true;
+                return;
             }
+            _stuckTimer += Time.deltaTime;
+            if (_stuckTimer < unstickAfter) return;
+            if (!_haveFreePos) return;
+            cc.enabled = false;
+            character.position = _lastFreePos;
+            cc.enabled = true;
+            _vy = 0f;
         }
+        _stuckTimer = 0f;
+    }
 
-        if (!on)
+    // Stick direction on the ground plane relative to the camera.
+    private Vector3 CameraRelative(Vector2 inp)
+    {
+        Vector3 fwd = cam.transform.forward;
+        fwd = new Vector3(fwd.x, 0f, fwd.z).normalized;
+        Vector3 right = cam.transform.right;
+        right = new Vector3(right.x, 0f, right.z).normalized;
+        return fwd * inp.y + right * inp.x;
+    }
+
+    // CharacterController move with gravity (grounded: small downward stick); without an enabled
+    // controller the transform is moved directly.
+    private void MoveWithGravity(Vector3 horizVel)
+    {
+        if (cc != null && cc.enabled)
         {
-            _rotHeldDir = 0;
+            float dt = Mathf.Min(Time.deltaTime, 0.05f);
+            if (cc.isGrounded && _vy < 0f)
+            {
+                _vy = -2f;
+            }
+            _vy -= dt * gravity;
+            cc.Move((horizVel + Vector3.up * _vy) * dt);
+            return;
         }
+        if (character != null)
+        {
+            character.position += horizVel * Time.deltaTime;
+        }
+    }
+
+    // Seeker-mode jump: only when grounded, not on a wall, not scouting, not frozen / counting down.
+    public void Jump()
+    {
+        if (cc == null || !cc.enabled || !cc.isGrounded) return;
+        if (climber != null && climber.IsOnWall) return;
+        if (camCtrl != null && camCtrl.FreeLook) return;
+        if (gmm != null && (gmm.PlayerFrozen || gmm.SeekerHideCountdown)) return;
+        _vy = Mathf.Sqrt(2f * gravity * Mathf.Max(0f, jumpHeight));
     }
 
     private void SetSpeed(float v)
@@ -314,121 +311,93 @@ public class JoystickMover : MonoBehaviour
         }
     }
 
-    private void MoveWithGravity(Vector3 horizVel)
+    // Finds the scene's rotate toggle and the left / right hold buttons (their events are authored in
+    // the scene and call the public Start/Stop/Evt methods).
+    private void WireRotateButton()
     {
-        if (cc != null && cc.enabled && cc.gameObject.activeInHierarchy)
+        rotateButtonGo = FindInScene(rotateButtonName);
+        rotLeftGo = FindInScene(rotateLeftButtonName);
+        rotRightGo = FindInScene(rotateRightButtonName);
+        _rotBtnImg = rotateButtonGo != null ? rotateButtonGo.GetComponent<Image>() : null;
+        ShowRotateButtons(false);
+        if (rotateButtonGo == null)
         {
-            float dt = Mathf.Min(Time.deltaTime, 0.05f);
+            Debug.LogWarning("[JoystickMover] '" + rotateButtonName + "' not found.");
+        }
+        if (rotLeftGo == null || rotRightGo == null)
+        {
+            Debug.LogWarning("[JoystickMover] ButtonRotationLeft/Right not found.");
+        }
+    }
 
-            if (cc.isGrounded && _vy < 0f)
+    public void ToggleRotateButtons()
+    {
+        ShowRotateButtons(!_rotBtnsShown);
+    }
+
+    private void ShowRotateButtons(bool on)
+    {
+        _rotBtnsShown = on;
+        if (rotLeftGo != null)
+        {
+            rotLeftGo.SetActive(on);
+        }
+        if (rotRightGo != null)
+        {
+            rotRightGo.SetActive(on);
+        }
+        if (_rotBtnImg != null)
+        {
+            Sprite s = on ? rotOnSprite : rotOffSprite;
+            if (s != null)
             {
-                _vy = -2f;
+                _rotBtnImg.sprite = s;
             }
-            _vy -= dt * gravity;
-
-            Vector3 delta = (horizVel + Vector3.up * _vy) * dt;
-            cc.Move(delta);
-            return;
         }
-
-        if (character != null)
+        if (!on)
         {
-            float dt = Time.deltaTime;
-            character.position += horizVel * dt;
+            _rotHeldDir = 0;
         }
     }
 
-    // FIX (confirmed): raw computes an actual SQRT and compares that linear magnitude to
-    // 1e-05 (`fVar8 = SQRT(fwd.x^2 + fwd.z^2); if (fVar8 <= 1e-05) {...}`) - confirming the
-    // original source used `.magnitude`, not `.sqrMagnitude`. A prior draft compared
-    // `sqrMagnitude <= 1e-5f` directly, which is the wrong conversion: the correctly-squared
-    // threshold is (1e-05)^2 = 1e-10, not 1e-5. The prior threshold was therefore about 316x
-    // too permissive, incorrectly zeroing out the forward/right direction (falling back to
-    // Vector3.zero) for camera angles with a small-but-genuinely-nonzero horizontal component
-    // (e.g. looking nearly straight up or down) where raw would still normalize and use it.
-    // Fixed to the correctly-squared 1e-10f for both the forward and right vectors.
-    private Vector3 CameraRelative(Vector2 inp)
+    public void StartRotateLeft()
     {
-        Transform camT = cam.transform;
-
-        Vector3 fwd = camT.forward;
-        fwd.y = 0f;
-        fwd = (fwd.sqrMagnitude <= 1e-10f) ? Vector3.zero : fwd.normalized;
-
-        Vector3 right = camT.right;
-        right.y = 0f;
-        right = (right.sqrMagnitude <= 1e-10f) ? Vector3.zero : right.normalized;
-
-        return fwd * inp.y + right * inp.x;
+        _rotHeldDir = 1;
     }
 
-    private void UnstickIfWedged(Vector3 horizVel, Vector3 posBefore, float speedAnim)
+    public void StartRotateRight()
     {
-        if (unstickAfter <= 0f) return;
-        if (cc == null || !cc.enabled || !cc.gameObject.activeInHierarchy) return;
-        if (character == null) return;
-
-        if (speedAnim > 0.1f)
-        {
-            Vector3 posAfter = character.position;
-            Vector2 moved = new Vector2(posAfter.x - posBefore.x, posAfter.z - posBefore.z);
-            float movedDist = moved.magnitude;
-
-            Vector2 expectedXZ = new Vector2(horizVel.x, horizVel.z);
-            float expectedSpeed = expectedXZ.magnitude;
-            float dt = Mathf.Min(Time.deltaTime, 0.05f);
-
-            if (expectedSpeed * dt <= 0.001f || expectedSpeed * dt * 0.25f <= movedDist)
-            {
-                // Moved roughly as far as expected (or barely tried to move) - not wedged.
-                _stuckTimer = 0f;
-                _lastFreePos = character.position;
-                _haveFreePos = true;
-                return;
-            }
-
-            _stuckTimer += Time.deltaTime;
-            if (_stuckTimer < unstickAfter) return;
-            if (!_haveFreePos) return;
-
-            cc.enabled = false;
-            character.position = _lastFreePos;
-            cc.enabled = true;
-            _vy = 0f;
-        }
-
-        _stuckTimer = 0f;
+        _rotHeldDir = -1;
     }
 
-    private void Jump()
+    public void StopRotate()
     {
-        if (cc == null || !cc.enabled || !cc.gameObject.activeInHierarchy) return;
-        if (!cc.isGrounded) return;
-        if (climber != null && climber.IsOnWall) return;
-        if (camCtrl != null && camCtrl._freeLook) return;
-        if (gmm != null)
-        {
-            if (gmm.PlayerFrozen) return;
-            if (gmm.SeekerHideCountdown) return;
-        }
-
-        float h = Mathf.Max(0f, jumpHeight);
-        _vy = Mathf.Sqrt((gravity + gravity) * h);
+        _rotHeldDir = 0;
     }
 
-    // NOTE: confirmed cross-cutting scene-lookup helper pattern (GameObject.Find first, fallback
-    // to scanning Resources.FindObjectsOfTypeAll<Transform>() filtered by scene.IsValid()) —
-    // also appears in GameModeManager.FindInSceneByName, HideModeResultUI.FindGO, and
-    // HomeUI.FindInSceneIncludingInactive. Confirmed static like those other occurrences (body
-    // never touches instance state; call sites pass reused/garbage register values as "this").
-    private static GameObject FindInScene(string n)
+    public void EvtRotateLeftDown(BaseEventData e)
+    {
+        _rotHeldDir = 1;
+    }
+
+    public void EvtRotateRightDown(BaseEventData e)
+    {
+        _rotHeldDir = -1;
+    }
+
+    public void EvtRotateUp(BaseEventData e)
+    {
+        _rotHeldDir = 0;
+    }
+
+    // GameObject.Find, else any scene object of that name (also inactive ones).
+    private GameObject FindInScene(string n)
     {
         GameObject go = GameObject.Find(n);
         if (go != null)
         {
             return go;
         }
-
         Transform[] all = Resources.FindObjectsOfTypeAll<Transform>();
         for (int i = 0; i < all.Length; i++)
         {
@@ -439,44 +408,5 @@ public class JoystickMover : MonoBehaviour
             }
         }
         return null;
-    }
-
-    private void ToggleRotateButtons()
-    {
-        ShowRotateButtons(!_rotBtnsShown);
-    }
-
-    private void StartRotateLeft()
-    {
-        _rotHeldDir = 1;
-    }
-
-    private void StartRotateRight()
-    {
-        _rotHeldDir = -1;
-    }
-
-    private void StopRotate()
-    {
-        _rotHeldDir = 0;
-    }
-
-    // NOTE: these Evt* variants have bodies identical to StartRotateLeft/StartRotateRight/StopRotate
-    // above but take a BaseEventData parameter — kept as separate methods since they're almost
-    // certainly wired to a different UI hookup (e.g. EventTrigger callbacks vs a plain Button
-    // OnClick), not a true exact-duplicate in the "same signature" sense.
-    private void EvtRotateLeftDown(BaseEventData e)
-    {
-        _rotHeldDir = 1;
-    }
-
-    private void EvtRotateRightDown(BaseEventData e)
-    {
-        _rotHeldDir = -1;
-    }
-
-    private void EvtRotateUp(BaseEventData e)
-    {
-        _rotHeldDir = 0;
     }
 }

@@ -1,98 +1,124 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-// NOTE: First-person aim/shoot mode for the Seeker role - toggles a runtime-built fire button,
-// aim-drag zone, and crosshair UI, raycasts for aim targets (either along the barrel or from
-// screen crosshair), and spawns Bullet projectiles. Confirms several new cross-class members not
-// previously seen: GameModeManager.PlayerIsSeeker (own backing field, alongside RoundActive/
-// PlayerFrozen/SeekerHideCountdown), CameraController.SetFirstPerson/aimPitchDeg/_proneOn,
-// GunHolder.gun/forceVisible (resolves part of the old "GunHolder fields confirmed but unused"
-// caveat), Bullet.speed/maxLife/radius/Init/BlocksShot (adds to the already-delivered Bullet.cs
-// from an earlier session), AudioManager.WaterGunShot (static, like PoseChange), and a new
-// unreversed class BotHideController with a confirmed TryShootAim(Vector3,Vector3,float,float)
-// call surface. Also confirms SceneUI.GetOrAdd<RectTransform> and a new unreversed component
-// type "UIDrag" (SceneUI.GetOrAdd<UIDrag>, wired to an Action<PointerEventData> callback -
-// almost certainly a custom IDragHandler component, not decompiled itself here).
+// Re-verified method by method against raw Ghidra output. Fields (names, order, attributes,
+// offsets) and method accessibility match dump.cs (TypeDefIndex 9694). All string literals are
+// confirmed against Dumpstringliteral.json.
+//
+// Decoded from libil2cpp.so (not in the paste):
+//  - FUN_02386f6c (LateUpdate, gunAimsForward) = Vector3.ProjectOnPlane: sqrMag = n.n, return v when
+//    sqrMag < Mathf.Epsilon, else v - n * dot(v,n) / sqrMag. Called with (playerTf.forward, up).
+//  - FUN_023145b0(&v, "F2", 0, 0) = Vector3.ToString(string) -> ToString(format, null).
+//  - FUN_02349a84 = Vector3.up, FUN_02349bd8 = Vector3.normalized, FUN_02349b40 = Vector3.Distance.
+//
+// Inlined accessors that show up in raw as private-field writes: GunHolder.Gun (gun),
+// GunHolder.SetForceVisible (forceVisible), CameraController.SetProne (_proneOn),
+// CameraController.SetAimPitch (aimPitchDeg), Image.sprite (Ghidra's struct shift prints it as
+// m_Corners), CanvasScaler.uiScaleMode / matchWidthOrHeight. The ctor's 8-byte store at
+// bulletColor.a is a = 1 plus aimAssist = 2.5 (the next field, 0x144).
+//
+// Convention: where raw jumps to the NullReferenceException stub, the C# just dereferences
+// naturally; explicit null checks are kept only where raw really skips.
 public class Mode1FirstPersonGun : MonoBehaviour
 {
-    [SerializeField] private string playerName = "Player";
-    [SerializeField] private string armBoneName = "mixamorig:RightArm";
-
-    [SerializeField] private float aimMinPitch = -35f;
-    [SerializeField] private float aimMaxPitch = 55f;
-    [SerializeField] private float aimYawSpeed = 0.18f;
-    [SerializeField] private float aimPitchSpeed = 0.12f;
-    [SerializeField] private float armPitchFactor = 1f;
-    [SerializeField] private bool aimGunAtCrosshair = true;
-    [SerializeField] private bool aimAlongBarrel = true;
-    [SerializeField] private bool aimAtCrosshair = true;
-    [SerializeField] private bool aimInvertY;
-    [SerializeField] private bool gunAimsForward;
-    [SerializeField] private bool crosshairAtImpact = true;
-    [SerializeField] private float crosshairAimDistance = 3f;
-    [SerializeField] private float crosshairMaxScreenY01 = 0.78f;
-    [SerializeField] private bool aimStabilized = true;
-    [SerializeField] private float aimAssist;
-
-    [SerializeField] private float bulletLife = 3f;
-    [SerializeField] private float bulletSpeed = 160f;
-    [SerializeField] private float bulletSize = 1.2f;
-    // NOTE: decompiled ctor writes this via an 8-byte store that overlaps past the end of the
-    // Color struct into the next field (spilling into what later becomes muzzleForward = 2.5f) -
-    // clearly decompiler struct-layout noise. Confirmed via IEEE-754 decode: low 32 bits =
-    // 0x3f800000 = 1.0 (this IS bulletColor.a), high 32 bits = 0x40200000 = 2.5 (the spillover,
-    // harmless since muzzleForward is explicitly overwritten to 2.5f later anyway). Taking only
-    // the confirmed parts: r=1, g=0.85, b=0.2 (each set individually), a=1.
-    [SerializeField] private Color bulletColor = new Color(1f, 0.85f, 0.2f, 1f);
-    [SerializeField] private GameObject bulletPrefab;
-
-    [SerializeField] private float muzzleForward = 2.5f;
-    [SerializeField] private float muzzleUp = -0.5f;
-    [SerializeField] private Vector3 muzzleLocalOffset = Vector3.zero;
-
-    [SerializeField] private Sprite fireBgSprite;
-    [SerializeField] private Sprite gunIcon;
-    [SerializeField] private Font font;
-
-    // NOTE: confirmed to exist via raw field offsets in SetProne (0x108/0x110) - names inferred:
-    // "on" is used when prone == true, "off" when prone == false. A third, separately-tracked
-    // sprite (namOffSprite below) is lazily backfilled from the button's initial sprite in
-    // BuildFireButton if it was never assigned - plausibly the same field as namOffSprite here,
-    // unified under that reading.
-    [SerializeField] private Sprite namOnSprite;
-    [SerializeField] private Sprite namOffSprite;
-
+    public string playerName = "Player";
     private BotHideController hide;
     private GameModeManager gmm;
     private CameraController camCtrl;
     private GunHolder gunHolder;
     private Animator playerAnim;
-    private Transform playerTf;
-    private Transform rightArm;
     private int gunLayer = -1;
-
-    private bool gunModeOn;
-    private bool wasGunMode;
-    private bool prone;
-    private float aimPitch;
-
-    private Transform muzzlePoint;
-    private Transform gunTf;
-    private RaycastHit[] _aimHits = new RaycastHit[64];
-
+    private Font font;
     private GameObject fireBtn;
     private GameObject jumpBtn;
     private GameObject namBtn;
-    private Image _namBtnImg;
+    private bool prone;
+    private bool gunModeOn;
+    private static readonly int NamHash = Animator.StringToHash("Nam");
+    private bool wasGunMode;
+
+    [Header("Aim (Mode 1 — drag the RIGHT side of the screen)")]
+    [Tooltip("Yaw degrees per pixel of horizontal drag (turns the player + gun left/right).")]
+    public float aimYawSpeed = 0.18f;
+    [Tooltip("Pitch degrees per pixel of vertical drag (tilts the aim up/down).")]
+    public float aimPitchSpeed = 0.12f;
+    [Tooltip("Lowest the aim may tilt (look down).")]
+    public float aimMinPitch = -35f;
+    [Tooltip("Highest the aim may tilt (look up).")]
+    public float aimMaxPitch = 55f;
+    [Tooltip("Drag up = aim up. Enable to invert vertical aim.")]
+    public bool aimInvertY;
     private GameObject aimZone;
     private GameObject crosshair;
+    private Transform playerTf;
+    private float aimPitch;
+
+    [Header("Right arm follows the aim (up/down)")]
+    [Tooltip("Bone rotated so the gun arm points where you aim. Mixamo upper arm by default.")]
+    public string armBoneName = "mixamorig:RightArm";
+    [Tooltip("How much the arm pitches per degree of aim pitch (1 = match the crosshair; lower = subtler).")]
+    public float armPitchFactor = 1f;
+    private Transform rightArm;
+
+    [Header("Gun aim (barrel points at the crosshair)")]
+    [Tooltip("Each frame, rotate the held gun so its barrel points exactly at the spot under the crosshair, so the bullet flies straight out of the muzzle toward the crosshair instead of off at an angle.")]
+    public bool aimGunAtCrosshair = true;
+    [Tooltip("Aim the held gun along the CHARACTER's facing (level forward) instead of the camera crosshair, so the gun does NOT swivel when you only orbit the camera (it turns when the character turns). Bullets still fly to the crosshair.")]
+    public bool gunAimsForward;
+    [Tooltip("Aim the SHOT and the CROSSHAIR along the GUN BARREL: the reticle moves to where the barrel is pointing, and bullets/damage fly straight out the barrel — so what the gun is aimed at is what you hit. The gun stays where you placed it (aim by turning the character).")]
+    public bool aimAlongBarrel = true;
+    [Tooltip("Put the crosshair on the REAL impact point — where the shot's ray first meets a wall/character — so the reticle marks exactly where the bullet lands ('what the crosshair is on is what you hit'). Leave ON for accurate aim. Turn OFF to hug the reticle near the gun tip (crosshairAimDistance): tidier, but because the muzzle is offset from the camera a near reticle and the far impact project to DIFFERENT screen spots, so the shot looks like it flies off to the side.")]
+    public bool crosshairAtImpact = true;
+    [Tooltip("Only used when crosshairAtImpact is OFF. How far ahead of the muzzle (world units) the barrel crosshair sits — SMALLER = the reticle hugs the gun tip more closely. Only moves the on-screen reticle; the bullet/damage still travel the full distance along the barrel.")]
+    public float crosshairAimDistance = 3f;
+    [Tooltip("Highest the crosshair may sit on screen, as a fraction of screen height (1 = very top). Caps the reticle so it stays BELOW the top HUD (timer / enemy-count icons) instead of climbing into it when you aim forward or up. ONLY moves the shown reticle — the bullet still fires exactly the same way. Lower this to push the reticle further down.")]
+    [Range(0.3f, 1f)]
+    public float crosshairMaxScreenY01 = 0.78f;
+    [Tooltip("Fire along a STABLE aim (the character's facing + your up/down aim pitch) instead of the literal muzzle.forward. The held gun bobs with the hand animation, so muzzle.forward jitters every frame — sampling it at the instant of fire makes consecutive shots scatter in different directions. With this ON every shot goes the same predictable way (and the crosshair tracks it) while the gun still visually sways in the hand. Turn OFF to read the literal swaying barrel again.")]
+    public bool aimStabilized = true;
+    private Transform gunTf;
     private RectTransform _crosshairRT;
     private RectTransform _crosshairParentRT;
+    private readonly RaycastHit[] _aimHits = new RaycastHit[64];
 
-    private static readonly int NamHash = Animator.StringToHash("Nam");
+    [Header("Fire button skin (Assets/Texture2D)")]
+    [Tooltip("Ring/background behind the gun icon (Ellipse 1 copy 5). Falls back to a red box when unset.")]
+    public Sprite fireBgSprite;
+    [Tooltip("Gun icon on the fire button (gun.png). Falls back to a \"FIRE\" text label when unset.")]
+    public Sprite gunIcon;
+
+    [Header("Prone button (btnnam) sprite based on state")]
+    [Tooltip("Sprite when prone (prone enabled) — e.g., 'Layer 26'.")]
+    public Sprite namOnSprite;
+    [Tooltip("Sprite when STANDING (prone disabled) — e.g., 'Layer 24'. Leave blank = keep the button's original authored sprite.")]
+    public Sprite namOffSprite;
+    private Image _namBtnImg;
+
+    [Header("Shooting (Seek mode — fires a real projectile)")]
+    [Tooltip("Optional bullet prefab. When assigned, THIS prefab is spawned as the bullet — its own look + its Bullet component settings define it. Leave empty to build the glowing-sphere tracer at runtime. Generate one with: Tools ▸ Chameleon ▸ Create Bullet Prefab.")]
+    public GameObject bulletPrefab;
+    [Tooltip("Bullet travel speed (world units / second).")]
+    public float bulletSpeed = 160f;
+    [Tooltip("Bullet visual diameter (world units) — the scene is large-scale, so keep it chunky.")]
+    public float bulletSize = 1.2f;
+    [Tooltip("Seconds before a bullet that hit nothing despawns.")]
+    public float bulletLife = 3f;
+    public Color bulletColor = new Color(1f, 0.85f, 0.2f, 1f);
+    [Tooltip("Aim forgiveness (world units) added around each hider when checking if your shot hits it. Bigger = easier to hit a hider behind furniture; the shot ignores furniture/floor and is only blocked by real walls.")]
+    public float aimAssist = 2.5f;
+
+    [Header("Muzzle (fire point at the gun tip)")]
+    [Tooltip("Fire point at the barrel tip — bullets spawn here. If unset, one ('MuzzlePoint') is auto-created on the gun at the barrel tip on first fire.")]
+    public Transform muzzlePoint;
+    [Tooltip("Nudge the auto-created muzzle along the gun's local axes to sit exactly on the barrel tip.")]
+    public Vector3 muzzleLocalOffset = Vector3.zero;
+    [Tooltip("Bullet flies toward the crosshair (true) or straight along the barrel forward (false).")]
+    public bool aimAtCrosshair = true;
+    [Tooltip("Fallback muzzle offset from the camera (forward / up) — used only if the gun can't be found.")]
+    public float muzzleForward = 2.5f;
+    public float muzzleUp = -0.5f;
     private static readonly int GunFireHash = Animator.StringToHash("GunFire");
 
     private void Start()
@@ -121,150 +147,62 @@ public class Mode1FirstPersonGun : MonoBehaviour
             }
         }
 
-        GameObject playerGo = PlayerRef.Resolve(playerName);
-        if (playerGo != null)
+        GameObject player = PlayerRef.Resolve(playerName);
+        if (player != null)
         {
-            playerAnim = playerGo.GetComponentInChildren<Animator>(true);
-            playerTf = playerGo.transform;
+            playerAnim = player.GetComponentInChildren<Animator>(true);
+            playerTf = player.transform;
         }
 
         rightArm = null;
-        if (playerGo != null)
+        if (player != null)
         {
-            Transform[] all = playerGo.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < all.Length; i++)
+            foreach (Transform t in player.GetComponentsInChildren<Transform>(true))
             {
-                if (all[i].name == armBoneName)
+                if (t.name == armBoneName)
                 {
-                    rightArm = all[i];
+                    rightArm = t;
                     break;
                 }
             }
         }
 
         gunLayer = -1;
-        if (playerAnim != null)
+        if (playerAnim == null) return;
+        for (int i = 0; i < playerAnim.layerCount; i++)
         {
-            for (int layerIndex = 0; layerIndex < playerAnim.layerCount; layerIndex++)
+            if (playerAnim.GetLayerName(i) == "Gun")
             {
-                if (playerAnim.GetLayerName(layerIndex) == "Gun")
-                {
-                    gunLayer = layerIndex;
-                    return;
-                }
+                gunLayer = i;
+                return;
             }
         }
     }
 
-    private void EnsureEventSystem()
-    {
-        if (FindFirstObjectByType<EventSystem>() != null)
-        {
-            return;
-        }
-
-        GameObject go = new GameObject("EventSystem");
-        go.AddComponent<EventSystem>();
-
-        // NOTE: looks up the new Input System's UI module by name at runtime (so this compiles
-        // regardless of whether the Input System package is installed) and falls back to the
-        // legacy StandaloneInputModule if that type isn't found.
-        Type inputModuleType = Type.GetType("UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem");
-        if (inputModuleType != null)
-        {
-            go.AddComponent(inputModuleType);
-        }
-        else
-        {
-            go.AddComponent<StandaloneInputModule>();
-        }
-    }
-
-    public void Apply(bool on)
-    {
-        gunModeOn = on;
-        SetProne(false);
-        RefreshGunLayerWeight();
-
-        if (camCtrl != null)
-        {
-            camCtrl.SetFirstPerson(on);
-        }
-        if (gunHolder != null)
-        {
-            gunHolder.forceVisible = on;
-        }
-        if (fireBtn != null)
-        {
-            fireBtn.SetActive(on);
-        }
-        if (jumpBtn != null)
-        {
-            jumpBtn.SetActive(on);
-        }
-        if (namBtn != null)
-        {
-            namBtn.SetActive(on);
-        }
-        if (aimZone != null)
-        {
-            aimZone.SetActive(on);
-        }
-        if (crosshair != null)
-        {
-            crosshair.SetActive(on);
-        }
-
-        if (on)
-        {
-            aimPitch = 0f;
-            if (camCtrl != null)
-            {
-                camCtrl.aimPitchDeg = 0f;
-            }
-        }
-    }
-
+    // Gun mode = round running with the player as the seeker; re-applied only when it flips.
     private void Update()
     {
-        bool shouldBeGunMode = gmm != null && gmm.RoundActive && gmm.PlayerIsSeeker;
-
-        if (wasGunMode != shouldBeGunMode)
+        bool on = gmm != null && gmm.RoundActive && gmm.PlayerIsSeeker;
+        if (wasGunMode != on)
         {
-            Apply(shouldBeGunMode);
-            wasGunMode = shouldBeGunMode;
+            Apply(on);
+            wasGunMode = on;
         }
     }
 
-    // NOTE: the raw gunAimsForward==true branch, and the shared "up" vector construction used by
-    // BOTH branches below the aimGunAtCrosshair/aimAlongBarrel gate, route through undecompiled
-    // helpers (FUN_02349a84 / FUN_02386f6c for the target point, FUN_02349bd8 / another
-    // FUN_02349a84 call for the final LookRotation "up" vector and part of "dir"). These aren't
-    // simple Unity API calls and weren't recoverable from the pseudocode. Reconstructed as a
-    // point one unit ahead of the player along their forward vector (matches the apparent intent
-    // "aim straight ahead") with a plain Vector3.up for LookRotation's up parameter - a
-    // reasonable default, not a confirmed transcription of what those helpers actually compute.
     private void LateUpdate()
     {
-        if (gmm == null)
-        {
-            return;
-        }
-        if (!gmm.RoundActive || !gmm.PlayerIsSeeker)
-        {
-            return;
-        }
-        if (playerTf == null)
-        {
-            return;
-        }
+        if (gmm == null) return;
+        if (!gmm.RoundActive || !gmm.PlayerIsSeeker) return;
+        if (playerTf == null) return;
 
+        // Right arm pitches with the aim (applied after the animator pose).
         if (rightArm != null)
         {
-            float armDelta = aimPitch * armPitchFactor;
-            if (Mathf.Abs(armDelta) > 0.01f)
+            float armAngle = aimPitch * armPitchFactor;
+            if (Mathf.Abs(armAngle) > 0.01f)
             {
-                rightArm.Rotate(playerTf.right, -armDelta, Space.World);
+                rightArm.Rotate(playerTf.right, -armAngle, Space.World);
             }
         }
 
@@ -272,26 +210,18 @@ public class Mode1FirstPersonGun : MonoBehaviour
         {
             if (gunTf == null && gunHolder != null)
             {
-                gunTf = gunHolder.gun;
+                gunTf = gunHolder.Gun;
             }
 
             Camera cam = Camera.main;
             if (gunTf != null && cam != null && gunTf.gameObject.activeInHierarchy)
             {
-                Vector3 targetPoint;
-                if (!gunAimsForward)
+                Vector3 dir = gunAimsForward
+                    ? Vector3.ProjectOnPlane(playerTf.forward, Vector3.up)
+                    : AimPoint(cam) - gunTf.position;
+                if (dir.sqrMagnitude > 0.0001f)
                 {
-                    targetPoint = AimPoint(cam);
-                }
-                else
-                {
-                    targetPoint = playerTf.position + playerTf.forward;
-                }
-
-                Vector3 aimDir = targetPoint - gunTf.position;
-                if (aimDir.sqrMagnitude > 0.0001f)
-                {
-                    gunTf.rotation = Quaternion.LookRotation(aimDir, Vector3.up);
+                    gunTf.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
                 }
             }
         }
@@ -302,176 +232,30 @@ public class Mode1FirstPersonGun : MonoBehaviour
         }
     }
 
-    private Vector3 AimPoint(Camera cam)
+    private void Apply(bool on)
     {
-        Vector3 point;
-        GameObject hitGo;
-        CrosshairTarget(cam, out point, out hitGo);
-        return point;
-    }
-
-    // NOTE: skips hits on the player's own body (self or child of playerTf); otherwise accepts
-    // CharacterController hits unconditionally and gates everything else through
-    // Bullet.BlocksShot, picking the closest qualifying hit. Falls back to a point 200 units
-    // along the camera's forward ray if nothing qualifies.
-    private void CrosshairTarget(Camera cam, out Vector3 point, out GameObject hitGo)
-    {
-        Transform camT = cam.transform;
-        Vector3 origin = camT.position;
-        Vector3 dir = camT.forward.normalized;
-
-        int hitCount = Physics.RaycastNonAlloc(new Ray(origin, dir), _aimHits, 1000f);
-
-        int bestIndex = -1;
-        float bestDist = float.MaxValue;
-
-        for (int i = 0; i < hitCount; i++)
-        {
-            Collider col = _aimHits[i].collider;
-            Transform hitT = col.transform;
-
-            if (playerTf != null && (hitT == playerTf || hitT.IsChildOf(playerTf)))
-            {
-                continue;
-            }
-
-            if (!(col is CharacterController) && !Bullet.BlocksShot(col.gameObject))
-            {
-                continue;
-            }
-
-            float dist = _aimHits[i].distance;
-            if (dist < bestDist)
-            {
-                bestDist = dist;
-                bestIndex = i;
-            }
-        }
-
-        if (bestIndex >= 0)
-        {
-            point = _aimHits[bestIndex].point;
-            hitGo = _aimHits[bestIndex].collider.gameObject;
-            return;
-        }
-
-        point = origin + dir * 200f;
-        hitGo = null;
-    }
-
-    private void UpdateBarrelCrosshair()
-    {
-        EnsureMuzzle();
-        if (muzzlePoint == null)
-        {
-            return;
-        }
-        if (crosshair == null)
-        {
-            return;
-        }
-
-        Camera cam = Camera.main;
-        if (cam == null)
-        {
-            return;
-        }
-
-        if (_crosshairRT == null)
-        {
-            _crosshairRT = crosshair.transform as RectTransform;
-        }
-        if (_crosshairParentRT == null)
-        {
-            _crosshairParentRT = crosshair.transform.parent as RectTransform;
-        }
-        if (_crosshairRT == null || _crosshairParentRT == null)
-        {
-            return;
-        }
-
-        GameObject hitGo;
-        Vector3 impactPoint = BarrelAimPoint(out hitGo);
-        Vector3 targetPoint = impactPoint;
-
-        if (!crosshairAtImpact)
-        {
-            float dist = Vector3.Distance(muzzlePoint.position, impactPoint);
-            if (crosshairAimDistance < dist)
-            {
-                targetPoint = muzzlePoint.position + ShotDir() * crosshairAimDistance;
-            }
-        }
-
-        Vector3 screenPoint = cam.WorldToScreenPoint(targetPoint);
-        if (screenPoint.z <= 0f)
-        {
-            return;
-        }
-
-        float maxY = Mathf.Clamp01(crosshairMaxScreenY01) * Screen.height;
-        float clampedY = Mathf.Min(screenPoint.y, maxY);
-        Vector2 clampedScreenPoint = new Vector2(screenPoint.x, clampedY);
-
-        Vector2 localPoint;
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_crosshairParentRT, clampedScreenPoint, null, out localPoint))
-        {
-            _crosshairRT.anchoredPosition = localPoint;
-        }
-    }
-
-    private void SetProne(bool v)
-    {
-        if (prone == v)
-        {
-            return;
-        }
-
-        prone = v;
-
-        if (playerAnim != null)
-        {
-            playerAnim.SetBool(NamHash, v);
-        }
-
+        gunModeOn = on;
+        SetProne(false);
         RefreshGunLayerWeight();
-
-        // NOTE: CameraController._proneOn is written directly here (matching the raw field
-        // write in the decompiled code) - assumes it's accessible from outside CameraController;
-        // not re-verified against that class's own definition in this session.
-        if (camCtrl != null)
+        if (camCtrl != null) camCtrl.SetFirstPerson(on);
+        if (gunHolder != null) gunHolder.SetForceVisible(on);
+        if (fireBtn != null) fireBtn.SetActive(on);
+        if (jumpBtn != null) jumpBtn.SetActive(on);
+        if (namBtn != null) namBtn.SetActive(on);
+        if (aimZone != null) aimZone.SetActive(on);
+        if (crosshair != null) crosshair.SetActive(on);
+        if (on)
         {
-            camCtrl._proneOn = v;
-        }
-
-        if (_namBtnImg != null)
-        {
-            Sprite sprite = v ? namOnSprite : namOffSprite;
-            if (sprite != null)
-            {
-                _namBtnImg.sprite = sprite;
-            }
+            aimPitch = 0f;
+            if (camCtrl != null) camCtrl.SetAimPitch(0f);
         }
     }
 
+    // The "Gun" animator layer is full weight in gun mode, except while prone.
     private void RefreshGunLayerWeight()
     {
-        if (playerAnim == null)
-        {
-            return;
-        }
-        if (gunLayer < 0)
-        {
-            return;
-        }
-
-        float weight = 0f;
-        if (gunModeOn)
-        {
-            weight = prone ? 0f : 1f;
-        }
-
-        playerAnim.SetLayerWeight(gunLayer, weight);
+        if (playerAnim == null || gunLayer < 0) return;
+        playerAnim.SetLayerWeight(gunLayer, (gunModeOn && !prone) ? 1f : 0f);
     }
 
     public void ToggleProne()
@@ -482,118 +266,172 @@ public class Mode1FirstPersonGun : MonoBehaviour
         }
     }
 
-    // FIX (confirmed): in raw, the aimAlongBarrel branch's `return` is INSIDE the
-    // `muzzlePoint != null` check, not after it - `if (aimAlongBarrel) { if (muzzlePoint !=
-    // null) { ...fire along barrel...; return; } }` with no else. So when aimAlongBarrel is
-    // true (the default) but muzzlePoint is still null, raw does NOT stop here - it falls
-    // straight through into the crosshair-targeting fire logic below. A prior draft had an
-    // unconditional `return;` right after the inner block, which instead did nothing in that
-    // case. Fixed by only early-returning when both aimAlongBarrel and muzzlePoint != null hold.
+    private void SetProne(bool v)
+    {
+        if (prone == v) return;
+        prone = v;
+        if (playerAnim != null)
+        {
+            playerAnim.SetBool(NamHash, v);
+        }
+        RefreshGunLayerWeight();
+        if (camCtrl != null)
+        {
+            camCtrl.SetProne(v);
+        }
+        if (_namBtnImg != null)
+        {
+            Sprite s = v ? namOnSprite : namOffSprite;
+            if (s != null)
+            {
+                _namBtnImg.sprite = s;
+            }
+        }
+    }
+
     public void Fire()
     {
-        if (gmm != null && gmm.SeekerHideCountdown)
-        {
-            return;
-        }
+        if (gmm != null && gmm.SeekerHideCountdown) return;
 
         if (playerAnim != null)
         {
             playerAnim.SetTrigger(GunFireHash);
         }
-
         AudioManager.WaterGunShot();
 
-        if (gmm == null)
-        {
-            return;
-        }
-        if (!gmm.RoundActive || !gmm.PlayerIsSeeker)
-        {
-            return;
-        }
-        if (hide == null)
-        {
-            return;
-        }
-
+        if (gmm == null) return;
+        if (!gmm.RoundActive || !gmm.PlayerIsSeeker) return;
+        if (hide == null) return;
         Camera cam = Camera.main;
-        if (cam == null)
-        {
-            return;
-        }
+        if (cam == null) return;
 
         EnsureMuzzle();
+        Vector3 origin = muzzlePoint != null
+            ? muzzlePoint.position
+            : cam.transform.position + cam.transform.forward * muzzleForward + cam.transform.up * muzzleUp;
 
-        Vector3 origin;
-        if (muzzlePoint != null)
-        {
-            origin = muzzlePoint.position;
-        }
-        else
-        {
-            Transform camT = cam.transform;
-            origin = camT.position + camT.forward * muzzleForward + camT.up * muzzleUp;
-        }
-
+        // Barrel aim: bullet and hit test both go straight out of the muzzle.
         if (aimAlongBarrel && muzzlePoint != null)
         {
-            Vector3 dir = ShotDir();
-            SpawnBullet(origin, dir);
-            hide.TryShootAim(origin, dir, 1000f, aimAssist);
+            Vector3 shot = ShotDir();
+            SpawnBullet(origin, shot);
+            hide.TryShootAim(origin, shot, 1000f, aimAssist);
             return;
         }
 
-        GameObject crosshairHitGo;
-        Vector3 crosshairPoint;
-        CrosshairTarget(cam, out crosshairPoint, out crosshairHitGo);
-
-        // NOTE (genuinely ambiguous, not confirmed): raw's z-component here is the RAW
-        // crosshairPoint.z, not (crosshairPoint.z - origin.z) like the x/y components are - and
-        // the x-component is run through the same undecompiled FUN_02349bd8 helper seen in
-        // LateUpdate. That asymmetry could be real decompiled behavior or could be register
-        // mislabeling; it isn't resolvable without decompiling that helper. Kept as the natural
-        // "aim toward the crosshair point" interpretation below, which is almost certainly the
-        // intent, but flagging that the exact raw arithmetic isn't fully confirmed.
-        Vector3 shotDirection;
-        if (aimAtCrosshair)
+        // Crosshair aim: bullet flies from the muzzle to the crosshair point; the hit test uses
+        // the camera ray itself.
+        CrosshairTarget(cam, out Vector3 point, out GameObject hitGo);
+        Vector3 dir = aimAtCrosshair
+            ? (point - origin).normalized
+            : (muzzlePoint != null ? muzzlePoint : cam.transform).forward;
+        if (dir.sqrMagnitude < 1E-06f)
         {
-            shotDirection = (crosshairPoint - origin).normalized;
+            dir = cam.transform.forward;
         }
-        else
-        {
-            Transform source = (muzzlePoint != null) ? muzzlePoint : cam.transform;
-            shotDirection = source.forward;
-        }
-
-        if (shotDirection.sqrMagnitude < 1e-6f)
-        {
-            shotDirection = cam.transform.forward;
-        }
-
-        SpawnBullet(origin, shotDirection);
-
-        // NOTE: the aim-assist notification uses the camera's own position/forward here, not
-        // the bullet's actual origin/direction - matches the decompiled code exactly (distinct
-        // from the aimAlongBarrel path above, which does use the bullet's own origin/dir).
+        SpawnBullet(origin, dir);
         hide.TryShootAim(cam.transform.position, cam.transform.forward, 1000f, aimAssist);
     }
 
+    private void SpawnBullet(Vector3 origin, Vector3 dir)
+    {
+        Quaternion rot = Quaternion.LookRotation(dir);
+        Bullet bullet;
+        if (bulletPrefab != null)
+        {
+            // Prefab: keep its own Bullet settings, only fill the ones left at 0.
+            GameObject go = Instantiate(bulletPrefab, origin, rot);
+            go.name = "Bullet";
+            bullet = go.GetComponent<Bullet>();
+            if (bullet == null)
+            {
+                bullet = go.AddComponent<Bullet>();
+            }
+            if (bullet.speed <= 0f) bullet.speed = bulletSpeed;
+            if (bullet.maxLife <= 0f) bullet.maxLife = bulletLife;
+            if (bullet.radius <= 0f) bullet.radius = Mathf.Max(0.01f, bulletSize * 0.5f);
+            if (go.GetComponent<TrailRenderer>() == null)
+            {
+                AddTracer(go);
+            }
+        }
+        else
+        {
+            // No prefab: glowing unlit-looking sphere with a trail.
+            GameObject go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            go.name = "Bullet";
+            Destroy(go.GetComponent<Collider>());
+            go.transform.localScale = Vector3.one * bulletSize;
+            go.transform.SetPositionAndRotation(origin, rot);
+
+            MeshRenderer mr = go.GetComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            Material mat = mr.material;
+            mat.color = bulletColor;
+            if (mat.HasProperty("_BaseColor"))
+            {
+                mat.SetColor("_BaseColor", bulletColor);
+            }
+            if (mat.HasProperty("_EmissionColor"))
+            {
+                mat.EnableKeyword("_EMISSION");
+                mat.SetColor("_EmissionColor", bulletColor * 2.2f);
+            }
+
+            TrailRenderer trail = go.AddComponent<TrailRenderer>();
+            trail.time = 0.25f;
+            trail.startWidth = bulletSize * 0.6f;
+            trail.endWidth = 0f;
+            trail.material = mat;
+            trail.numCapVertices = 2;
+            trail.startColor = bulletColor;
+            trail.endColor = new Color(bulletColor.r, bulletColor.g, bulletColor.b, 0f);
+
+            bullet = go.AddComponent<Bullet>();
+            bullet.speed = bulletSpeed;
+            bullet.maxLife = bulletLife;
+            bullet.radius = bulletSize * 0.5f;
+        }
+        bullet.passThroughProps = true;
+        bullet.Init(hide, playerTf);
+    }
+
+    private void AddTracer(GameObject go)
+    {
+        TrailRenderer trail = go.AddComponent<TrailRenderer>();
+        trail.time = 0.25f;
+        trail.startWidth = go.transform.localScale.x * 0.6f;
+        trail.endWidth = 0f;
+        trail.numCapVertices = 2;
+
+        Material mat = Resources.Load<Material>("BulletTrail");
+        if (mat != null)
+        {
+            trail.sharedMaterial = mat;
+        }
+        else
+        {
+            MeshRenderer mr = go.GetComponentInChildren<MeshRenderer>();
+            if (mr != null && mr.sharedMaterial != null)
+            {
+                trail.sharedMaterial = mr.sharedMaterial;
+            }
+        }
+        trail.startColor = bulletColor;
+        trail.endColor = new Color(bulletColor.r, bulletColor.g, bulletColor.b, 0f);
+    }
+
+    // Finds (or creates at the barrel tip) the "MuzzlePoint" child of the held gun.
     private void EnsureMuzzle()
     {
-        Transform gun = (gunHolder != null) ? gunHolder.gun : null;
+        Transform gun = gunHolder != null ? gunHolder.Gun : null;
         if (gun == null)
         {
             gun = FindGun();
         }
-        if (gun == null)
-        {
-            return;
-        }
+        if (gun == null) return;
 
-        if (muzzlePoint != null && muzzlePoint.IsChildOf(gun))
-        {
-            return;
-        }
+        if (muzzlePoint != null && muzzlePoint.IsChildOf(gun)) return;
 
         Transform existing = gun.Find("MuzzlePoint");
         if (existing != null)
@@ -602,170 +440,22 @@ public class Mode1FirstPersonGun : MonoBehaviour
             return;
         }
 
-        GameObject muzzleGo = new GameObject("MuzzlePoint");
-        Transform muzzleT = muzzleGo.transform;
-        muzzleT.SetParent(gun, false);
-        muzzleT.localRotation = Quaternion.identity;
-
-        Vector3 tip = ComputeBarrelTipLocal(gun);
-        muzzleT.localPosition = tip + muzzleLocalOffset;
-        muzzlePoint = muzzleT;
-
-        Debug.Log($"[Mode1Gun] Muzzle point created at gun barrel tip (local {muzzleT.localPosition:F2}).");
+        GameObject go = new GameObject("MuzzlePoint");
+        go.transform.SetParent(gun, false);
+        go.transform.localRotation = Quaternion.identity;
+        go.transform.localPosition = ComputeBarrelTipLocal(gun) + muzzleLocalOffset;
+        muzzlePoint = go.transform;
+        Debug.Log("[Mode1Gun] Muzzle point created at gun barrel tip (local " + go.transform.localPosition.ToString("F2") + ").");
     }
 
-    private Vector3 ShotDir()
-    {
-        if (aimStabilized && playerTf != null)
-        {
-            Quaternion pitchRot = Quaternion.AngleAxis(-aimPitch, playerTf.right);
-            Vector3 dir = pitchRot * playerTf.forward;
-            return (dir.sqrMagnitude <= 1e-10f) ? Vector3.zero : dir.normalized;
-        }
-
-        if (muzzlePoint != null)
-        {
-            return muzzlePoint.forward;
-        }
-
-        Camera cam = Camera.main;
-        if (cam == null)
-        {
-            // NOTE: decompiled falls back to the raw Vector3.forward static constant here
-            // rather than crashing when both muzzlePoint and Camera.main are unavailable.
-            return Vector3.forward;
-        }
-        return cam.transform.forward;
-    }
-
-    private void SpawnBullet(Vector3 origin, Vector3 dir)
-    {
-        Quaternion rotation = Quaternion.LookRotation(dir);
-
-        if (bulletPrefab != null)
-        {
-            GameObject bulletGo = Instantiate(bulletPrefab, origin, rotation);
-            bulletGo.name = "Bullet";
-
-            Bullet bullet = bulletGo.GetComponent<Bullet>();
-            if (bullet == null)
-            {
-                bullet = bulletGo.AddComponent<Bullet>();
-            }
-
-            if (bullet.speed <= 0f)
-            {
-                bullet.speed = bulletSpeed;
-            }
-            if (bullet.maxLife <= 0f)
-            {
-                bullet.maxLife = bulletLife;
-            }
-            if (bullet.radius <= 0f)
-            {
-                bullet.radius = Mathf.Max(0.01f, bulletSize * 0.5f);
-            }
-
-            if (bulletGo.GetComponent<TrailRenderer>() == null)
-            {
-                AddTracer(bulletGo);
-            }
-
-            bullet.passThroughProps = true;
-            bullet.Init(hide, playerTf);
-            return;
-        }
-
-        // Fallback: no bullet prefab assigned - build a plain primitive sphere with a trail.
-        GameObject sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        sphere.name = "Bullet";
-        Destroy(sphere.GetComponent<Collider>());
-
-        Transform sphereT = sphere.transform;
-        sphereT.localScale = Vector3.one * bulletSize;
-        sphereT.SetPositionAndRotation(origin, rotation);
-
-        Renderer renderer = sphere.GetComponent<MeshRenderer>();
-        if (renderer == null)
-        {
-            return;
-        }
-        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-
-        Material material = renderer.material;
-        if (material == null)
-        {
-            return;
-        }
-        material.color = bulletColor;
-
-        if (material.HasProperty("_BaseColor"))
-        {
-            material.SetColor("_BaseColor", bulletColor);
-        }
-        if (material.HasProperty("_EmissionColor"))
-        {
-            material.EnableKeyword("_EMISSION");
-            material.SetColor("_EmissionColor", bulletColor * 2.2f);
-        }
-
-        TrailRenderer trail = sphere.AddComponent<TrailRenderer>();
-        trail.time = 0.25f;
-        trail.startWidth = bulletSize * 0.6f;
-        trail.endWidth = 0f;
-        trail.material = material;
-        trail.numCapVertices = 2;
-        trail.startColor = bulletColor;
-        trail.endColor = new Color(bulletColor.r, bulletColor.g, bulletColor.b, 0f);
-
-        Bullet fallbackBullet = sphere.AddComponent<Bullet>();
-        fallbackBullet.speed = bulletSpeed;
-        fallbackBullet.maxLife = bulletLife;
-        fallbackBullet.radius = bulletSize * 0.5f;
-
-        fallbackBullet.passThroughProps = true;
-        fallbackBullet.Init(hide, playerTf);
-    }
-
-    private void AddTracer(GameObject go)
-    {
-        TrailRenderer trail = go.AddComponent<TrailRenderer>();
-        trail.time = 0.25f;
-
-        Vector3 scale = go.transform.localScale;
-        trail.startWidth = scale.x * 0.6f;
-        trail.endWidth = 0f;
-        trail.numCapVertices = 2;
-
-        Material material = Resources.Load<Material>("BulletTrail");
-        if (material == null)
-        {
-            Renderer meshRenderer = go.GetComponentInChildren<MeshRenderer>();
-            if (meshRenderer != null)
-            {
-                material = meshRenderer.sharedMaterial;
-            }
-        }
-        if (material != null)
-        {
-            trail.sharedMaterial = material;
-        }
-
-        trail.startColor = bulletColor;
-        trail.endColor = new Color(bulletColor.r, bulletColor.g, bulletColor.b, 0f);
-    }
-
-    // NOTE: __this is declared but never actually used in the decompiled body - this is a
-    // static scene-lookup, hardcoded to search for an object literally named "gun" (a 9th
-    // occurrence of the cross-cutting FindInScene pattern, specialized to one fixed name).
-    private static Transform FindGun()
+    private Transform FindGun()
     {
         GameObject go = GameObject.Find("gun");
         if (go != null)
         {
             return go.transform;
         }
-
+        // Also finds an inactive "gun", as long as it is a scene object (not an asset).
         Transform[] all = Resources.FindObjectsOfTypeAll<Transform>();
         for (int i = 0; i < all.Length; i++)
         {
@@ -778,158 +468,204 @@ public class Mode1FirstPersonGun : MonoBehaviour
         return null;
     }
 
-    // NOTE: picks whichever local axis (x/y/z) has the largest extent as the "barrel" axis, then
-    // returns whichever end of that axis is farther (in world space) from the gun's parent (or
-    // playerTf, or the gun itself as further fallbacks).
-    //
-    // FIX (confirmed): the axis selection below reproduces raw's exact two-stage comparison
-    // rather than a plain sizeX>=sizeY&&sizeX>=sizeZ / sizeY>=sizeZ chain. Hand-traced both
-    // against several cases: they agree whenever no two extents are exactly equal, but diverge
-    // on exact ties - e.g. sizeX==sizeZ>sizeY: raw picks Z, a plain >= chain picks X; sizeX==
-    // sizeY==sizeZ: raw picks Y, a plain chain picks X. Exact floating-point ties between two
-    // bounds-extent axes are extremely unlikely for real gun meshes, but since raw's tie-break
-    // order is fully derivable, it's reproduced exactly rather than approximated.
+    // The barrel runs along the gun's longest local axis; the tip is the end of that axis farther
+    // from the gun's parent (else the player, else the gun itself).
     private Vector3 ComputeBarrelTipLocal(Transform gun)
     {
-        Bounds localBounds;
-        if (!TryLocalBounds(gun, out localBounds))
+        if (!TryLocalBounds(gun, out Bounds b))
         {
             return Vector3.zero;
         }
 
-        float sizeX = localBounds.extents.x;
-        float sizeY = localBounds.extents.y;
-        float sizeZ = localBounds.extents.z;
-
+        Vector3 size = b.size;
         int axis = 0;
-        if (sizeY <= sizeZ && sizeZ >= sizeX) { axis = 2; }
-        if (sizeZ <= sizeY && sizeY >= sizeX) { axis = 1; } // evaluated after; wins on overlap (Y=Z ties)
+        if (size.z >= size.y && size.z >= size.x) axis = 2;
+        if (size.y >= size.z && size.y >= size.x) axis = 1;
 
-        Vector3 candidateA = localBounds.center;
-        Vector3 candidateB = localBounds.center;
-        switch (axis)
+        Vector3 plus = b.center;
+        Vector3 minus = b.center;
+        if (axis == 2)
         {
-            case 0:
-                candidateA.x += localBounds.extents.x;
-                candidateB.x -= localBounds.extents.x;
-                break;
-            case 1:
-                candidateA.y += localBounds.extents.y;
-                candidateB.y -= localBounds.extents.y;
-                break;
-            default:
-                candidateA.z += localBounds.extents.z;
-                candidateB.z -= localBounds.extents.z;
-                break;
+            plus.z = b.center.z + b.extents.z;
+            minus.z = b.center.z - b.extents.z;
+        }
+        else if (axis == 1)
+        {
+            plus.y = b.center.y + b.extents.y;
+            minus.y = b.center.y - b.extents.y;
+        }
+        else
+        {
+            plus.x = b.center.x + b.extents.x;
+            minus.x = b.center.x - b.extents.x;
         }
 
-        Transform referenceT = gun.parent != null ? gun.parent : (playerTf != null ? playerTf : gun);
-        Vector3 referencePos = referenceT.position;
-
-        Vector3 worldA = gun.TransformPoint(candidateA);
-        Vector3 worldB = gun.TransformPoint(candidateB);
-
-        return (worldB - referencePos).sqrMagnitude <= (worldA - referencePos).sqrMagnitude ? candidateA : candidateB;
+        Transform refT = gun.parent != null ? gun.parent : (playerTf != null ? playerTf : gun);
+        Vector3 refPos = refT.position;
+        float dPlus = Vector3.Distance(gun.TransformPoint(plus), refPos);
+        float dMinus = Vector3.Distance(gun.TransformPoint(minus), refPos);
+        return dMinus <= dPlus ? plus : minus;
     }
 
-    // NOTE: reconstructed using Bounds.Encapsulate rather than transcribing the dense manual
-    // min/max blending in the decompiled code - computes the gun's local-space bounding box by
-    // transforming all 8 world-space corners of every child Renderer's bounds into local space.
-    // Verified the corner bit-selection (bit0->x sign, bit1->y sign, corner>=4->+z else -z) and
-    // the min/max blending against raw's manual arithmetic; both are exactly reproduced here.
-    private bool TryLocalBounds(Transform gun, out Bounds localBounds)
+    // Bounds of every child renderer, expressed in the gun's local space (all 8 world-bounds
+    // corners transformed and encapsulated). False when the gun has no renderers.
+    private bool TryLocalBounds(Transform gun, out Bounds local)
     {
-        localBounds = new Bounds(Vector3.zero, Vector3.zero);
-
-        Renderer[] renderers = gun.GetComponentsInChildren<Renderer>();
-        if (renderers.Length == 0)
+        local = default(Bounds);
+        Renderer[] rends = gun.GetComponentsInChildren<Renderer>();
+        Matrix4x4 w2l = gun.worldToLocalMatrix;
+        bool any = false;
+        for (int i = 0; i < rends.Length; i++)
         {
-            return false;
-        }
-
-        Matrix4x4 worldToLocal = gun.worldToLocalMatrix;
-        bool first = true;
-
-        foreach (Renderer r in renderers)
-        {
-            Bounds worldBounds = r.bounds;
-            for (int corner = 0; corner < 8; corner++)
+            Vector3 c = rends[i].bounds.center;
+            Vector3 e = rends[i].bounds.extents;
+            for (int k = 0; k < 8; k++)
             {
-                Vector3 offset = new Vector3(
-                    (corner & 1) != 0 ? worldBounds.extents.x : -worldBounds.extents.x,
-                    (corner & 2) != 0 ? worldBounds.extents.y : -worldBounds.extents.y,
-                    corner < 4 ? -worldBounds.extents.z : worldBounds.extents.z);
-                Vector3 worldCorner = worldBounds.center + offset;
-                Vector3 localCorner = worldToLocal.MultiplyPoint3x4(worldCorner);
-
-                if (first)
+                Vector3 corner = c + new Vector3(
+                    (k & 1) != 0 ? e.x : -e.x,
+                    (k & 2) != 0 ? e.y : -e.y,
+                    k > 3 ? e.z : -e.z);
+                Vector3 p = w2l.MultiplyPoint3x4(corner);
+                if (any)
                 {
-                    localBounds = new Bounds(localCorner, Vector3.zero);
-                    first = false;
+                    local.Encapsulate(p);
                 }
                 else
                 {
-                    localBounds.Encapsulate(localCorner);
+                    local = new Bounds(p, Vector3.zero);
                 }
+                any = true;
             }
         }
-
-        return true;
+        return rends.Length > 0;
     }
 
-    // FIX (confirmed): raw throws (jumps to the standard NRE-throw helper) when muzzlePoint is
-    // null here, rather than returning a value. A prior draft silently returned Vector3.zero.
-    // Currently unreachable in practice (UpdateBarrelCrosshair, the only call site, already
-    // returns before calling this if muzzlePoint is null), but matched to raw for correctness.
-    //
-    // NOTE: structurally identical to CrosshairTarget above but raycasts from the muzzle along
-    // ShotDir() instead of from the camera along its forward vector.
+    private Vector3 AimPoint(Camera cam)
+    {
+        CrosshairTarget(cam, out Vector3 point, out GameObject hitGo);
+        return point;
+    }
+
+    // Stabilized: the character's facing tilted by the aim pitch. Otherwise the literal muzzle
+    // (or camera) forward.
+    private Vector3 ShotDir()
+    {
+        if (aimStabilized && playerTf != null)
+        {
+            return (Quaternion.AngleAxis(-aimPitch, playerTf.right) * playerTf.forward).normalized;
+        }
+        Transform src;
+        if (muzzlePoint != null)
+        {
+            src = muzzlePoint;
+        }
+        else
+        {
+            Camera cam = Camera.main;
+            if (cam == null)
+            {
+                return Vector3.forward;
+            }
+            src = cam.transform;
+        }
+        return src.forward;
+    }
+
+    // Nearest hit along the camera ray, skipping the player's own colliders and anything that
+    // neither is a CharacterController nor Bullet.BlocksShot. Nothing hit = 200 units ahead.
+    private void CrosshairTarget(Camera cam, out Vector3 point, out GameObject hitGo)
+    {
+        Ray ray = new Ray(cam.transform.position, cam.transform.forward);
+        int count = Physics.RaycastNonAlloc(ray, _aimHits, 1000f);
+        int best = -1;
+        float bestDist = float.MaxValue;
+        for (int i = 0; i < count; i++)
+        {
+            Collider col = _aimHits[i].collider;
+            Transform t = col.transform;
+            if (playerTf != null && (t == playerTf || t.IsChildOf(playerTf))) continue;
+            if (!(col is CharacterController) && !Bullet.BlocksShot(col.gameObject)) continue;
+            if (_aimHits[i].distance < bestDist)
+            {
+                bestDist = _aimHits[i].distance;
+                best = i;
+            }
+        }
+        if (best >= 0)
+        {
+            point = _aimHits[best].point;
+            hitGo = _aimHits[best].collider.gameObject;
+            return;
+        }
+        point = ray.GetPoint(200f);
+        hitGo = null;
+    }
+
+    // Moves the crosshair to where the barrel shot lands (or crosshairAimDistance ahead of the
+    // muzzle), capped below crosshairMaxScreenY01 of the screen height.
+    private void UpdateBarrelCrosshair()
+    {
+        EnsureMuzzle();
+        if (muzzlePoint == null) return;
+        if (crosshair == null) return;
+        Camera cam = Camera.main;
+        if (cam == null) return;
+
+        if (_crosshairRT == null)
+        {
+            _crosshairRT = crosshair.transform as RectTransform;
+        }
+        if (_crosshairParentRT == null)
+        {
+            _crosshairParentRT = crosshair.transform.parent as RectTransform;
+        }
+        if (_crosshairRT == null) return;
+        if (_crosshairParentRT == null) return;
+
+        Vector3 target = BarrelAimPoint(out GameObject hitGo);
+        if (!crosshairAtImpact && Vector3.Distance(muzzlePoint.position, target) > crosshairAimDistance)
+        {
+            target = muzzlePoint.position + ShotDir() * crosshairAimDistance;
+        }
+
+        Vector3 sp = cam.WorldToScreenPoint(target);
+        if (sp.z > 0f)
+        {
+            float maxY = Mathf.Clamp01(crosshairMaxScreenY01) * Screen.height;
+            Vector2 screen = new Vector2(sp.x, Mathf.Min(sp.y, maxY));
+            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_crosshairParentRT, screen, null, out Vector2 localPos))
+            {
+                _crosshairRT.anchoredPosition = localPos;
+            }
+        }
+    }
+
+    // Same filter as CrosshairTarget, but along ShotDir() from the muzzle.
     private Vector3 BarrelAimPoint(out GameObject hitGo)
     {
         hitGo = null;
-        if (muzzlePoint == null)
-        {
-            throw new NullReferenceException("muzzlePoint not available");
-        }
-
-        Vector3 origin = muzzlePoint.position;
-        Vector3 dir = ShotDir().normalized;
-
-        int hitCount = Physics.RaycastNonAlloc(new Ray(origin, dir), _aimHits, 1000f);
-
-        int bestIndex = -1;
+        Ray ray = new Ray(muzzlePoint.position, ShotDir());
+        int count = Physics.RaycastNonAlloc(ray, _aimHits, 1000f);
+        int best = -1;
         float bestDist = float.MaxValue;
-
-        for (int i = 0; i < hitCount; i++)
+        for (int i = 0; i < count; i++)
         {
             Collider col = _aimHits[i].collider;
-            Transform hitT = col.transform;
-
-            if (playerTf != null && (hitT == playerTf || hitT.IsChildOf(playerTf)))
+            Transform t = col.transform;
+            if (playerTf != null && (t == playerTf || t.IsChildOf(playerTf))) continue;
+            if (!(col is CharacterController) && !Bullet.BlocksShot(col.gameObject)) continue;
+            if (_aimHits[i].distance < bestDist)
             {
-                continue;
-            }
-
-            if (!(col is CharacterController) && !Bullet.BlocksShot(col.gameObject))
-            {
-                continue;
-            }
-
-            float dist = _aimHits[i].distance;
-            if (dist < bestDist)
-            {
-                bestDist = dist;
-                bestIndex = i;
+                bestDist = _aimHits[i].distance;
+                best = i;
             }
         }
-
-        if (bestIndex >= 0)
+        if (best >= 0)
         {
-            hitGo = _aimHits[bestIndex].collider.gameObject;
-            return _aimHits[bestIndex].point;
+            hitGo = _aimHits[best].collider.gameObject;
+            return _aimHits[best].point;
         }
-
-        return origin + dir * 200f;
+        return ray.GetPoint(200f);
     }
 
     public void AuthorUI()
@@ -946,81 +682,34 @@ public class Mode1FirstPersonGun : MonoBehaviour
         BuildFireButton();
     }
 
-    private void BuildAimZone()
-    {
-        bool canvasCreated;
-        GameObject go = SceneUI.GetOrCreateCanvas("Mode1AimCanvas", out canvasCreated);
-        Canvas canvas = SceneUI.GetOrAdd<Canvas>(go);
-
-        if (canvasCreated)
-        {
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 4;
-
-            CanvasScaler scaler = SceneUI.GetOrAdd<CanvasScaler>(go);
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1080f, 1920f);
-            scaler.matchWidthOrHeight = 1f;
-        }
-        SceneUI.GetOrAdd<GraphicRaycaster>(go);
-
-        Transform canvasT = go.transform;
-        bool zoneCreated;
-        GameObject zoneGo = SceneUI.GetOrCreate("AimZone", canvasT, out zoneCreated);
-        Image zoneImg = SceneUI.GetOrAdd<Image>(zoneGo);
-        zoneImg.color = new Color(0f, 0f, 0f, 0f);
-        zoneImg.raycastTarget = true;
-
-        RectTransform zoneRt = zoneImg.rectTransform;
-        zoneRt.anchorMin = Vector2.zero;
-        zoneRt.anchorMax = Vector2.one;
-        zoneRt.offsetMin = Vector2.zero;
-        zoneRt.offsetMax = Vector2.zero;
-
-        // NOTE: SceneUI.GetOrAdd<UIDrag> - a custom drag-handling component, not decompiled in
-        // this paste. Field name for the drag callback is a guess based on how it's written.
-        UIDrag drag = SceneUI.GetOrAdd<UIDrag>(zoneGo);
-        drag.cb = OnAimDrag;
-
-        aimZone = zoneGo;
-    }
-
+    // "FireButtonCanvas" (sort 8, 1080x1920): the aim zone, "FireBtn" (skinned or red fallback)
+    // with its "GunIcon" / "L" label, the authored "Jump" and "btnnam" buttons, and the crosshair.
     private void BuildFireButton()
     {
-        bool canvasCreated;
-        GameObject go = SceneUI.GetOrCreateCanvas("FireButtonCanvas", out canvasCreated);
-        Canvas canvas = SceneUI.GetOrAdd<Canvas>(go);
-
+        GameObject canvasGO = SceneUI.GetOrCreateCanvas("FireButtonCanvas", out bool canvasCreated);
+        Canvas canvas = SceneUI.GetOrAdd<Canvas>(canvasGO);
         if (canvasCreated)
         {
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 8;
-
-            CanvasScaler scaler = SceneUI.GetOrAdd<CanvasScaler>(go);
+            CanvasScaler scaler = SceneUI.GetOrAdd<CanvasScaler>(canvasGO);
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            // Confirmed via IEEE-754 decode: (1080, 1920) - portrait - unlike the (1920, 1080)
-            // landscape reference used by MatchHUD/MatchmakingUI's canvases in earlier sessions.
             scaler.referenceResolution = new Vector2(1080f, 1920f);
             scaler.matchWidthOrHeight = 1f;
         }
-        SceneUI.GetOrAdd<GraphicRaycaster>(go);
-
+        SceneUI.GetOrAdd<GraphicRaycaster>(canvasGO);
         BuildAimZone();
 
-        Transform canvasT = go.transform;
-        bool fireBtnCreated;
-        GameObject fireBtnGo = SceneUI.GetOrCreate("FireBtn", canvasT, out fireBtnCreated);
-        Image fireBg = SceneUI.GetOrAdd<Image>(fireBtnGo);
-
+        GameObject btnGO = SceneUI.GetOrCreate("FireBtn", canvasGO.transform, out bool btnCreated);
+        Image bg = SceneUI.GetOrAdd<Image>(btnGO);
         if (fireBgSprite != null)
         {
-            fireBg.sprite = fireBgSprite;
-            fireBg.color = Color.white;
-            fireBg.preserveAspect = true;
-
-            if (fireBtnCreated)
+            bg.sprite = fireBgSprite;
+            bg.color = Color.white;
+            bg.preserveAspect = true;
+            RectTransform rt = bg.rectTransform;
+            if (btnCreated)
             {
-                RectTransform rt = fireBg.rectTransform;
                 rt.anchorMax = new Vector2(1f, 0.5f);
                 rt.anchorMin = new Vector2(1f, 0.5f);
                 rt.pivot = new Vector2(1f, 0.5f);
@@ -1030,12 +719,11 @@ public class Mode1FirstPersonGun : MonoBehaviour
         }
         else
         {
-            fireBg.sprite = null;
-            fireBg.color = new Color(0.85f, 0.25f, 0.2f, 0.95f);
-
-            if (fireBtnCreated)
+            bg.sprite = null;
+            bg.color = new Color(0.85f, 0.25f, 0.2f, 0.95f);
+            RectTransform rt = bg.rectTransform;
+            if (btnCreated)
             {
-                RectTransform rt = fireBg.rectTransform;
                 rt.anchorMax = new Vector2(1f, 0f);
                 rt.anchorMin = new Vector2(1f, 0f);
                 rt.pivot = new Vector2(1f, 0f);
@@ -1043,134 +731,95 @@ public class Mode1FirstPersonGun : MonoBehaviour
                 rt.sizeDelta = new Vector2(190f, 190f);
             }
         }
-
-        Button fireButton = SceneUI.GetOrAdd<Button>(fireBtnGo);
-        fireButton.targetGraphic = fireBg;
+        Button btn = SceneUI.GetOrAdd<Button>(btnGO);
+        btn.targetGraphic = bg;
 
         if (gunIcon != null)
         {
-            bool iconCreated;
-            GameObject iconGo = SceneUI.GetOrCreate("GunIcon", fireBtnGo.transform, out iconCreated);
-            Image icon = SceneUI.GetOrAdd<Image>(iconGo);
+            GameObject iconGO = SceneUI.GetOrCreate("GunIcon", btnGO.transform, out bool iconCreated);
+            Image icon = SceneUI.GetOrAdd<Image>(iconGO);
             icon.sprite = gunIcon;
             icon.color = Color.white;
             icon.raycastTarget = false;
             icon.preserveAspect = true;
-
-            RectTransform iconRt = icon.rectTransform;
-            iconRt.anchorMax = new Vector2(0.5f, 0.5f);
-            iconRt.anchorMin = new Vector2(0.5f, 0.5f);
-            iconRt.pivot = new Vector2(0.5f, 0.5f);
-            iconRt.anchoredPosition = Vector2.zero;
-            iconRt.sizeDelta = new Vector2(120f, 100f);
+            RectTransform irt = icon.rectTransform;
+            irt.anchorMax = new Vector2(0.5f, 0.5f);
+            irt.anchorMin = new Vector2(0.5f, 0.5f);
+            irt.pivot = new Vector2(0.5f, 0.5f);
+            irt.anchoredPosition = Vector2.zero;
+            irt.sizeDelta = new Vector2(120f, 100f);
         }
 
-        // NOTE: this "L"-named fallback label is always ensured (GetOrCreate is idempotent)
-        // regardless of whether an icon sprite was used above - it's simply left inactive when
-        // the icon is shown. Confirmed from the decompiled control flow: the icon branch has no
-        // early-out that would skip this.
-        bool labelCreated;
-        GameObject labelGo = SceneUI.GetOrCreate("L", fireBtnGo.transform, out labelCreated);
-        Text fireLabel = SceneUI.GetOrAdd<Text>(labelGo);
-        fireLabel.font = font;
-        fireLabel.raycastTarget = false;
-
+        GameObject labelGO = SceneUI.GetOrCreate("L", btnGO.transform, out bool labelCreated);
+        Text label = SceneUI.GetOrAdd<Text>(labelGO);
+        label.font = font;
+        label.raycastTarget = false;
         if (labelCreated)
         {
-            fireLabel.text = "FIRE";
-            fireLabel.fontSize = 46;
-            fireLabel.alignment = TextAnchor.MiddleCenter;
-            fireLabel.color = Color.white;
-            fireLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
-            fireLabel.verticalOverflow = VerticalWrapMode.Overflow;
-
-            RectTransform labelRt = fireLabel.rectTransform;
-            labelRt.anchorMin = Vector2.zero;
-            labelRt.anchorMax = Vector2.one;
-            labelRt.offsetMin = Vector2.zero;
-            labelRt.offsetMax = Vector2.zero;
+            label.text = "FIRE";
+            label.fontSize = 46;
+            label.alignment = TextAnchor.MiddleCenter;
+            label.color = Color.white;
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            label.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform lrt = label.rectTransform;
+            lrt.anchorMin = Vector2.zero;
+            lrt.anchorMax = Vector2.one;
+            lrt.offsetMin = Vector2.zero;
+            lrt.offsetMax = Vector2.zero;
         }
+        // The text label is only the fallback for a missing gun icon.
+        label.gameObject.SetActive(gunIcon == null);
+        fireBtn = btnGO;
 
-        fireLabel.gameObject.SetActive(gunIcon == null);
-        fireBtn = fireBtnGo;
-
-        Transform jumpT = canvasT.Find("Jump");
-        jumpBtn = (jumpT != null) ? jumpT.gameObject : null;
-
-        Transform namT = canvasT.Find("btnnam");
-        namBtn = (namT != null) ? namT.gameObject : null;
-        _namBtnImg = (namBtn != null) ? namBtn.GetComponent<Image>() : null;
-
-        // NOTE: decompiled reads this via a field offset mislabeled "m_Corners" (a Graphic
-        // vertex-corner array, not a Sprite reference) - reconstructed as lazily backfilling
-        // namOffSprite from the nam button's current sprite if it wasn't already assigned.
+        Transform jump = canvasGO.transform.Find("Jump");
+        jumpBtn = jump != null ? jump.gameObject : null;
+        Transform nam = canvasGO.transform.Find("btnnam");
+        namBtn = nam != null ? nam.gameObject : null;
+        _namBtnImg = namBtn != null ? namBtn.GetComponent<Image>() : null;
+        // No "standing" sprite assigned: keep the button's authored sprite for it.
         if (namOffSprite == null && _namBtnImg != null)
         {
             namOffSprite = _namBtnImg.sprite;
         }
 
-        BuildCrosshair(canvasT);
+        BuildCrosshair(canvasGO.transform);
     }
 
-    private void BuildCrosshair(Transform canvas)
+    // "Mode1AimCanvas" (sort 4, 1080x1920) with a full-screen invisible "AimZone" whose drags aim.
+    private void BuildAimZone()
     {
-        bool created;
-        GameObject go = SceneUI.GetOrCreate("Crosshair", canvas, out created);
-        RectTransform rt = SceneUI.GetOrAdd<RectTransform>(go);
+        GameObject canvasGO = SceneUI.GetOrCreateCanvas("Mode1AimCanvas", out bool canvasCreated);
+        Canvas canvas = SceneUI.GetOrAdd<Canvas>(canvasGO);
+        if (canvasCreated)
+        {
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 4;
+            CanvasScaler scaler = SceneUI.GetOrAdd<CanvasScaler>(canvasGO);
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1080f, 1920f);
+            scaler.matchWidthOrHeight = 1f;
+        }
+        SceneUI.GetOrAdd<GraphicRaycaster>(canvasGO);
 
-        rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.anchorMin = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = Vector2.zero;
-        rt.sizeDelta = new Vector2(64f, 64f);
-
-        Transform crosshairT = go.transform;
-        Color barColor = new Color(1f, 1f, 1f, 0.85f);
-        CrosshairBar(crosshairT, "Up", new Vector2(0f, 18f), new Vector2(4f, 18f), barColor);
-        CrosshairBar(crosshairT, "Down", new Vector2(0f, -18f), new Vector2(4f, 18f), barColor);
-        CrosshairBar(crosshairT, "Left", new Vector2(-18f, 0f), new Vector2(18f, 4f), barColor);
-        CrosshairBar(crosshairT, "Right", new Vector2(18f, 0f), new Vector2(18f, 4f), barColor);
-        CrosshairBar(crosshairT, "Dot", Vector2.zero, new Vector2(6f, 6f), barColor);
-
-        crosshair = go;
+        GameObject zone = SceneUI.GetOrCreate("AimZone", canvasGO.transform, out bool zoneCreated);
+        Image img = SceneUI.GetOrAdd<Image>(zone);
+        img.color = Color.clear;
+        img.raycastTarget = true;
+        RectTransform rt = img.rectTransform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        UIDrag drag = SceneUI.GetOrAdd<UIDrag>(zone);
+        drag.cb = OnAimDrag;
+        aimZone = zone;
     }
 
-    // Builds one crosshair bar as a dim background "glow" plate plus a smaller foreground bar
-    // (named "F") inset by 1.5 units on each side, in the given color.
-    private void CrosshairBar(Transform parent, string name, Vector2 pos, Vector2 size, Color col)
-    {
-        bool created;
-        GameObject go = SceneUI.GetOrCreate(name, parent, out created);
-        Image glow = SceneUI.GetOrAdd<Image>(go);
-        glow.color = new Color(0f, 0f, 0f, 0.65f);
-        glow.raycastTarget = false;
-
-        RectTransform rt = glow.rectTransform;
-        rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.anchorMin = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = pos;
-        rt.sizeDelta = new Vector2(size.x + 3f, size.y + 3f);
-
-        bool fgCreated;
-        GameObject fgGo = SceneUI.GetOrCreate("F", go.transform, out fgCreated);
-        Image fg = SceneUI.GetOrAdd<Image>(fgGo);
-        fg.color = col;
-        fg.raycastTarget = false;
-
-        RectTransform fgRt = fg.rectTransform;
-        fgRt.anchorMin = Vector2.zero;
-        fgRt.anchorMax = Vector2.one;
-        fgRt.offsetMin = new Vector2(1.5f, 1.5f);
-        fgRt.offsetMax = new Vector2(-1.5f, -1.5f);
-    }
-
+    // Horizontal drag turns the player; vertical drag changes the (clamped) aim pitch.
     private void OnAimDrag(PointerEventData e)
     {
-        if (gmm != null && gmm.SeekerHideCountdown)
-        {
-            return;
-        }
+        if (gmm != null && gmm.SeekerHideCountdown) return;
 
         if (playerTf != null)
         {
@@ -1183,10 +832,70 @@ public class Mode1FirstPersonGun : MonoBehaviour
 
         float dy = aimInvertY ? -e.delta.y : e.delta.y;
         aimPitch = Mathf.Clamp(aimPitch + dy * aimPitchSpeed, aimMinPitch, aimMaxPitch);
-
         if (camCtrl != null)
         {
-            camCtrl.aimPitchDeg = aimPitch;
+            camCtrl.SetAimPitch(aimPitch);
         }
+    }
+
+    // 64x64 "Crosshair" at screen centre: four bars and a centre dot.
+    private void BuildCrosshair(Transform canvas)
+    {
+        GameObject go = SceneUI.GetOrCreate("Crosshair", canvas, out bool created);
+        RectTransform rt = SceneUI.GetOrAdd<RectTransform>(go);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = new Vector2(64f, 64f);
+
+        CrosshairBar(go.transform, "Up", new Vector2(0f, 18f), new Vector2(4f, 18f), new Color(1f, 1f, 1f, 0.85f));
+        CrosshairBar(go.transform, "Down", new Vector2(0f, -18f), new Vector2(4f, 18f), new Color(1f, 1f, 1f, 0.85f));
+        CrosshairBar(go.transform, "Left", new Vector2(-18f, 0f), new Vector2(18f, 4f), new Color(1f, 1f, 1f, 0.85f));
+        CrosshairBar(go.transform, "Right", new Vector2(18f, 0f), new Vector2(18f, 4f), new Color(1f, 1f, 1f, 0.85f));
+        CrosshairBar(go.transform, "Dot", Vector2.zero, new Vector2(6f, 6f), new Color(1f, 1f, 1f, 0.85f));
+        crosshair = go;
+    }
+
+    // One bar = a dark outline image 3 units larger, with the coloured fill "F" inset 1.5 inside.
+    private void CrosshairBar(Transform parent, string name, Vector2 pos, Vector2 size, Color col)
+    {
+        GameObject go = SceneUI.GetOrCreate(name, parent, out bool created);
+        Image outline = SceneUI.GetOrAdd<Image>(go);
+        outline.color = new Color(0f, 0f, 0f, 0.65f);
+        outline.raycastTarget = false;
+        RectTransform rt = outline.rectTransform;
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = pos;
+        rt.sizeDelta = new Vector2(size.x + 3f, size.y + 3f);
+
+        GameObject fillGO = SceneUI.GetOrCreate("F", go.transform, out bool fillCreated);
+        Image fill = SceneUI.GetOrAdd<Image>(fillGO);
+        fill.color = col;
+        fill.raycastTarget = false;
+        RectTransform frt = fill.rectTransform;
+        frt.anchorMin = Vector2.zero;
+        frt.anchorMax = Vector2.one;
+        frt.offsetMin = new Vector2(1.5f, 1.5f);
+        frt.offsetMax = new Vector2(-1.5f, -1.5f);
+    }
+
+    // Creates an EventSystem if none exists: new Input System UI module when that package is
+    // present (looked up by name), else StandaloneInputModule.
+    private void EnsureEventSystem()
+    {
+        if (FindFirstObjectByType<EventSystem>() != null) return;
+
+        GameObject go = new GameObject("EventSystem");
+        go.AddComponent<EventSystem>();
+        Type inputModule = Type.GetType("UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem");
+        if (inputModule != null)
+        {
+            go.AddComponent(inputModule);
+            return;
+        }
+        go.AddComponent<StandaloneInputModule>();
     }
 }

@@ -201,7 +201,11 @@ public class LevelManager : MonoBehaviour
         Debug.Log($"[LevelManager] Successfully loaded prefab: {prefab.name}");
 
         GameObject previous = _roomInstance;
-        _roomInstance = Instantiate(prefab);
+        _roomInstance = Instantiate(
+            prefab,
+            Vector3.zero,
+            Quaternion.identity
+        );
         _roomInstance.name = roomName;
         _roomInstance.SetActive(true);
         _loadedRoomName = roomName;

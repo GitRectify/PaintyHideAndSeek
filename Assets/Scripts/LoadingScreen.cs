@@ -7,18 +7,23 @@ using UnityEngine.UI;
 // was only known from call sites before. Confirms the third singleton pattern again (lazily
 // find-or-create, unlike the plain bare-field pattern of AdMgr/SelectPlayerUI) and a 6th
 // occurrence of the cross-cutting scene-lookup helper (static here, same as LevelManager's).
+// Re-verified method by method against raw Ghidra output; all string literals ("LoadingScreenRunner",
+// "LoadingCanvas", "Bg/Pro/Fill", "Show MREC", "Off MREC") confirmed against Dumpstringliteral.json.
+// Fields, offsets, method list and accessibility all match dump.cs (TypeDefIndex 9687):
+// duration 0x20, canvasGO 0x28, fill 0x30, running 0x38, resolved 0x40, static _instance 0x0.
 public class LoadingScreen : MonoBehaviour
 {
-    [SerializeField] private float duration = 1.2f;
-    [SerializeField] private GameObject canvasGO;
-    [SerializeField] private Image fill;
+    [Tooltip("Seconds for the bar to fill from 0 to 1 on each loading transition.")]
+    public float duration = 1.2f;
 
+    private GameObject canvasGO;
+    private Image fill;
     private Coroutine running;
     private bool resolved;
 
     private static LoadingScreen _instance;
 
-    public static LoadingScreen Instance
+    private static LoadingScreen Instance
     {
         get
         {
@@ -43,80 +48,104 @@ public class LoadingScreen : MonoBehaviour
         }
     }
 
+    // FIX (confirmed from raw): none of these three silently skip on a null Instance - a null falls
+    // to the shared NRE-throw. (Instance never actually returns null, since it creates a runner
+    // object on demand.) Run(Action) really does call get_Instance twice: once for the Show target
+    // and once to read duration.
     public static void Run(Action onComplete)
     {
-        LoadingScreen instance = Instance;
-        if (instance != null)
-        {
-            instance.Show(instance.duration, onComplete);
-        }
+        LoadingScreen target = Instance;
+        target.Show(Instance.duration, onComplete);
     }
 
     public static void Run(float seconds, Action onComplete)
     {
-        LoadingScreen instance = Instance;
-        if (instance != null)
-        {
-            instance.Show(seconds, onComplete);
-        }
+        Instance.Show(seconds, onComplete);
     }
 
     public static void ShowInstant()
     {
-        LoadingScreen instance = Instance;
-        if (instance != null)
-        {
-            instance.ShowInstantInternal();
-        }
+        Instance.ShowInstantInternal();
     }
 
-    // NOTE: the branch condition here reads a raw field at a fixed offset (0x58) on
-    // Singleton<RootManager>.Instance. RootManager itself remains unreversed beyond its
-    // confirmed call surface (SetNumber, ShowInterAds_Native), so this field's real name/type
-    // is a guess based purely on how it's used here — named IsShowingAd since it gates between
-    // "just hide the canvas and call onComplete immediately" (false) and "log an MREC message,
-    // set AdMgr.OnMrec, and animate the fill bar via a coroutine before calling onComplete"
-    // (true). This also newly confirms AdMgr has a settable OnMrec member (add to AdMgr's
-    // still-unreversed call-surface list).
+    // CONFIRMED: the branch reads RootManager+0x58, which dump.cs names `public bool LoadingShow`
+    // (a Firebase Remote Config flag). false = just hide the canvas and call onComplete
+    // immediately; true = show the MREC ad and animate the fill bar via FillRoutine before calling
+    // onComplete.
     //
     // FIX (confirmed): raw explicitly throws (jumps straight to the function's shared NRE-throw
     // target, bypassing the onComplete?.Invoke() epilogue entirely) when AdMgr.Instance is null
-    // inside the IsShowingAd branch. A prior draft instead wrapped that whole branch body in
+    // inside the LoadingShow branch. A prior draft instead wrapped that whole branch body in
     // `if (AdMgr.Instance != null) {...}`, so a null AdMgr.Instance would silently fall through
     // to invoking onComplete instead - a real, reachable divergence (AdMgr.Instance being unset
     // is a plausible state, e.g. ad SDK not yet initialized). Fixed to throw immediately, matching
     // raw's goto exactly.
     public void Show(float seconds, Action onComplete)
     {
-        Resolve();
-
-        if (canvasGO == null)
+        RootManager root = RootManager.Instance;
+        if (root == null)
         {
-            onComplete?.Invoke();
-            return;
+            throw new NullReferenceException("RootManager instance not available");
         }
 
-        if (running != null)
+        if (!root.LoadingShow)
         {
-            StopCoroutine(running);
+            Resolve();
+            if (running == null && canvasGO != null)
+            {
+                canvasGO.SetActive(false);
+            }
+        }
+        else
+        {
+            // if (AdMgr.Instance == null)
+            // {
+            //     throw new NullReferenceException("AdMgr instance not available");
+            // }
+            // AdMgr.Instance.OnMrec = true;
+            Debug.Log("Show MREC");
+            Resolve();
+
+            if (canvasGO != null)
+            {
+                if (running != null)
+                {
+                    StopCoroutine(running);
+                }
+                running = StartCoroutine(FillRoutine(seconds, onComplete));
+                return;
+            }
         }
 
-        running = StartCoroutine(FillRoutine(seconds, onComplete));
+        onComplete?.Invoke();
     }
 
     private void ShowInstantInternal()
     {
         Resolve();
-
         if (canvasGO == null)
+        {
             return;
+        }
+
+        RootManager root = RootManager.Instance;
+        if (root == null)
+        {
+            throw new NullReferenceException("RootManager instance not available");
+        }
+
+        // Same RootManager.LoadingShow flag (+0x58) as Show() above.
+        if (!root.LoadingShow)
+        {
+            canvasGO.SetActive(false);
+            return;
+        }
 
         canvasGO.SetActive(true);
         canvasGO.transform.SetAsLastSibling();
-
         if (fill != null)
         {
-            fill.fillAmount = 0f;
+            fill.fillAmount = 0.06f;
         }
     }
 
@@ -139,23 +168,23 @@ public class LoadingScreen : MonoBehaviour
 
         if (fill == null)
         {
-            // NOTE: decompiled read here was field-mislabeled "m_OverrideSprite" (a Sprite
-            // reference) compared against the int literal 3 — almost certainly a decompiler
-            // offset error for Image.type (Simple=0, Sliced=1, Tiled=2, Filled=3). Reconstructed
-            // as the sensible check: find any child Image configured as a Filled-type bar. The
+            // CONFIRMED: Ghidra mislabels the field read here as "m_OverrideSprite", but the actual
+            // instruction is `ldr w11,[x?, #0xe8]` (0x02369bc8) followed by `cmp w11,#0x3`, and
+            // dump.cs puts Image.m_Type at 0xE8. So this is Image.type == Filled (Simple=0,
+            // Sliced=1, Tiled=2, Filled=3). Ghidra's Image struct is shifted 8 bytes from the real
+            // layout (the same shift explains PanelLoading's "m_PreserveAspect" read). The
             // loop's raw bounds-check compiled to a convoluted bitmask expression
             // (uVar1 & ~((int)uVar1>>31)) that's equivalent to a plain "until index==length" for
             // any realistic (non-negative, sub-2^31) array length - a plain foreach is exact.
+            // FIX (confirmed from raw): a null array or null element throws rather than being
+            // skipped - the natural NRE on the foreach / img.type reproduces that.
             Image[] images = canvasGO.GetComponentsInChildren<Image>(true);
-            if (images != null)
+            foreach (Image img in images)
             {
-                foreach (Image img in images)
+                if (img.type == Image.Type.Filled)
                 {
-                    if (img.type == Image.Type.Filled)
-                    {
-                        fill = img;
-                        break;
-                    }
+                    fill = img;
+                    break;
                 }
             }
         }
@@ -164,43 +193,31 @@ public class LoadingScreen : MonoBehaviour
         resolved = true;
     }
 
-    // NOTE: only the compiler-generated iterator state machine's constructor was decompiled
-    // (fields: <>1__state, <>4__this, seconds, onComplete) — the actual MoveNext body (almost
-    // certainly: animate fill.fillAmount up to 1 over `seconds`, then hide canvasGO, clear
-    // `running`, and invoke onComplete) was not in this paste. Left as an explicit TODO rather
-    // than guessed.
+    // Decompiled from LoadingScreen.<FillRoutine>d__14$$MoveNext (states 0 / 1 / 2; <t>5__2 is `t`).
+    // Note it overwrites its own `seconds` parameter with the clamped value, and uses unscaled time.
+    // After the bar finishes it waits one more frame, then hides the canvas, clears `running`,
+    // invokes onComplete, logs "Off MREC", hides the MREC ad, and shows a native interstitial if
+    // RootManager.OnInterPlayGame is set. Null canvasGO, AdMgr.Instance or RootManager.Instance all
+    // throw in raw - the natural NREs below reproduce that.
     private IEnumerator FillRoutine(float seconds, Action onComplete)
     {
-        Resolve();
-
-        if (canvasGO == null)
-        {
-            running = null;
-            onComplete?.Invoke();
-            yield break;
-        }
-
         canvasGO.SetActive(true);
         canvasGO.transform.SetAsLastSibling();
-
         if (fill != null)
         {
             fill.fillAmount = 0f;
         }
 
-        float durationSafe = Mathf.Max(0.01f, seconds);
-        float elapsed = 0f;
+        float t = 0f;
+        seconds = Mathf.Max(0.05f, seconds);
 
-        while (elapsed < durationSafe)
+        while (t < seconds)
         {
-            elapsed += Time.unscaledDeltaTime;
-
+            t += Time.unscaledDeltaTime;
             if (fill != null)
             {
-                fill.fillAmount =
-                    Mathf.Clamp01(elapsed / durationSafe);
+                fill.fillAmount = Mathf.Clamp01(t / seconds);
             }
-
             yield return null;
         }
 
@@ -208,12 +225,20 @@ public class LoadingScreen : MonoBehaviour
         {
             fill.fillAmount = 1f;
         }
+        yield return null;
 
         canvasGO.SetActive(false);
-
         running = null;
-
         onComplete?.Invoke();
+
+        Debug.Log("Off MREC");
+        // AdMgr.Instance.OnMrec = false;
+
+        RootManager root = RootManager.Instance;
+        if (root.OnInterPlayGame)
+        {
+            root.ShowInterAds_Native();
+        }
     }
 
     private static GameObject FindInScene(string n)

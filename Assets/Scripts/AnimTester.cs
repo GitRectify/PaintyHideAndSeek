@@ -1,28 +1,31 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
+// Re-verified method by method against raw Ghidra output. Fields (names, order, offsets) and every
+// method's accessibility match dump.cs (TypeDefIndex 9635). All string literals are confirmed
+// against Dumpstringliteral.json. The two BuildUI button lambdas (<>c__DisplayClass13_0.b__0 and
+// <>c__DisplayClass13_1.b__1) were decoded from the ARM64 bytes in libil2cpp.so.
+//
+// A debug overlay: two "action" buttons that fire Animator triggers, plus four toggle buttons that
+// set the Animator's "Pose" int (1-4, or 0 when the active one is pressed again).
 public class AnimTester : MonoBehaviour
 {
-    // CORRECTION: these are now precisely decoded from the raw bit patterns (the earlier draft
-    // had rough, partly-wrong approximations — in particular the "active" color's r/g components
-    // were swapped/off).
-    private static readonly Color InactiveButtonColor = new Color(0.18f, 0.20f, 0.26f, 0.95f);
-    private static readonly Color ActiveButtonColor = new Color(0.20f, 0.62f, 0.34f, 1.0f);
-    private static readonly int PoseParamHash = Animator.StringToHash("Pose");
-    private static readonly string[] PoseIds = { "Attack", "Gun Walk" };
-    private static readonly string[] PoseLabels = { "GunAttack", "GunWalking" };
+    public string characterRootName = "Player";                 // 0x20
+    private Animator anim;                                       // 0x28
+    private Font font;                                           // 0x30
+    private int activePose;                                      // 0x38
+    private readonly List<Image> poseBtnImgs = new List<Image>(); // 0x40
 
-    public string characterRootName = "Player";
-    public Font font;
-    public Animator anim;
-    public int activePose;
-    private readonly List<Image> poseBtnImgs = new List<Image>();
+    // Decoded from the .cctor's raw bit patterns.
+    private static readonly Color Normal = new Color(0.18f, 0.2f, 0.26f, 0.95f);  // statics 0x00
+    private static readonly Color Active = new Color(0.2f, 0.62f, 0.34f, 1f);     // statics 0x10
+    private static readonly int PoseHash = Animator.StringToHash("Pose");         // statics 0x20
+    private static readonly string[] ActLabels = new string[] { "Attack", "Gun Walk" };      // 0x28
+    private static readonly string[] ActTrigs = new string[] { "GunAttack", "GunWalking" };  // 0x30
 
-    // No custom ctor needed — the decompiled ctor's only content beyond the base call was setting
-    // characterRootName and constructing poseBtnImgs, both now field initializers.
-
+    // A null PlayerRef result just skips the GetComponent.
     private void Start()
     {
         GameObject character = PlayerRef.Resolve(characterRootName);
@@ -56,6 +59,8 @@ public class AnimTester : MonoBehaviour
         }
     }
 
+    // Adds the new Input System's UI module when that package is present, otherwise the legacy
+    // StandaloneInputModule.
     private void EnsureEventSystem()
     {
         if (Object.FindFirstObjectByType<EventSystem>() != null) return;
@@ -74,134 +79,101 @@ public class AnimTester : MonoBehaviour
         }
     }
 
+    // All buttons use the Normal colour; RefreshPoseHighlights recolours the pose buttons at the end.
+    // Only the four pose buttons go into poseBtnImgs. The pose buttons continue the row count after
+    // the action buttons, so they sit below them. A null root/canvas/scaler/header/button throws.
     private void BuildUI()
     {
         poseBtnImgs.Clear();
 
         GameObject root = SceneUI.GetOrCreate("AnimTesterCanvas", null, out bool created);
         Canvas canvas = SceneUI.GetOrAdd<Canvas>(root);
-
         if (created)
         {
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 8;
-
             CanvasScaler scaler = SceneUI.GetOrAdd<CanvasScaler>(root);
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1080f, 1920f);
             scaler.matchWidthOrHeight = 1f;
         }
-
         SceneUI.GetOrAdd<GraphicRaycaster>(root);
+
         Transform parent = root.transform;
+        Text header = MakeLabelObj("Header", parent, "ANIM TEST", 26, TextAnchor.UpperRight,
+            new Color(1f, 1f, 1f, 0.7f), new Vector2(-20f, -90f), new Vector2(200f, 34f));
+        header.raycastTarget = false;
 
-        Text title = MakeLabelObj(
-            "Header", parent, "ANIM TEST",
-            26, TextAnchor.UpperCenter,
-            new Color(1f, 1f, 1f, 0.7f),
-            new Vector2(-20f, -90f),   // CORRECTION: precisely decoded — earlier draft had (-80, -20)
-            new Vector2(200f, 34f));   // CORRECTION: precisely decoded — earlier draft had (200, 70)
-        title.raycastTarget = false;
-
-        // ---- Phase 1: one button per PoseIds/PoseLabels entry ----
-        // CORRECTION: confirmed these buttons are NOT added to poseBtnImgs (only phase 2's are —
-        // see below), which the earlier draft got right. However, the closure backing each
-        // button's click handler here is confirmed to capture only `this` and the LABEL STRING
-        // (PoseLabels[i]) — not an integer pose number. TogglePose(int) needs an int, so I can't
-        // confidently infer this calls TogglePose the way phase 2's closure plausibly does;
-        // left as an explicit unconfirmed stub rather than guessing. This corrects the earlier
-        // draft, which assumed `TogglePose(capturedPose)` here without that capture evidence.
+        // Action buttons: "Btn_Attack" / "Btn_Gun Walk", each firing its Animator trigger.
         int row = 0;
-        for (int i = 0; i < PoseIds.Length; i++)
+        for (int i = 0; i < ActLabels.Length; i++)
         {
-            string capturedLabel = PoseLabels[i]; // confirmed closure capture
-            string btnName = "Btn_" + PoseIds[i];
-
-            Image btnImg = MakeButton(btnName, parent, capturedLabel, row, 200f, 70f, 8f, -130f, InactiveButtonColor);
-            Button btn = SceneUI.GetOrAdd<Button>(btnImg.gameObject);
+            string trig = ActTrigs[i];
+            Image img = MakeButton("Btn_" + ActLabels[i], parent, ActLabels[i], row, 200f, 70f, 8f, -130f, Normal);
+            Button btn = SceneUI.GetOrAdd<Button>(img.gameObject);
             btn.onClick.RemoveAllListeners();
-            btn.onClick.AddListener(PhaseOneClickPlaceholder); // TODO: not decompiled — real target/args unconfirmed, see note above
-
+            btn.onClick.AddListener(() =>
+            {
+                if (anim != null)
+                {
+                    anim.SetTrigger(trig);
+                }
+            });
             row++;
         }
 
-        // ---- Phase 2: exactly 4 more auto-numbered buttons, regardless of PoseIds.Length ----
-        // CORRECTION: the earlier draft tied this loop's bound to PoseIds.Length (`i <=
-        // 4` starting from `PoseIds.Length`), implying a fixed total of 5 buttons. The real
-        // decompile runs a SEPARATE counter (starting at 1, independent of PoseIds.Length) for
-        // exactly 4 iterations regardless of how many PoseIds there are — so the true total here
-        // is PoseIds.Length + 4 buttons, not capped at 5.
-        for (int n = 1; n <= 4; n++)
+        // Pose buttons "Btn_Pose 1".."Btn_Pose 4", labelled "Pose 1".."Pose 4".
+        for (int p = 1; p <= 4; p++)
         {
-            string btnName = "Btn_Pose " + n;
-            string btnLabel = "Pose " + n;
-
-            Image btnImg = MakeButton(btnName, parent, btnLabel, row, 200f, 70f, 8f, -130f, InactiveButtonColor);
-            poseBtnImgs.Add(btnImg);
-
-            Button btn = SceneUI.GetOrAdd<Button>(btnImg.gameObject);
+            Image img = MakeButton("Btn_Pose " + p.ToString(), parent, "Pose " + p.ToString(), row, 200f, 70f, 8f, -130f, Normal);
+            poseBtnImgs.Add(img);
+            int pn = p;
+            Button btn = SceneUI.GetOrAdd<Button>(img.gameObject);
             btn.onClick.RemoveAllListeners();
-            // NOTE: closure confirmed to capture `this` and this exact int `n` — matches
-            // TogglePose(int)'s signature, so this inferred call is reasonably confident, though
-            // the closure body itself wasn't decompiled.
-            btn.onClick.AddListener(() => TogglePose(n));
-
+            btn.onClick.AddListener(() => TogglePose(pn));
             row++;
         }
 
         RefreshPoseHighlights();
     }
 
-    // TODO: placeholder for phase 1's unconfirmed click handler — see the note in BuildUI above.
-    private void PhaseOneClickPlaceholder() { }
-
-    private Text MakeLabelObj(string name, Transform parent, string content, int size, TextAnchor anchor, Color color, Vector2 pos, Vector2 sizeDelta)
+    // Pressing the active pose again turns it off (0).
+    private void TogglePose(int n)
     {
-        GameObject go = SceneUI.GetOrCreate(name, parent, out bool created);
-        Text text = SceneUI.GetOrAdd<Text>(go);
-        if (text == null) return null;
-
-        text.font = font;
-        if (!created) return text;
-
-        text.text = content;
-        text.fontSize = size;
-        text.alignment = anchor;
-        text.color = color;
-        text.horizontalOverflow = HorizontalWrapMode.Overflow;
-        text.verticalOverflow = VerticalWrapMode.Overflow;
-
-        // NOTE: the position/size are only applied if they differ from Vector2.zero (an epsilon
-        // check in the decompile) — matches calls where both pos and sizeDelta are left at zero
-        // (e.g. the button label below), which skip this block entirely and keep whatever
-        // default RectTransform state SceneUI.GetOrAdd<Text> left it in.
-        if ((pos - Vector2.zero).sqrMagnitude >= 1e-10f || (sizeDelta - Vector2.zero).sqrMagnitude >= 1e-10f)
+        activePose = (activePose != n) ? n : 0;
+        if (anim != null)
         {
-            RectTransform rt = text.rectTransform;
-            rt.anchorMax = new Vector2(1f, 1f);
-            rt.anchorMin = new Vector2(1f, 1f);
-            rt.pivot = new Vector2(1f, 1f);
-            rt.anchoredPosition = pos;
-            rt.sizeDelta = sizeDelta;
+            anim.SetInteger(PoseHash, activePose);
         }
-
-        return text;
+        RefreshPoseHighlights();
     }
 
+    // Pose button index i is highlighted when activePose == i + 1. Null entries are skipped.
+    private void RefreshPoseHighlights()
+    {
+        for (int index = 0; index < poseBtnImgs.Count; index++)
+        {
+            if (poseBtnImgs[index] != null)
+            {
+                poseBtnImgs[index].color = (activePose == index + 1) ? Active : Normal;
+            }
+        }
+    }
+
+    // Anchored to the top-right corner. Only a newly created button is styled; an existing one just
+    // gets its targetGraphic re-set. A null Image/Button/label throws.
     private Image MakeButton(string name, Transform parent, string label, int row, float w, float h, float gap, float top, Color col)
     {
         GameObject go = SceneUI.GetOrCreate(name, parent, out bool created);
         Image image = SceneUI.GetOrAdd<Image>(go);
         Button button = SceneUI.GetOrAdd<Button>(go);
         button.targetGraphic = image;
-
         if (!created)
         {
             return image;
         }
 
         image.color = col;
-
         RectTransform rt = image.rectTransform;
         rt.anchorMax = new Vector2(1f, 1f);
         rt.anchorMin = new Vector2(1f, 1f);
@@ -209,40 +181,43 @@ public class AnimTester : MonoBehaviour
         rt.anchoredPosition = new Vector2(-20f, top - (h + gap) * row);
         rt.sizeDelta = new Vector2(w, h);
 
-        Transform labelParent = go.transform;
-        Text labelText = MakeLabelObj("L", labelParent, label, 30, TextAnchor.MiddleCenter, Color.white, Vector2.zero, Vector2.zero);
-        if (labelText != null)
-        {
-            RectTransform labelRt = labelText.rectTransform;
-            labelRt.anchorMin = Vector2.zero;
-            labelRt.anchorMax = Vector2.one;
-            labelRt.offsetMin = Vector2.zero;
-            labelRt.offsetMax = Vector2.zero;
-            labelText.raycastTarget = false;
-        }
-
+        // Label "L" stretched over the whole button.
+        Text text = MakeLabelObj("L", go.transform, label, 30, TextAnchor.MiddleCenter, Color.white, Vector2.zero, Vector2.zero);
+        RectTransform labelRt = text.rectTransform;
+        labelRt.anchorMin = Vector2.zero;
+        labelRt.anchorMax = Vector2.one;
+        labelRt.offsetMin = Vector2.zero;
+        labelRt.offsetMax = Vector2.zero;
+        text.raycastTarget = false;
         return image;
     }
 
-    private void RefreshPoseHighlights()
+    // The font is always re-applied; the rest only on a newly created label. Position/size (with
+    // top-right anchors) are applied only when sizeDelta != Vector2.zero - raw tests sizeDelta
+    // alone, not pos. A null Text throws.
+    private Text MakeLabelObj(string name, Transform parent, string content, int size, TextAnchor anchor, Color color, Vector2 pos, Vector2 sizeDelta)
     {
-        for (int index = 0; index < poseBtnImgs.Count; index++)
+        GameObject go = SceneUI.GetOrCreate(name, parent, out bool created);
+        Text text = SceneUI.GetOrAdd<Text>(go);
+        text.font = font;
+        if (created)
         {
-            Image img = poseBtnImgs[index];
-            if (img != null)
+            text.text = content;
+            text.fontSize = size;
+            text.alignment = anchor;
+            text.color = color;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            if (sizeDelta != Vector2.zero)
             {
-                img.color = (activePose == index + 1) ? ActiveButtonColor : InactiveButtonColor;
+                RectTransform rt = text.rectTransform;
+                rt.anchorMax = new Vector2(1f, 1f);
+                rt.anchorMin = new Vector2(1f, 1f);
+                rt.pivot = new Vector2(1f, 1f);
+                rt.anchoredPosition = pos;
+                rt.sizeDelta = sizeDelta;
             }
         }
-    }
-
-    public void TogglePose(int n)
-    {
-        activePose = (activePose != n) ? n : 0;
-        if (anim != null)
-        {
-            anim.SetInteger(PoseParamHash, activePose);
-        }
-        RefreshPoseHighlights();
+        return text;
     }
 }

@@ -1,194 +1,216 @@
+using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
+// Re-verified method by method against raw Ghidra output. Fields (names, order, attributes,
+// offsets) and method accessibility match dump.cs (TypeDefIndex 9653). All string literals are
+// confirmed against Dumpstringliteral.json.
+//
+// Decoded from libil2cpp.so (not in the paste): <>c__DisplayClass101_0 (isPitch 0x10, this 0x18,
+// dir 0x20).
+//  - <MakeHoldButton>b__0 (RVA 0x224E82C): isPitch ? pitchDir = dir : orbitDir = dir.
+//  - <MakeHoldButton>b__1 (RVA 0x224E864): isPitch ? pitchDir = 0 : orbitDir = 0.
+// They go into JoyDrag.onPointer (0x20) and JoyDrag.onUp (0x28).
+//
+// Inlined in raw: ChameleonPaint.DrawingActive (drawingOn), Stretch (in MakeHoldButton's label),
+// Mathf.SmoothStep / MoveTowards / Lerp / Clamp, Vector3.normalized / magnitude / Cross,
+// Quaternion.Euler (Internal_FromEulerRad of deg * Deg2Rad), CanvasScaler.uiScaleMode /
+// matchWidthOrHeight.
+//
+// Convention: where raw jumps to the NullReferenceException stub, the C# just dereferences
+// naturally; explicit null checks are kept only where raw really skips.
 public class CameraController : MonoBehaviour
 {
-    // ====================== TUNABLES (from .ctor defaults) ======================
-
+    [Header("Target")]
     public string characterRootName = "Player";
+    public float targetHeight = 2f;
 
-    [Header("Third-person orbit")]
+    [Header("Framing (angled top-down, not too high)")]
+    [Range(5f, 70f)]
+    public float pitch = 22f;
     public float distance = 33f;
     public float followLerp = 8f;
-    public float targetHeight = 2f;
-    public float pitch = 22f;
-    public float yaw;
-    public float minPitch = 5f;
-    public float maxPitch = 80f;
+    [Tooltip("How fast the camera's VERTICAL follow catches up. Lower = smoother over stairs — absorbs the CharacterController's per-step Y 'pops' (~4u) that otherwise make the camera jitter while climbing. X/Z follow stays snappy.")]
+    public float stairCamSmooth = 6f;
+    private float _smoothY;
+    private bool _smoothYInit;
+
+    [Header("Orbit (only while drawing)")]
     public float orbitSpeed = 80f;
     public float orbitDragSpeed = 0.22f;
-    public float zoomScrollSpeed = 5f;
-    public float zoomPinchSpeed = 0.08f;
+    [Tooltip("Up/down camera tilt limits when orbiting (pitch).")]
+    public float minPitch = 5f;
+    public float maxPitch = 80f;
+
+    [Header("Zoom (mouse wheel + 2-finger pinch)")]
+    [Tooltip("Closest the camera may get to the character.")]
     public float minDistance = 12f;
+    [Tooltip("Farthest the camera may get from the character.")]
     public float maxDistance = 60f;
+    [Tooltip("World units zoomed per mouse-wheel notch.")]
+    public float zoomScrollSpeed = 5f;
+    [Tooltip("World units zoomed per screen-pixel of pinch.")]
+    public float zoomPinchSpeed = 0.08f;
 
-    [Header("First-person")]
-    public bool firstPerson;
-    public float tpsSide = 2.5f;
-    public float tpsLookAhead = 11.5f;
+    [Header("Mode 1 camera (over-the-shoulder)")]
+    [Tooltip("How far BEHIND the character the Mode-1 camera sits.")]
     public float tpsBack = 10f;
+    [Tooltip("Camera height above the character pivot (hips).")]
     public float tpsHeight = 5.5f;
+    [Tooltip("Sideways offset over the right shoulder (+) so the gun stays in view.")]
+    public float tpsSide = 2.5f;
+    [Tooltip("How far AHEAD of the character the camera aims (keeps the room in view for seeking).")]
+    public float tpsLookAhead = 11.5f;
+    [Tooltip("Height of the aim point above the pivot (lower = look down more).")]
     public float tpsLookHeight = 1.7f;
+    [Tooltip("Sideways offset of the aim point.")]
     public float tpsLookSide = 0.5f;
+    [Tooltip("Pull the camera in front of walls so it never clips through them.")]
     public bool tpsAvoidWalls = true;
-    public float aimPitchDeg;
 
-    [Header("Prone")]
-    public float proneBack = 0.12f;
-    public float proneLerpSpeed = 6f;
+    [Header("Prone (btnnam / pose_nam) — lower camera when lying down")]
+    [Tooltip("Fallback when the character does NOT have a SeekerCamProfile: how many world units the camera drops when prone. If the character has a profile, the profile's `proneHeightDrop` is used.")]
     public float proneHeightDrop = 2.5f;
+    [Tooltip("Fallback: When crouching, the aiming point drops by a corresponding amount (and the view lowers along with it).")]
     public float proneLookDrop = 1.8f;
+    [Tooltip("Fallback: camera pullback distance when prone (absolute value, replacing tpsBack). Negative value = moves to the front.")]
+    public float proneBack = 0.12f;
+    [Tooltip("Speed ​​of lowering/raising the camera when toggling the lying-down state (expressed as a rate of 0–1 per second). A higher value means faster/snappier movement.")]
+    public float proneLerpSpeed = 6f;
+    private bool _proneOn;
+    private float _proneAmt;
+    public bool firstPerson;
+    private float aimPitchDeg;
+    private SeekerCamProfile _camProfile;
+    private Transform _camProfileFor;
 
-    [Header("Stair smoothing")]
-    public float stairCamSmooth = 6f;
-
-    [Header("Home / menu camera")]
+    [Header("Home / menu camera (static — does NOT follow the character)")]
+    [Tooltip("On the Home screen (no round active) the camera holds the Main Camera's authored scene pose — position the Main Camera in the scene to frame the Home shot. It starts following the character only once a round begins.")]
     public bool staticCameraInMenu = true;
+
+    [Header("Home camera swap")]
+    [Tooltip("Name of the camera INSIDE the home model. On the Home menu the Main Camera is turned OFF and this one ON; in-game it's the reverse. Blank / not found = no swap (Main Camera always on).")]
     public string homeCameraName = "Camera";
+    [Tooltip("Turn the Main Camera OFF + the home-model camera ON while on the Home menu (and swap back in-game).")]
     public bool swapHomeCamera = true;
 
-    [Header("Free look / scout")]
-    public bool scoutClampToRoom = true;
-    public float freePanSpeed = 40f;
-    public float scoutFloorMargin = 2f;
-    public float scoutCeilMargin = 3f;
-
-    [Header("Spot (caught) view")]
-    public float spotFocusHeight = 3f;
-    public float spotLerp = 6f;
+    [Header("Spot cam (Play Now: caught) — ZOOM OUT from the character (bot not framed)")]
+    [Tooltip("Extra distance (world units) the camera pulls straight back FROM the character over the caught moment — a zoom-out reveal. It keeps the angle it was already at; the bot is NOT shown.")]
     public float spotZoomOutBy = 30f;
+    [Tooltip("Seconds the zoom-out takes. Set it near BotSeekController.spotShootDelay so it finishes pulling back around when the shot lands.")]
     public float spotZoomTime = 3f;
+    [Tooltip("Look-point height above the character's pivot (≈ its body centre).")]
+    public float spotFocusHeight = 3f;
+    [Tooltip("How fast the camera eases as it pulls back / tracks the character.")]
+    public float spotLerp = 6f;
+    private Transform spotBot;
+    private Transform spotTarget;
+    private bool spotView;
+    private float _spotZoomT;
+    private Vector3 _spotDir3;
+    private float _spotStartDist;
 
-    // ====================== RUNTIME STATE ======================
-
+    [Header("Free-look scout camera (ButtonCamera): pan the camera to watch the room / enemies")]
+    [Tooltip("World units/sec the joystick pans the free-look camera when scouting (camera detached from the character). Zoom (wheel/pinch) still works to see more/less of the room.")]
+    public float freePanSpeed = 40f;
+    [Tooltip("Keep the scout camera INSIDE the room — it can't fly up through the roof or down through the floor.")]
+    public bool scoutClampToRoom = true;
+    [Tooltip("Min height (world units) the scout look-point stays above the floor.")]
+    public float scoutFloorMargin = 2f;
+    [Tooltip("How far (world units) below the roof the scout camera stops, so it doesn't poke through the ceiling.")]
+    public float scoutCeilMargin = 3f;
+    public bool _freeLook;
+    private Vector3 _freePivot;
+    private float _scoutFloorY;
+    private float _scoutRoofY;
     private Transform character;
     private Camera cam;
     private ChameleonPaint paint;
     private GameModeManager gmm;
-
-    private float _defPitch;
-    private float _defDistance;
-    private float _defYaw;
-
     private Vector3 homePos;
     private Quaternion homeRot;
     private bool homeCaptured;
     private Camera _homeCam;
     private bool _prevInMenu;
-    private bool _wasInMenu = true;
-
-    public bool _freeLook;
-    private Vector3 _freePivot;
-    private float _scoutFloorY;
-    private float _scoutRoofY;
-
-    private float _smoothY;
-    private bool _smoothYInit;
-
-    public bool _proneOn;
-    private float _proneAmt;
-
-    private Transform _camProfileFor;
-    private SeekerCamProfile _camProfile;
-
+    public float yaw;
+    private int orbitDir;
+    private int pitchDir;
     private float prevPinchDist = -1f;
-
-    public GameObject orbitButtons;
-    public int orbitDir;
-    public int pitchDir;
-
-    public bool spotView;
-    public Transform spotBot;
-    public Transform spotTarget;
-    private float _spotZoomT;
-    private Vector3 _spotDir3;
-    private float _spotStartDist;
+    private GameObject orbitButtons;
+    private bool _wasInMenu = true;
+    private float _defPitch;
+    private float _defDistance;
+    private float _defYaw;
 
     public bool FreeLook => _freeLook;
     public bool IsFirstPerson => firstPerson;
     public bool IsSpotView => spotView;
 
-    // ====================== LIFECYCLE ======================
-
     private void Start()
     {
-        GameObject playerGO = PlayerRef.Resolve(characterRootName) as GameObject;
-        if (playerGO != null)
+        GameObject player = PlayerRef.Resolve(characterRootName);
+        if (player != null)
         {
-            character = playerGO.transform;
+            character = player.transform;
         }
-
         cam = Camera.main;
-        paint = Object.FindFirstObjectByType<ChameleonPaint>();
-        gmm = Object.FindFirstObjectByType<GameModeManager>();
-
+        paint = FindFirstObjectByType<ChameleonPaint>();
+        gmm = FindFirstObjectByType<GameModeManager>();
         _defPitch = pitch;
         _defDistance = distance;
         _defYaw = yaw;
-
         EnsureEventSystem();
 
+        // The authored Main Camera pose is the Home shot.
         if (cam != null)
         {
             homePos = cam.transform.position;
             homeRot = cam.transform.rotation;
             homeCaptured = true;
         }
-
         if (character != null && cam != null && !InMenu())
         {
             UpdateCam(true);
         }
-
         _homeCam = ResolveHomeCamera();
+        // Opposite of the current state, so the first LateUpdate applies the camera swap.
         _prevInMenu = !InMenu();
     }
 
-    // Creates a scene EventSystem if one doesn't already exist, preferring the new Input System's
-    // UI module when it's available (via reflection, so this compiles fine without the package too)
-    // and falling back to the legacy StandaloneInputModule otherwise.
-    private void EnsureEventSystem()
+    // Home screen = no round running (only when staticCameraInMenu).
+    private bool InMenu()
     {
-        if (Object.FindFirstObjectByType<EventSystem>() != null) return;
-
-        GameObject go = new GameObject("EventSystem");
-        go.AddComponent<EventSystem>();
-
-        System.Type inputModuleType = System.Type.GetType(
-            "UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem");
-
-        if (inputModuleType != null)
-        {
-            go.AddComponent(inputModuleType);
-        }
-        else
-        {
-            go.AddComponent<StandaloneInputModule>();
-        }
+        return staticCameraInMenu && gmm != null && !gmm.RoundActive;
     }
 
-    public bool InMenu()
+    // The camera named homeCameraName (other than the Main Camera), even if inactive, as long as it
+    // is a scene object.
+    private Camera ResolveHomeCamera()
     {
-        if (!staticCameraInMenu) return false;
-        if (gmm == null) return false;
-
-        return !gmm.RoundActive;
+        if (string.IsNullOrEmpty(homeCameraName)) return null;
+        Camera[] all = Resources.FindObjectsOfTypeAll<Camera>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            Camera c = all[i];
+            if (c != cam && c.name == homeCameraName && c.gameObject.scene.IsValid())
+            {
+                return c;
+            }
+        }
+        return null;
     }
 
+    // Menu: home camera on, Main Camera off (only if a home camera exists). In-game: the reverse.
     private void ApplyCameraSwap(bool inMenu)
     {
         if (!swapHomeCamera) return;
-
-        bool homeCamExists = _homeCam != null;
-
+        bool hasHome = _homeCam != null;
         if (cam != null)
         {
-            cam.enabled = !(homeCamExists && inMenu);
+            cam.enabled = !(hasHome && inMenu);
         }
-
         if (_homeCam != null)
         {
             _homeCam.enabled = inMenu;
@@ -203,33 +225,27 @@ public class CameraController : MonoBehaviour
             _prevInMenu = inMenu;
             ApplyCameraSwap(inMenu);
         }
-
         if (cam == null) return;
 
         if (InMenu())
         {
+            // Home screen: ease back to the authored pose.
             _freeLook = false;
             _wasInMenu = true;
-
             if (orbitButtons != null && orbitButtons.activeSelf)
             {
                 orbitButtons.SetActive(false);
             }
-
             if (!homeCaptured) return;
-
-            // Smoothly drift the camera back toward its original "home" pose while in the menu.
-            float decay = Mathf.Exp(-followLerp * Time.deltaTime);
-            float t = Mathf.Clamp01(1f - decay);
-
-            Transform camTf = cam.transform;
-            camTf.position = Vector3.Lerp(camTf.position, homePos, t);
-            camTf.rotation = Quaternion.Slerp(camTf.rotation, homeRot, t);
+            float t = 1f - Mathf.Exp(-followLerp * Time.deltaTime);
+            cam.transform.position = Vector3.Lerp(cam.transform.position, homePos, t);
+            cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, homeRot, t);
             return;
         }
 
         if (character == null) return;
 
+        // Entering a round: restore the default framing (the seeker keeps its own).
         if (_wasInMenu)
         {
             _wasInMenu = false;
@@ -241,13 +257,12 @@ public class CameraController : MonoBehaviour
             }
         }
 
-        bool drawing = paint != null && paint.drawingOn;
-
+        // Orbit buttons exist only while drawing.
+        bool drawing = paint != null && paint.DrawingActive;
         if (orbitButtons != null && orbitButtons.activeSelf != drawing)
         {
             orbitButtons.SetActive(drawing);
         }
-
         if (!drawing)
         {
             orbitDir = 0;
@@ -257,7 +272,6 @@ public class CameraController : MonoBehaviour
         {
             yaw += orbitSpeed * orbitDir * Time.deltaTime;
         }
-
         if (pitchDir != 0)
         {
             pitch = Mathf.Clamp(pitch + orbitSpeed * pitchDir * Time.deltaTime, minPitch, maxPitch);
@@ -267,58 +281,11 @@ public class CameraController : MonoBehaviour
         UpdateCam(false);
     }
 
-    private void HandleZoomInput()
-    {
-        if (Mouse.current != null)
-        {
-            Vector2 scroll = Mouse.current.scroll.ReadValue();
-            if (Mathf.Abs(scroll.y) > 0.01f)
-            {
-                float delta = scroll.y >= 0f ? zoomScrollSpeed : -zoomScrollSpeed;
-                distance = Mathf.Clamp(distance - delta, minDistance, maxDistance);
-            }
-        }
-
-        if (Touchscreen.current == null) return;
-
-        var touches = Touchscreen.current.touches;
-        Vector2 t0 = Vector2.zero;
-        Vector2 t1 = Vector2.zero;
-        int pressedCount = 0;
-
-        if (touches.Count > 0)
-        {
-            for (int i = 0; i < touches.Count && pressedCount < 2; i++)
-            {
-                if (!touches[i].press.isPressed) continue;
-
-                Vector2 pos = touches[i].position.ReadValue();
-                if (pressedCount == 0) t0 = pos; else t1 = pos;
-                pressedCount++;
-            }
-
-            if (pressedCount > 1)
-            {
-                float dist = Vector2.Distance(t0, t1);
-                if (prevPinchDist > 0f)
-                {
-                    float deltaDist = dist - prevPinchDist;
-                    distance = Mathf.Clamp(distance - deltaDist * zoomPinchSpeed, minDistance, maxDistance);
-                }
-                prevPinchDist = dist;
-                return;
-            }
-        }
-
-        prevPinchDist = -1f;
-    }
-
-    // Smooths the character's Y position for the camera follow-point, so stair-stepping doesn't make
-    // the camera bob every frame. Snaps instead of smoothing on big jumps (teleports, respawns).
+    // Character position with a smoothed Y (stairs); snaps on first use, on request, or on a jump
+    // of more than 20 units.
     private Vector3 FollowPivot(bool snap)
     {
         if (character == null) return Vector3.zero;
-
         float y = character.position.y;
         if (snap || !_smoothYInit || Mathf.Abs(y - _smoothY) > 20f)
         {
@@ -327,15 +294,12 @@ public class CameraController : MonoBehaviour
         }
         else
         {
-            float t = Mathf.Clamp01(1f - Mathf.Exp(-stairCamSmooth * Time.deltaTime));
-            _smoothY = Mathf.Lerp(_smoothY, y, t);
+            _smoothY = Mathf.Lerp(_smoothY, y, 1f - Mathf.Exp(-(stairCamSmooth * Time.deltaTime)));
         }
-
         return new Vector3(character.position.x, _smoothY, character.position.z);
     }
 
-    // Caches the SeekerCamProfile on the currently-active player, re-resolving only when the active
-    // player changes (so this is cheap to call every frame).
+    // SeekerCamProfile of PlayerRef.Active, looked up again only when the active player changes.
     private SeekerCamProfile ActiveCamProfile()
     {
         Transform active = PlayerRef.Active;
@@ -347,217 +311,122 @@ public class CameraController : MonoBehaviour
         return _camProfile;
     }
 
-    // ====================== CAMERA UPDATE (orbit / first-person / spot / free-look) ======================
-    //
-    // NOTE ON THIS REGION: this was one giant method in the decompiled source. It's been split into
-    // UpdateCam (dispatch) + UpdateSpotCam / UpdateFirstPersonCam / ApplyOrbitCam (the three distinct
-    // camera behaviors) for readability — a structural refactor, not a behavior change. The underlying
-    // math is a faithful, cross-checked reconstruction (the Vector3.back/up/down/zero fallbacks were
-    // verified against the same static-field offset table used successfully elsewhere in this
-    // project).
-
     private void UpdateCam(bool snap)
     {
-        if (spotView && spotTarget != null && cam != null)
+        // Spot view (caught): pull straight back from the focus point along _spotDir3, eased in
+        // over spotZoomTime, always looking at the focus point.
+        if (spotView && spotTarget != null)
         {
-            UpdateSpotCam(snap);
+            Vector3 focus = spotTarget.position + Vector3.up * spotFocusHeight;
+            _spotZoomT += Time.deltaTime;
+            float zoom = 1f;
+            if (spotZoomTime > 0.01f)
+            {
+                zoom = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_spotZoomT / spotZoomTime));
+            }
+            float dist = _spotStartDist + zoom * spotZoomOutBy;
+            float k = 1f;
+            if (!snap)
+            {
+                k = 1f - Mathf.Exp(-(spotLerp * Time.deltaTime));
+            }
+            cam.transform.position = Vector3.Lerp(cam.transform.position, focus + _spotDir3 * dist, k);
+            Quaternion look = Quaternion.LookRotation((focus - cam.transform.position).normalized, Vector3.up);
+            cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, look, k);
             return;
         }
 
+        Vector3 pivot;
+        Quaternion rot;
         if (!_freeLook)
         {
-            Vector3 pivot = FollowPivot(snap);
-
+            pivot = FollowPivot(snap);
             if (firstPerson)
             {
-                UpdateFirstPersonCam(pivot, snap);
+                // Mode-1 over-the-shoulder camera; the character's SeekerCamProfile overrides the
+                // fallback values here.
+                SeekerCamProfile p = ActiveCamProfile();
+                float height = p != null ? p.tpsHeight : tpsHeight;
+                float back = p != null ? p.tpsBack : tpsBack;
+                float side = p != null ? p.tpsSide : tpsSide;
+                float lookAhead = p != null ? p.tpsLookAhead : tpsLookAhead;
+                float lookHeight = p != null ? p.tpsLookHeight : tpsLookHeight;
+                float lookSide = p != null ? p.tpsLookSide : tpsLookSide;
+
+                _proneAmt = Mathf.MoveTowards(_proneAmt, _proneOn ? 1f : 0f, proneLerpSpeed * Time.deltaTime);
+                if (_proneAmt > 0f)
+                {
+                    height -= (p != null ? p.proneHeightDrop : proneHeightDrop) * _proneAmt;
+                    lookHeight -= (p != null ? p.proneLookDrop : proneLookDrop) * _proneAmt;
+                    back = Mathf.Lerp(back, p != null ? p.proneBack : proneBack, _proneAmt);
+                }
+
+                // Level facing (forward when the character looks straight up/down).
+                Vector3 fwd = character.forward;
+                fwd.y = 0f;
+                fwd = fwd.x * fwd.x + fwd.z * fwd.z < 0.001f ? Vector3.forward : fwd.normalized;
+                Vector3 right = Vector3.Cross(Vector3.up, fwd);
+
+                Vector3 eye = pivot + Vector3.up * height;
+                Vector3 camPos = eye - fwd * back + right * side;
+                if (tpsAvoidWalls)
+                {
+                    // Pull in front of any non-character wall between the eye point and the camera.
+                    Vector3 off = camPos - eye;
+                    float len = off.magnitude;
+                    if (len > 0.01f)
+                    {
+                        Vector3 dir = off / len;
+                        if (Physics.Raycast(eye, dir, out RaycastHit hit, len + 0.5f)
+                            && !(hit.collider is CharacterController)
+                            && hit.collider.GetComponentInParent<Animator>() == null)
+                        {
+                            camPos = hit.point - dir * 0.5f;
+                        }
+                    }
+                }
+
+                float k = 1f;
+                if (!snap)
+                {
+                    k = 1f - Mathf.Exp(-(followLerp * Time.deltaTime));
+                }
+                cam.transform.position = Vector3.Lerp(cam.transform.position, camPos, k);
+
+                // Look ahead of the character, tilted by the Mode-1 aim pitch.
+                Vector3 lookDir = pivot + Vector3.up * lookHeight + fwd * lookAhead + right * lookSide - cam.transform.position;
+                if (Mathf.Abs(aimPitchDeg) > 0.01f)
+                {
+                    lookDir = Quaternion.AngleAxis(-aimPitchDeg, right) * lookDir;
+                }
+                Quaternion look = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
+                cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, look, k);
                 return;
             }
-
-            Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
-            Vector3 rotatedOffset = rot * (Vector3.back * distance);
-            ApplyOrbitCam(pivot, rotatedOffset, snap);
+            rot = Quaternion.Euler(pitch, yaw, 0f);
         }
         else
         {
-            Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
-            Vector3 rotatedOffset = rot * (Vector3.back * distance);
-
-            float pivotY;
-            if (!scoutClampToRoom)
+            // Free-look scout: orbit around the panned pivot, kept between floor and roof.
+            rot = Quaternion.Euler(pitch, yaw, 0f);
+            if (scoutClampToRoom)
             {
-                pivotY = _freePivot.y;
-            }
-            else
-            {
-                // CORRECTION: re-derived this term by term against the raw decompile. It is NOT a
-                // decompiler artifact — it's a real, meaningful calculation. `camHeightAbovePivot`
-                // is how much higher the CAMERA sits above the pivot once ApplyOrbitCam applies
-                // `targetHeight` and this same `rotatedOffset` (both are reused for the actual
-                // position calc below), and it's subtracted from the roof bound so the clamp keeps
-                // the CAMERA under the ceiling, not just the pivot. The earlier draft dropped this
-                // subtraction entirely, which would let the camera poke through the ceiling at
-                // steep orbit angles.
-                float camHeightAbovePivot = Mathf.Max(0f, targetHeight + rotatedOffset.y);
+                float camAbove = Mathf.Max(0f, targetHeight + (rot * (Vector3.back * distance)).y);
                 float floor = _scoutFloorY + scoutFloorMargin;
-                float roofClamp = Mathf.Max(floor, (_scoutRoofY - scoutCeilMargin) - camHeightAbovePivot);
-                pivotY = (floor <= _freePivot.y) ? Mathf.Min(roofClamp, _freePivot.y) : floor;
-                _freePivot.y = pivotY;
+                float ceil = _scoutRoofY - scoutCeilMargin - camAbove;
+                _freePivot.y = Mathf.Clamp(_freePivot.y, floor, Mathf.Max(floor, ceil));
             }
-
-            Vector3 pivot = new Vector3(_freePivot.x, pivotY, _freePivot.z);
-            ApplyOrbitCam(pivot, rotatedOffset, snap);
+            pivot = _freePivot;
         }
+
+        // Orbit: distance back along the yaw/pitch rotation, looking at pivot + targetHeight.
+        Vector3 target = pivot + Vector3.up * targetHeight;
+        Vector3 orbitPos = target + rot * (Vector3.back * distance);
+        cam.transform.position = snap
+            ? orbitPos
+            : Vector3.Lerp(cam.transform.position, orbitPos, 1f - Mathf.Exp(-(followLerp * Time.deltaTime)));
+        cam.transform.rotation = Quaternion.LookRotation(target - cam.transform.position, Vector3.up);
     }
-
-    // Cinematic "you were caught" camera: orbits around a point between the catching bot and the
-    // target, slowly zooming out over spotZoomTime.
-    private void UpdateSpotCam(bool snap)
-    {
-        Vector3 targetPos = spotTarget.position;
-        Vector3 focusPoint = targetPos + Vector3.up * spotFocusHeight;
-
-        _spotZoomT += Time.deltaTime;
-        float zoomT01 = 1f;
-        if (spotZoomTime > 0.01f)
-        {
-            float raw = Mathf.Clamp01(_spotZoomT / spotZoomTime);
-            zoomT01 = raw * raw * (3f - 2f * raw); // smoothstep
-        }
-
-        float lerpT = snap ? 1f : Mathf.Clamp01(1f - Mathf.Exp(-spotLerp * Time.deltaTime));
-
-        float dist = _spotStartDist + zoomT01 * spotZoomOutBy;
-        Vector3 desiredPos = focusPoint + _spotDir3 * dist;
-
-        Transform camTf = cam.transform;
-        camTf.position = Vector3.Lerp(camTf.position, desiredPos, lerpT);
-
-        Vector3 lookDir = focusPoint - camTf.position;
-        float lookMag = lookDir.magnitude;
-        lookDir = lookMag <= 1e-5f ? Vector3.zero : lookDir / lookMag;
-
-        Quaternion desiredRot = Quaternion.LookRotation(lookDir, Vector3.up);
-        camTf.rotation = Quaternion.Slerp(camTf.rotation, desiredRot, lerpT);
-    }
-
-    // First-person / near-shoulder camera: offsets from the follow pivot by height/back/side (with
-    // per-player SeekerCamProfile overrides and a prone blend), optionally pulled in by a wall-avoidance
-    // raycast, then looks slightly ahead of the character (with an adjustable aim-pitch).
-    private void UpdateFirstPersonCam(Vector3 pivot, bool snap)
-    {
-        SeekerCamProfile profile = ActiveCamProfile();
-
-        float tpsHeightV = profile != null ? profile.tpsHeight : tpsHeight;
-        float tpsBackV = profile != null ? profile.tpsBack : tpsBack;
-        float tpsSideV = profile != null ? profile.tpsSide : tpsSide;
-        float tpsLookAheadV = profile != null ? profile.tpsLookAhead : tpsLookAhead;
-        float tpsLookHeightV = profile != null ? profile.tpsLookHeight : tpsLookHeight;
-        float tpsLookSideV = profile != null ? profile.tpsLookSide : tpsLookSide;
-
-        float proneTarget = _proneOn ? 1f : 0f;
-        _proneAmt = Mathf.MoveTowards(_proneAmt, proneTarget, proneLerpSpeed * Time.deltaTime);
-
-        if (_proneAmt > 0f)
-        {
-            float proneHeightDropV = profile != null ? profile.proneHeightDrop : proneHeightDrop;
-            float proneLookDropV = profile != null ? profile.proneLookDrop : proneLookDrop;
-            float proneBackV = profile != null ? profile.proneBack : proneBack;
-
-            tpsLookHeightV -= proneLookDropV * _proneAmt;
-            tpsHeightV -= proneHeightDropV * _proneAmt;
-            tpsBackV = Mathf.Lerp(tpsBackV, proneBackV, Mathf.Clamp01(_proneAmt));
-        }
-
-        if (character == null) return;
-
-        Vector3 charForward = character.forward;
-        Vector3 flatForward = (charForward.x * charForward.x + charForward.z * charForward.z) >= 0.001f
-            ? new Vector3(charForward.x, 0f, charForward.z).normalized
-            : Vector3.back;
-
-        Vector3 right = Vector3.Cross(Vector3.up, flatForward);
-
-        Vector3 raisedPivot = pivot + Vector3.up * tpsHeightV;
-        Vector3 desiredCamPos = raisedPivot + right * tpsSideV - flatForward * tpsBackV;
-
-        if (tpsAvoidWalls)
-        {
-            Vector3 toDesired = desiredCamPos - raisedPivot;
-            float dist = toDesired.magnitude;
-            if (dist > 0.01f)
-            {
-                Vector3 dir = toDesired / dist;
-                if (Physics.Raycast(raisedPivot, dir, out RaycastHit hit, dist + 0.5f))
-                {
-                    bool isCharacter = hit.collider is CharacterController ||
-                                        hit.collider.GetComponentInParent<Animator>() != null;
-                    if (!isCharacter)
-                    {
-                        desiredCamPos = hit.point - dir * 0.5f;
-                    }
-                }
-            }
-        }
-
-        float lerpT = snap ? 1f : Mathf.Clamp01(1f - Mathf.Exp(-followLerp * Time.deltaTime));
-
-        Transform camTf = cam.transform;
-        camTf.position = Vector3.Lerp(camTf.position, desiredCamPos, lerpT);
-
-        Vector3 lookTarget = raisedPivot + right * tpsLookSideV + flatForward * tpsLookAheadV + Vector3.up * tpsLookHeightV;
-        Vector3 lookDir = lookTarget - camTf.position;
-
-        if (Mathf.Abs(aimPitchDeg) > 0.01f)
-        {
-            Quaternion pitchRot = Quaternion.AngleAxis(-aimPitchDeg, right);
-            lookDir = pitchRot * lookDir;
-        }
-
-        lookDir = lookDir.magnitude <= 1e-5f ? Vector3.zero : lookDir.normalized;
-
-        Quaternion desiredRot = Quaternion.LookRotation(lookDir, Vector3.up);
-        camTf.rotation = Quaternion.Slerp(camTf.rotation, desiredRot, lerpT);
-    }
-
-    // Shared tail for the normal third-person orbit and free-look cameras: moves toward
-    // pivot+targetHeight+offset, and always looks back at pivot+targetHeight (the character's
-    // head/chest height) regardless of orbit angle.
-    private void ApplyOrbitCam(Vector3 pivot, Vector3 rotatedOffset, bool snap)
-    {
-        if (cam == null) return;
-
-        Vector3 raisedPivot = pivot + Vector3.up * targetHeight;
-        Vector3 desiredCamPos = raisedPivot + rotatedOffset;
-
-        Transform camTf = cam.transform;
-        float lerpT = snap ? 1f : Mathf.Clamp01(1f - Mathf.Exp(-followLerp * Time.deltaTime));
-        camTf.position = Vector3.Lerp(camTf.position, desiredCamPos, lerpT);
-
-        Vector3 lookDir = raisedPivot - camTf.position;
-        Quaternion desiredRot = Quaternion.LookRotation(lookDir, Vector3.up);
-        camTf.rotation = Quaternion.Slerp(camTf.rotation, desiredRot, lerpT);
-    }
-
-    // ====================== HOME CAMERA ======================
-
-    private Camera ResolveHomeCamera()
-    {
-        if (string.IsNullOrEmpty(homeCameraName)) return null;
-
-        Camera[] all = Resources.FindObjectsOfTypeAll<Camera>();
-        foreach (Camera c in all)
-        {
-            if (c == cam) continue;
-            if (c.name == homeCameraName && c.gameObject.scene.IsValid())
-            {
-                return c;
-            }
-        }
-        return null;
-    }
-
-    // ====================== INPUT / EXTERNAL API ======================
 
     public void OrbitYaw(float deltaPixels)
     {
@@ -590,40 +459,26 @@ public class CameraController : MonoBehaviour
         _proneOn = v;
     }
 
-    public void SetAimPitch(float deg)
-    {
-        aimPitchDeg = deg;
-    }
-
+    // Caught view on target. The pull-back direction and start distance (at least 6) are taken
+    // from where the camera is when the view starts.
     public void SetSpotView(Transform bot, Transform target)
     {
         _freeLook = false;
-
         if (!spotView && target != null)
         {
             _spotZoomT = 0f;
-
-            Vector3 focusPoint = target.position + Vector3.up * spotFocusHeight;
-            Vector3 camPos = cam != null ? cam.transform.position : focusPoint;
-            Vector3 offset = camPos - focusPoint;
-
-            float distSq = offset.sqrMagnitude;
-            float dist = Mathf.Sqrt(distSq);
-            _spotStartDist = Mathf.Max(6f, dist);
-
-            if (distSq <= 0.01f)
+            Vector3 focus = target.position + Vector3.up * spotFocusHeight;
+            Vector3 away = (cam != null ? cam.transform : transform).position - focus;
+            _spotStartDist = Mathf.Max(6f, away.magnitude);
+            if (away.sqrMagnitude <= 0.01f)
             {
-                // CORRECTION: Y and Z were swapped (and sign-flipped) in the earlier draft. Traced
-                // the exact field assignment order in the decompile (x=fVar7, y=fVar9, z=fVar10) —
-                // the real degenerate fallback is (0, +0.7071, -0.7071), not (0, -0.7071, +0.7071).
                 _spotDir3 = new Vector3(0f, 0.70710677f, -0.70710677f);
             }
             else
             {
-                _spotDir3 = offset / dist;
+                _spotDir3 = away.normalized;
             }
         }
-
         spotBot = bot;
         spotTarget = target;
         spotView = target != null;
@@ -636,15 +491,49 @@ public class CameraController : MonoBehaviour
         spotTarget = null;
     }
 
+    // Turning free-look on starts the scout pivot at the character and measures the room.
     public void SetFreeLook(bool on)
     {
         if (_freeLook == on) return;
         _freeLook = on;
         if (!on) return;
+        if (character != null)
+        {
+            _freePivot = character.position;
+            CacheScoutBounds();
+        }
+    }
+
+    // Floor = first non-character hit straight down (from 2 above the character, 80 range);
+    // roof = highest non-character hit straight up from the floor, if more than 5 above it.
+    // Defaults: character Y and Y + 60.
+    private void CacheScoutBounds()
+    {
+        _scoutFloorY = character != null ? character.position.y : 0f;
+        _scoutRoofY = _scoutFloorY + 60f;
         if (character == null) return;
 
-        _freePivot = character.position;
-        CacheScoutBounds();
+        Vector3 p = character.position;
+        if (Physics.Raycast(p + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 80f)
+            && hit.collider.GetComponentInParent<Animator>() == null)
+        {
+            _scoutFloorY = hit.point.y;
+        }
+
+        p.y = _scoutFloorY + 1f;
+        RaycastHit[] hits = Physics.RaycastAll(p, Vector3.up, 300f);
+        float roof = float.MinValue;
+        for (int i = 0; i < hits.Length; i++)
+        {
+            if (hits[i].collider.GetComponentInParent<Animator>() == null && hits[i].point.y > roof)
+            {
+                roof = hits[i].point.y;
+            }
+        }
+        if (roof > _scoutFloorY + 5f)
+        {
+            _scoutRoofY = roof;
+        }
     }
 
     public void ToggleFreeLook()
@@ -652,91 +541,86 @@ public class CameraController : MonoBehaviour
         SetFreeLook(!_freeLook);
     }
 
-    // Probes straight down (to find the floor) and straight up (to find the ceiling) from the
-    // character's position, ignoring character colliders, so free-look can be clamped to stay
-    // inside the room.
-    private void CacheScoutBounds()
-    {
-        float charY = character != null ? character.position.y : 0f;
-        _scoutFloorY = charY;
-        _scoutRoofY = charY + 60f;
-
-        if (character == null) return;
-
-        Vector3 pos = character.position;
-        Vector3 probeOrigin = pos + Vector3.up * 2f;
-
-        if (Physics.Raycast(probeOrigin, Vector3.down, out RaycastHit floorHit, 80f))
-        {
-            if (floorHit.collider.GetComponentInParent<Animator>() == null)
-            {
-                _scoutFloorY = floorHit.point.y;
-            }
-        }
-
-        Vector3 upStart = new Vector3(pos.x, _scoutFloorY + 1f, pos.z);
-        RaycastHit[] hits = Physics.RaycastAll(upStart, Vector3.up, 300f);
-
-        float highestY = float.MinValue;
-        foreach (RaycastHit hit in hits)
-        {
-            if (hit.collider.GetComponentInParent<Animator>() != null) continue; // skip characters
-            if (hit.point.y > highestY)
-            {
-                highestY = hit.point.y;
-            }
-        }
-
-        if (highestY > _scoutFloorY + 5f)
-        {
-            _scoutRoofY = highestY;
-        }
-    }
-
+    // Joystick pan of the scout pivot: y along the camera forward, x along the level camera right.
     public void PanFree(Vector2 input, float dt)
     {
         if (!_freeLook) return;
         if (cam == null) return;
-
-        Vector3 camForward = cam.transform.forward;
-        Vector3 camRight = cam.transform.right;
-
-        Vector3 rightFlat;
-        float rightMagSq = camRight.x * camRight.x + camRight.z * camRight.z;
-        if (rightMagSq > 0.001f)
+        Vector3 fwd = cam.transform.forward;
+        Vector3 right = cam.transform.right;
+        right.y = 0f;
+        if (right.sqrMagnitude > 0.001f)
         {
-            float rightMag = Mathf.Sqrt(rightMagSq);
-            rightFlat = new Vector3(camRight.x / rightMag, 0f, camRight.z / rightMag);
+            right = right.normalized;
         }
-        else
+        _freePivot += (fwd * input.y + right * input.x) * (freePanSpeed * dt);
+    }
+
+    public void SetAimPitch(float deg)
+    {
+        aimPitchDeg = deg;
+    }
+
+    // Mouse wheel (one zoomScrollSpeed step per notch) and two-finger pinch.
+    private void HandleZoomInput()
+    {
+        if (Mouse.current != null)
         {
-            rightFlat = Vector3.zero; // degenerate (camera looking straight up/down): no side-pan
+            Vector2 scroll = Mouse.current.scroll.ReadValue();
+            if (Mathf.Abs(scroll.y) > 0.01f)
+            {
+                distance = Mathf.Clamp(distance - Mathf.Sign(scroll.y) * zoomScrollSpeed, minDistance, maxDistance);
+            }
         }
 
-        float speed = freePanSpeed * dt;
-        _freePivot.x += (camForward.x * input.y + rightFlat.x * input.x) * speed;
-        _freePivot.y += (camForward.y * input.y + rightFlat.y * input.x) * speed;
-        _freePivot.z += (camForward.z * input.y + rightFlat.z * input.x) * speed;
+        Touchscreen ts = Touchscreen.current;
+        if (ts == null) return;
+        var touches = ts.touches;
+        Vector2 a = Vector2.zero;
+        Vector2 b = Vector2.zero;
+        int pressed = 0;
+        for (int i = 0; i < touches.Count && pressed < 2; i++)
+        {
+            if (touches[i].press.isPressed)
+            {
+                if (pressed == 0)
+                {
+                    a = touches[i].position.ReadValue();
+                }
+                else
+                {
+                    b = touches[i].position.ReadValue();
+                }
+                pressed++;
+            }
+        }
+        if (pressed > 1)
+        {
+            float d = Vector2.Distance(a, b);
+            if (prevPinchDist > 0f)
+            {
+                distance = Mathf.Clamp(distance - (d - prevPinchDist) * zoomPinchSpeed, minDistance, maxDistance);
+            }
+            prevPinchDist = d;
+            return;
+        }
+        prevPinchDist = -1f;
     }
 
     public void AuthorUI()
     {
-        // Intentionally empty in the source.
     }
 
-    // ====================== ORBIT BUTTONS UI ======================
-
+    // "CameraOrbitCanvas" (sort 6, 1080x1920): bottom-right "OrbitButtons" pad with a "Rotate view"
+    // caption and four hold buttons (< > yaw, ▲ ▼ pitch). Starts hidden.
     private void BuildOrbitButtons()
     {
-        bool canvasCreated, orbitCreated, labelCreated;
-
-        GameObject canvasGO = SceneUI.GetOrCreateCanvas("CameraOrbitCanvas", out canvasCreated);
+        GameObject canvasGO = SceneUI.GetOrCreateCanvas("CameraOrbitCanvas", out bool canvasCreated);
         Canvas canvas = SceneUI.GetOrAdd<Canvas>(canvasGO);
         if (canvasCreated)
         {
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 6;
-
             CanvasScaler scaler = SceneUI.GetOrAdd<CanvasScaler>(canvasGO);
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1080f, 1920f);
@@ -744,143 +628,118 @@ public class CameraController : MonoBehaviour
         }
         SceneUI.GetOrAdd<GraphicRaycaster>(canvasGO);
 
-        orbitButtons = SceneUI.GetOrCreate("OrbitButtons", canvasGO.transform, out orbitCreated);
+        orbitButtons = SceneUI.GetOrCreate("OrbitButtons", canvasGO.transform, out bool padCreated);
+        RectTransform rt = SceneUI.GetOrAdd<RectTransform>(orbitButtons);
+        rt.anchorMax = new Vector2(1f, 0f);
+        rt.anchorMin = new Vector2(1f, 0f);
+        rt.pivot = new Vector2(1f, 0f);
+        rt.anchoredPosition = new Vector2(-30f, 40f);
+        rt.sizeDelta = new Vector2(330f, 330f);
 
-        RectTransform orbitRt = SceneUI.GetOrAdd<RectTransform>(orbitButtons);
-        orbitRt.anchorMax = new Vector2(1f, 0f);
-        orbitRt.anchorMin = new Vector2(1f, 0f);
-        orbitRt.pivot = new Vector2(1f, 0f);
-        orbitRt.anchoredPosition = new Vector2(-30f, 40f);
-        orbitRt.sizeDelta = new Vector2(330f, 330f);
-
-        GameObject labelGO = SceneUI.GetOrCreate("OrbitLbl", orbitButtons.transform, out labelCreated);
-        Text label = SceneUI.GetOrAdd<Text>(labelGO);
-        label.font = UIFont.Default;
-        label.raycastTarget = false;
-
-        if (labelCreated)
+        GameObject lblGO = SceneUI.GetOrCreate("OrbitLbl", orbitButtons.transform, out bool lblCreated);
+        Text lbl = SceneUI.GetOrAdd<Text>(lblGO);
+        lbl.font = UIFont.Default;
+        lbl.raycastTarget = false;
+        if (lblCreated)
         {
-            label.text = "Rotate view";
-            label.fontSize = 26;
-            label.alignment = TextAnchor.LowerCenter;
-            label.color = new Color(1f, 1f, 1f, 0.8f);
-            label.horizontalOverflow = HorizontalWrapMode.Overflow;
-            label.verticalOverflow = VerticalWrapMode.Overflow;
-
-            RectTransform labelRt = label.rectTransform;
-            labelRt.anchorMin = new Vector2(0f, 1f);
-            labelRt.anchorMax = new Vector2(1f, 1f);
-            labelRt.pivot = new Vector2(0.5f, 0f);
-            labelRt.anchoredPosition = new Vector2(0f, 6f);
-            labelRt.sizeDelta = new Vector2(0f, 34f);
+            lbl.text = "Rotate view";
+            lbl.fontSize = 26;
+            lbl.alignment = TextAnchor.LowerCenter;
+            lbl.color = new Color(1f, 1f, 1f, 0.8f);
+            lbl.horizontalOverflow = HorizontalWrapMode.Overflow;
+            lbl.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform lrt = lbl.rectTransform;
+            lrt.anchorMin = new Vector2(0f, 1f);
+            lrt.anchorMax = new Vector2(1f, 1f);
+            lrt.pivot = new Vector2(0.5f, 0f);
+            lrt.anchoredPosition = new Vector2(0f, 6f);
+            lrt.sizeDelta = new Vector2(0f, 34f);
         }
 
         Sprite circle = MakeCircle(96);
-
-        // A diamond D-pad: left/right orbit yaw, up/down orbit pitch.
         MakeHoldButton(orbitButtons.transform, "<", circle, new Vector2(0f, 110f), -1, false);
         MakeHoldButton(orbitButtons.transform, ">", circle, new Vector2(220f, 110f), 1, false);
-        MakeHoldButton(orbitButtons.transform, "\u25B2", circle, new Vector2(110f, 220f), -1, true); // "▲"
-        MakeHoldButton(orbitButtons.transform, "\u25BC", circle, new Vector2(110f, 0f), 1, true);    // "▼"
-
+        MakeHoldButton(orbitButtons.transform, "▲", circle, new Vector2(110f, 220f), -1, true);
+        MakeHoldButton(orbitButtons.transform, "▼", circle, new Vector2(110f, 0f), 1, true);
         orbitButtons.SetActive(false);
     }
 
-    // Draws a soft anti-aliased circle mask into a runtime texture, used as the D-pad button icon.
-    private Sprite MakeCircle(int s)
-    {
-        Texture2D tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
-        tex.wrapMode = TextureWrapMode.Clamp;
-
-        float radius = s / 2f;
-        for (int y = 0; y < s; y++)
-        {
-            float dy = (y + 0.5f) - radius;
-            for (int x = 0; x < s; x++)
-            {
-                float dx = (x + 0.5f) - radius;
-                float edge = radius - Mathf.Sqrt(dx * dx + dy * dy);
-                float alpha = Mathf.Clamp01(edge);
-                tex.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
-            }
-        }
-
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0f, 0f, s, s), new Vector2(0.5f, 0.5f), 100f);
-    }
-
-    // Builds one round hold-to-orbit button. Holding it sets orbitDir/pitchDir (consumed in
-    // LateUpdate); releasing it clears back to 0.
+    // 110x110 round button "Orbit_<label>": holding it sets orbitDir / pitchDir to dir,
+    // releasing clears it.
     private void MakeHoldButton(Transform parent, string label, Sprite circle, Vector2 pos, int dir, bool isPitch)
     {
-        GameObject go = SceneUI.GetOrCreate("Orbit_" + label, parent, out bool _);
-
+        GameObject go = SceneUI.GetOrCreate("Orbit_" + label, parent, out bool created);
         Image img = SceneUI.GetOrAdd<Image>(go);
         img.color = new Color(0.18f, 0.19f, 0.24f, 0.9f);
         img.sprite = circle;
-
         RectTransform rt = img.rectTransform;
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.zero;
-        rt.pivot = Vector2.zero;
+        rt.anchorMax = new Vector2(0f, 0f);
+        rt.anchorMin = new Vector2(0f, 0f);
+        rt.pivot = new Vector2(0f, 0f);
         rt.anchoredPosition = pos;
         rt.sizeDelta = new Vector2(110f, 110f);
 
-        GameObject labelGO = SceneUI.GetOrCreate("L", go.transform, out bool labelCreated);
-        Text text = SceneUI.GetOrAdd<Text>(labelGO);
-        text.font = UIFont.Default;
-        text.raycastTarget = false;
-        text.text = label;
-
-        if (labelCreated)
+        GameObject txtGO = SceneUI.GetOrCreate("L", go.transform, out bool txtCreated);
+        Text txt = SceneUI.GetOrAdd<Text>(txtGO);
+        txt.font = UIFont.Default;
+        txt.raycastTarget = false;
+        txt.text = label;
+        if (txtCreated)
         {
-            text.fontSize = 60;
-            text.alignment = TextAnchor.MiddleCenter;
-            text.color = Color.white;
-            text.horizontalOverflow = HorizontalWrapMode.Overflow;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-
-            RectTransform labelRt = text.rectTransform;
-            labelRt.anchorMin = Vector2.zero;
-            labelRt.anchorMax = Vector2.one;
-            labelRt.offsetMin = Vector2.zero;
-            labelRt.offsetMax = Vector2.zero;
+            txt.fontSize = 60;
+            txt.alignment = TextAnchor.MiddleCenter;
+            txt.color = Color.white;
+            txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+            txt.verticalOverflow = VerticalWrapMode.Overflow;
+            Stretch(txt);
         }
 
-        // NOTE: the two press/release callback bodies (<MakeHoldButton>b__0 / b__1 in the dump)
-        // weren't included in the pasted assembly — only the closure wiring (capturing 'this',
-        // isPitch, dir) was shown. The implementation below is inferred from how orbitDir/pitchDir
-        // are consumed in LateUpdate (nonzero while held, zero once released); JoyDrag's own field
-        // names (onPointerDown/onPointerUp) are guessed too, since JoyDrag hasn't been reversed —
-        // paste it if you have it, to confirm both.
-        JoyDrag joyDrag = SceneUI.GetOrAdd<JoyDrag>(go);
-
-        joyDrag.onPointer = _ =>
+        JoyDrag drag = SceneUI.GetOrAdd<JoyDrag>(go);
+        drag.onPointer = e =>
         {
             if (isPitch)
+            {
                 pitchDir = dir;
+            }
             else
+            {
                 orbitDir = dir;
+            }
         };
-
-        joyDrag.onUp = _ =>
+        drag.onUp = e =>
         {
             if (isPitch)
+            {
                 pitchDir = 0;
+            }
             else
+            {
                 orbitDir = 0;
+            }
         };
     }
 
-    // ====================== SMALL UI HELPERS ======================
-    // (Unused by BuildOrbitButtons, which goes through SceneUI instead — kept since they were
-    // present in the dump; possibly leftover from an earlier version of this class.)
+    // Creates an EventSystem if none exists: new Input System UI module when that package is
+    // present (looked up by name), else StandaloneInputModule.
+    private void EnsureEventSystem()
+    {
+        if (FindFirstObjectByType<EventSystem>() != null) return;
+
+        GameObject go = new GameObject("EventSystem");
+        go.AddComponent<EventSystem>();
+        Type inputModule = Type.GetType("UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem");
+        if (inputModule != null)
+        {
+            go.AddComponent(inputModule);
+            return;
+        }
+        go.AddComponent<StandaloneInputModule>();
+    }
 
     private Image NewImage(string name, Transform parent, Color color, Sprite sprite)
     {
         GameObject go = new GameObject(name);
         go.transform.SetParent(parent, false);
-
         Image img = go.AddComponent<Image>();
         img.color = color;
         img.sprite = sprite;
@@ -891,24 +750,42 @@ public class CameraController : MonoBehaviour
     {
         GameObject go = new GameObject(name);
         go.transform.SetParent(parent, false);
-
-        Text text = go.AddComponent<Text>();
-        text.font = UIFont.Default;
-        text.text = content;
-        text.fontSize = size;
-        text.alignment = anchor;
-        text.color = color;
-        text.horizontalOverflow = HorizontalWrapMode.Overflow;
-        text.verticalOverflow = VerticalWrapMode.Overflow;
-        return text;
+        Text txt = go.AddComponent<Text>();
+        txt.font = UIFont.Default;
+        txt.text = content;
+        txt.fontSize = size;
+        txt.alignment = anchor;
+        txt.color = color;
+        txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+        txt.verticalOverflow = VerticalWrapMode.Overflow;
+        return txt;
     }
 
-    private void Stretch(Component c)
+    private static void Stretch(Component c)
     {
-        RectTransform rt = (RectTransform)c.transform;
+        RectTransform rt = c.transform as RectTransform;
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.one;
         rt.offsetMin = Vector2.zero;
         rt.offsetMax = Vector2.zero;
+    }
+
+    // White s x s circle, alpha = clamped distance inside the edge (1-pixel soft rim).
+    private static Sprite MakeCircle(int s)
+    {
+        Texture2D tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
+        tex.wrapMode = TextureWrapMode.Clamp;
+        float r = s / 2f;
+        for (int y = 0; y < s; y++)
+        {
+            for (int x = 0; x < s; x++)
+            {
+                float dx = x + 0.5f - r;
+                float dy = y + 0.5f - r;
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Clamp01(r - Mathf.Sqrt(dx * dx + dy * dy))));
+            }
+        }
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0f, 0f, s, s), new Vector2(0.5f, 0.5f), 100f);
     }
 }

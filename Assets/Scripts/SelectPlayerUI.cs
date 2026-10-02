@@ -3,58 +3,46 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
-// NOTE: Resolves SelectPlayerUI, previously known only from call sites (Instance, Ready, Show
-// were in the original handoff's never-reversed list). Structurally similar to MapSelectPopup
-// (canvas resolution, per-option "Select" highlight frame, Back/Confirm) but simpler - a fixed
-// 2-character picker with no ad-gating, that persists the choice via PlayerPrefs and reloads the
-// current scene to apply it. Adds two new confirmed members to the already-delivered
-// CharacterSelect.cs from an earlier session: CurrentIndex (int getter) and prefsKey (string
-// field) - worth patching that file if you want it complete. Also confirms canvasName
-// ("SelectPlayerCanvas") matches the separately-delivered SelectPlayerCanvas.cs from an earlier
-// session, likely companion components on the same canvas.
+// Re-verified method by method against raw Ghidra output. Fields (names, order, attributes,
+// offsets) and method accessibility match dump.cs (TypeDefIndex 9716). All string literals are
+// confirmed against Dumpstringliteral.json.
 //
-// RE-VERIFICATION PASS: checked every control-flow branch, every warning-message construction
-// point, and the Confirm()/Back()/PickCharacter()/RefreshHighlight() logic against the raw
-// pseudocode line-for-line. No confirmable bugs found — this file already matched exactly.
-// Specifically confirmed (not just plausible-sounding) on this pass:
-//   - the crash-on-null-buttonNames behavior covers both the per-button loop AND the play-button
-//     resolution below it (both sit inside the same implicit raw guard, not separately guarded);
-//   - the play button's click handler is bound directly to Confirm (no closure — it captures
-//     nothing), while each per-character button's handler needs (and gets) a closure over `this`
-//     and its own index;
-//   - Confirm()'s reload-vs-callback-only branch condition and which value feeds `currentIndex`
-//     in each case (__cs.CurrentIndex vs _pending) match the raw condition exactly.
-// There are no packed Vector/Color/Rect hex constants in this file to decode — it's pure
-// control-flow/logic, so there was no room for the kind of bit-decoding slip found in some of the
-// earlier files' UI-layout code.
+// Decoded from libil2cpp.so with capstone: <>c__DisplayClass20_0 (idx 0x10, this 0x18).
+// <Resolve>b__0 = PickCharacter(idx). Button+0x100 (Ghidra "[10].fields.m_CachedPtr") = onClick.
+// backButtonName is declared but no method reads it (the back button is wired in the scene).
+//
+// Convention: where raw jumps to the NullReferenceException stub, the C# just dereferences
+// naturally; explicit null checks are kept only where raw really skips.
 public class SelectPlayerUI : MonoBehaviour
 {
-    [SerializeField] private string canvasName = "SelectPlayerCanvas";
-    [SerializeField] private string[] buttonNames = { "BtnPlayer", "BtnPlayer2" };
-    [SerializeField] private string playButtonName = "ButtonPlay";
-    [SerializeField] private string selectChildName = "Select";
-    // NOTE: confirmed field (assigned in .ctor) but never referenced anywhere in Resolve() or
-    // any other method in this paste - genuinely unused in what was decompiled here, not an
-    // omission on my part.
-    [SerializeField] private string backButtonName = "BtnExit";
-    [SerializeField] private string pendingModeKey = "PendingMatchMode";
-
-    private CharacterSelect __cs;
+    [Tooltip("Scene name of the popup canvas.")]
+    public string canvasName = "SelectPlayerCanvas";
+    [Tooltip("Character button objects under the canvas, in CharacterSelect index order (BtnPlayer=Player=0, BtnPlayer2=Player2=1).")]
+    public string[] buttonNames = { "BtnPlayer", "BtnPlayer2" };
+    [Tooltip("Name of the PLAY (confirm) button under the canvas.")]
+    public string playButtonName = "ButtonPlay";
+    [Tooltip("Blue selection-frame child of each character button (shown only on the chosen one).")]
+    public string selectChildName = "Select";
+    [Tooltip("Back/exit button under the canvas — closes this popup and returns to the previous screen (Home).")]
+    public string backButtonName = "BtnExit";
+    [Tooltip("PlayerPrefs flag: match mode to resume after a character-switch reload (-1 = none). Read by HomeUI.")]
+    public string pendingModeKey = "PendingMatchMode";
     private GameObject _canvas;
     private GameObject[] _frames;
-    private int _pending;
-    private int _mode;
+    private CharacterSelect _cs;
     private Action _onConfirm;
     private Action _onBack;
+    private int _mode;
+    private int _pending;
 
-    public static SelectPlayerUI Instance { get; set; }
+    public static SelectPlayerUI Instance { get; private set; }
 
     public bool Ready => _canvas != null;
 
     private void Awake()
     {
         Instance = this;
-        __cs = FindFirstObjectByType<CharacterSelect>();
+        _cs = FindFirstObjectByType<CharacterSelect>();
         Resolve();
         if (_canvas != null)
         {
@@ -62,96 +50,66 @@ public class SelectPlayerUI : MonoBehaviour
         }
     }
 
+    // Finds the popup, each character button's "Select" frame, and wires the character buttons
+    // (PickCharacter) and PLAY (Confirm).
     private void Resolve()
     {
         _canvas = FindInScene(canvasName);
         if (_canvas == null)
         {
-            Debug.LogWarning($"[SelectPlayer] '{canvasName}' not found.");
+            Debug.LogWarning("[SelectPlayer] '" + canvasName + "' not found.");
             return;
         }
-
-        // NOTE: decompiled has no null-guard on buttonNames here - crashes via
-        // NullReferenceException if unassigned, matching the abort-on-null pattern used
-        // throughout this codebase. Confirmed this applies to the play-button resolution below
-        // too, not just this loop - both sit inside the same implicit raw guard.
-        _frames = new GameObject[buttonNames.Length];
-
-        for (int i = 0; i < buttonNames.Length; i++)
+        int count = buttonNames.Length;
+        _frames = new GameObject[count];
+        for (int i = 0; i < count; i++)
         {
-            Transform btnT = FindUnder(_canvas.transform, buttonNames[i]);
-            if (btnT == null)
+            Transform btnTf = FindUnder(_canvas.transform, buttonNames[i]);
+            if (btnTf == null)
             {
-                Debug.LogWarning($"[SelectPlayer] '{buttonNames[i]}' not found under '{canvasName}'.");
+                Debug.LogWarning("[SelectPlayer] '" + buttonNames[i] + "' not found under " + canvasName + ".");
                 continue;
             }
-
-            Transform selectT = btnT.Find(selectChildName);
-            if (selectT != null)
+            Transform frame = btnTf.Find(selectChildName);
+            if (frame != null)
             {
-                _frames[i] = selectT.gameObject;
+                _frames[i] = frame.gameObject;
             }
-
-            Button btn = btnT.GetComponent<Button>();
+            Button btn = btnTf.GetComponent<Button>();
             if (btn != null)
             {
-                // NOTE: click-handler lambda (`<Resolve>b__0`) itself wasn't decompiled - only
-                // that it's cached in a closure capturing (this, index). Reconstructed as
-                // PickCharacter(index), the clear intent given exactly those captured variables.
-                int index = i;
+                int idx = i;
                 btn.onClick.RemoveAllListeners();
-                btn.onClick.AddListener(() => PickCharacter(index));
+                btn.onClick.AddListener(() => PickCharacter(idx));
             }
         }
 
-        Transform playBtnT = FindUnder(_canvas.transform, playButtonName);
-        if (playBtnT == null)
+        Transform play = FindUnder(_canvas.transform, playButtonName);
+        if (play == null)
         {
-            Debug.LogWarning($"[SelectPlayer] '{playButtonName}' not found under '{canvasName}'.");
+            Debug.LogWarning("[SelectPlayer] '" + playButtonName + "' not found under " + canvasName + ".");
             return;
         }
-
-        Button playBtn = playBtnT.GetComponent<Button>();
-        if (playBtn != null)
-        {
-            // CONFIRMED: bound directly to Confirm (no closure - unlike the per-button handlers
-            // above, this UnityAction captures nothing, matching a plain instance-method target).
-            playBtn.onClick.RemoveAllListeners();
-            playBtn.onClick.AddListener(Confirm);
-        }
+        Button playBtn = play.GetComponent<Button>();
+        if (playBtn == null) return;
+        playBtn.onClick.RemoveAllListeners();
+        playBtn.onClick.AddListener(Confirm);
     }
 
+    // Opens the picker for a match mode; without the popup, continues straight away.
     public void Show(int mode, Action onConfirm, Action onBack)
     {
         _mode = mode;
         _onConfirm = onConfirm;
         _onBack = onBack;
         _pending = 0;
-
         if (_canvas == null)
         {
             onConfirm?.Invoke();
             return;
         }
-
         _canvas.SetActive(true);
         RefreshHighlight();
-    }
-
-    private void RefreshHighlight()
-    {
-        if (_frames == null)
-        {
-            return;
-        }
-
-        for (int i = 0; i < _frames.Length; i++)
-        {
-            if (_frames[i] != null)
-            {
-                _frames[i].SetActive(i == _pending);
-            }
-        }
     }
 
     public void Back()
@@ -160,11 +118,10 @@ public class SelectPlayerUI : MonoBehaviour
         {
             _canvas.SetActive(false);
         }
-
-        Action onBack = _onBack;
+        Action cb = _onBack;
         _onBack = null;
         _onConfirm = null;
-        onBack?.Invoke();
+        cb?.Invoke();
     }
 
     public void PickCharacter(int i)
@@ -173,58 +130,39 @@ public class SelectPlayerUI : MonoBehaviour
         RefreshHighlight();
     }
 
-    // If the picked character actually changed, shows an instant loading screen, persists the
-    // choice + pending match mode to PlayerPrefs, and reloads the current scene to apply it.
-    // Otherwise just fires the onConfirm callback without reloading anything.
+    // Same character: continue. A different one: save it plus the pending match mode and reload
+    // the scene (HomeUI resumes the mode after the reload).
     public void Confirm()
     {
         if (_canvas != null)
         {
             _canvas.SetActive(false);
         }
-
-        int currentIndex = (__cs != null) ? __cs.CurrentIndex : _pending;
-
-        if (__cs != null && _pending != currentIndex)
+        int current = _cs != null ? _cs.CurrentIndex : _pending;
+        if (_cs != null && _pending != current)
         {
             LoadingScreen.ShowInstant();
-
-            // NOTE: CharacterSelect.prefsKey is accessed directly here (raw field read in the
-            // decompiled code) - assumes it's public/internal on CharacterSelect; not
-            // re-verified against that already-delivered file in this session.
-            PlayerPrefs.SetInt(__cs.prefsKey, _pending);
+            PlayerPrefs.SetInt(_cs.prefsKey, _pending);
             PlayerPrefs.SetInt(pendingModeKey, _mode);
             PlayerPrefs.Save();
-
-            int buildIndex = SceneManager.GetActiveScene().buildIndex;
-            SceneManager.LoadScene(buildIndex);
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+            return;
         }
-        else
-        {
-            Action onConfirm = _onConfirm;
-            _onConfirm = null;
-            onConfirm?.Invoke();
-        }
+        Action cb = _onConfirm;
+        _onConfirm = null;
+        cb?.Invoke();
     }
 
-    private static GameObject FindInScene(string n)
+    private void RefreshHighlight()
     {
-        GameObject go = GameObject.Find(n);
-        if (go != null)
+        if (_frames == null) return;
+        for (int i = 0; i < _frames.Length; i++)
         {
-            return go;
-        }
-
-        Transform[] all = Resources.FindObjectsOfTypeAll<Transform>();
-        for (int i = 0; i < all.Length; i++)
-        {
-            Transform t = all[i];
-            if (t.name == n && t.gameObject.scene.IsValid())
+            if (_frames[i] != null)
             {
-                return t.gameObject;
+                _frames[i].SetActive(i == _pending);
             }
         }
-        return null;
     }
 
     private static Transform FindUnder(Transform root, string name)
@@ -235,6 +173,26 @@ public class SelectPlayerUI : MonoBehaviour
             if (all[i].name == name)
             {
                 return all[i];
+            }
+        }
+        return null;
+    }
+
+    // GameObject.Find, else any scene object of that name (also inactive ones).
+    private static GameObject FindInScene(string n)
+    {
+        GameObject go = GameObject.Find(n);
+        if (go != null)
+        {
+            return go;
+        }
+        Transform[] all = Resources.FindObjectsOfTypeAll<Transform>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            Transform t = all[i];
+            if (t.name == n && t.gameObject.scene.IsValid())
+            {
+                return t.gameObject;
             }
         }
         return null;

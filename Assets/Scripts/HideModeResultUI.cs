@@ -2,48 +2,43 @@ using System;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
-// UnityEngine.Object and System.Object are both in scope (using System + using UnityEngine), so a bare
-// `Object.` is ambiguous (CS0104). This alias makes every `Object.X` mean UnityEngine.Object.
 using Object = UnityEngine.Object;
 
+// Re-verified method by method against raw Ghidra output. Every string literal is confirmed against
+// Dumpstringliteral.json. Convention used throughout: wherever raw jumps to the shared NRE-throw on a
+// null, the C# just dereferences and lets the natural NullReferenceException happen; explicit
+// `if (x != null)` guards are kept only where raw genuinely skips.
+//
+// Fields (names, order, offsets, attributes), the nested ResultUI class, and every method's
+// accessibility match dump.cs (TypeDefIndex 9675 / ResultUI 9673 / DisplayClass79_0 9674).
+// Every method, constructor and lambda has been checked against its raw decompile.
 public class HideModeResultUI : MonoBehaviour
 {
-    // Confirmed via the static constructor (decoded the packed Color hex constants). RowLabelTint is
-    // used for the stat-row label text color; GoldColor is used for the "Gold" row's value text.
-    private static readonly Color RowLabelTint;
-    private static readonly Color GoldColor;
-
-    static HideModeResultUI()
-    {
-        RowLabelTint = new Color(0.92f, 0.94f, 1f, 1f);
-        GoldColor = new Color(1f, 0.86f, 0.3f, 1f);
-    }
-
-    [Serializable]
-    public class ResultUI
+    // ResultUI$$.ctor allocates all three arrays at length 3 before the base object ctor, i.e. they
+    // are field initializers.
+    private class ResultUI
     {
         public GameObject root;
-        public Image[] icon;
-        public Text[] label;
-        public Text[] value;
+        public readonly Image[] icon = new Image[3];
+        public readonly Text[] label = new Text[3];
+        public readonly Text[] value = new Text[3];
     }
 
-    public Vector2Int winCoinRange = new Vector2Int(50, 100);
-    public Vector2Int loseCoinRange = new Vector2Int(30, 50);
-
-    public ResultUI victory;
-    public ResultUI defeat;
-
+    [Header("Modal popups (Assets/Texture2D)")]
     public Sprite panelCaught;
     public Sprite titleCaught;
     public Sprite titleTimeUp;
     public Sprite btnReviveBg;
     public Sprite btnGiveUpBg;
     public Sprite adsIcon;
+
+    [Header("Result banners (Assets/Texture2D)")]
     public Sprite bannerVictory;
     public Sprite bannerDefeat;
     public Sprite iconRankPodium;
     public Sprite iconPaintMedal;
+
+    [Header("Result shared (Assets/Texture2D)")]
     public Sprite statRow;
     public Sprite iconGold;
     public Sprite btnHomeBg;
@@ -53,35 +48,43 @@ public class HideModeResultUI : MonoBehaviour
     public Sprite iconNext;
     public Sprite iconAds;
 
+    [Header("Coin reward (rolled at random, then added to GameData.Coin)")]
+    [Tooltip("WIN: coins awarded are a random value in [x..y] (inclusive). Tune the range here.")]
+    public Vector2Int winCoinRange = new Vector2Int(50, 100);
+    [Tooltip("LOSE: coins awarded are a random value in [x..y] (inclusive).")]
+    public Vector2Int loseCoinRange = new Vector2Int(30, 50);
+
     private int _lastReward;
-    private HomeUI homeUI;
-    private GameModeManager gmm;
-    private GameObject canvasGO;
     private Font font;
+    private GameObject canvasGO;
     private GameObject caughtRoot;
     private GameObject timeUpRoot;
     private Button reviveBtn;
     private Button giveUpBtn;
     private Button extraBtn;
     private Button giveUp2Btn;
+    // Confirmed from raw .ctor: constructed after the coin ranges, before the base ctor - i.e. field
+    // initializers, so no explicit constructor is needed.
+    private readonly ResultUI victory = new ResultUI();
+    private readonly ResultUI defeat = new ResultUI();
     private Action _onRevive;
     private Action _onGiveUp;
     private Action _onExtra;
     private Action _onGiveUp2;
-
+    private HomeUI homeUI;
+    private GameModeManager gmm;
     private Camera _fxCam;
     private RawImage _fxImg;
     private GameObject _fxEffect;
     private RenderTexture _fxRT;
 
-    public HideModeResultUI()
-    {
-        victory = new ResultUI();
-        defeat = new ResultUI();
-    }
+    // Decoded from .cctor's packed writes into the static block: RowLabel (+0x00) = (0.92, 0.94, 1, 1)
+    // for the stat-row label text; GoldYellow (+0x10) = (1, 0.86, 0.3, 1) for the Gold row's value.
+    private static readonly Color RowLabel = new Color(0.92f, 0.94f, 1f, 1f);
+    private static readonly Color GoldYellow = new Color(1f, 0.86f, 0.3f, 1f);
 
-    // Rolls a random coin reward from winCoinRange/loseCoinRange, credits it to GameData.Coin, and
-    // refreshes the coin HUD via GameController if present.
+    // Rolls a random coin reward from winCoinRange/loseCoinRange (inclusive, order-independent),
+    // credits it to GameData.Coin, and refreshes the coin HUD via GameController if present.
     private int RollAndCredit(bool win)
     {
         Vector2Int range = win ? winCoinRange : loseCoinRange;
@@ -92,10 +95,9 @@ public class HideModeResultUI : MonoBehaviour
 
         GameData.Coin = _lastReward + GameData.Coin;
 
-        GameController controller = SingletonMonoBehavior<GameController>.Instance;
-        if (controller != null)
+        if (SingletonMonoBehavior<GameController>.Instance != null)
         {
-            controller.UpdateTextCoin();
+            SingletonMonoBehavior<GameController>.Instance.UpdateTextCoin();
         }
 
         return _lastReward;
@@ -121,17 +123,11 @@ public class HideModeResultUI : MonoBehaviour
         }
     }
 
-    // NOTE: "AuthorUI" (further down) decompiles to byte-for-byte identical code to this method,
-    // right down to sharing the same static-init guard variable — strong evidence they're really the
-    // same source method under two names (or AuthorUI is a thin alias). Implemented once here;
-    // AuthorUI() just forwards to it.
-    //
-    // FIX (confirmed via hex decode): the packed CanvasScaler.referenceResolution constant decodes to
-    // x=1920, y=1080 (per the established low32=x/high32=y convention) - a prior draft had these
-    // swapped as (1080, 1920).
-    //
-    // FIX (confirmed): raw throws if SceneUI.UIRoot() returns null - a prior draft's
-    // `if (uiRoot == null) return;` silently skipped that case instead.
+    // AuthorUI (further down) decompiles to byte-for-byte identical code, down to sharing the same
+    // metadata-init guard - implemented once here, AuthorUI forwards.
+    // referenceResolution 0x4487000044f00000 decodes to x = 1920, y = 1080 (landscape).
+    // FIX (confirmed from raw): a null Canvas or CanvasScaler from GetOrAdd throws; it is not a
+    // silent return.
     private void EnsureBuilt()
     {
         if (canvasGO != null) return;
@@ -150,17 +146,13 @@ public class HideModeResultUI : MonoBehaviour
         }
 
         Transform existing = uiRoot.Find("HideResultCanvas");
-        canvasGO = existing != null ? existing.gameObject : SceneUI.GetOrCreate("HideResultCanvas", null, out bool _created);
+        canvasGO = existing != null ? existing.gameObject : SceneUI.GetOrCreate("HideResultCanvas", null, out bool _);
 
         Canvas canvas = SceneUI.GetOrAdd<Canvas>(canvasGO);
-        if (canvas == null) return;
-
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 40;
 
         CanvasScaler scaler = SceneUI.GetOrAdd<CanvasScaler>(canvasGO);
-        if (scaler == null) return;
-
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
@@ -173,12 +165,14 @@ public class HideModeResultUI : MonoBehaviour
         EnsureResult(defeat, "DefeatPopup", bannerDefeat);
     }
 
+    // FIX (confirmed from raw): a null victory or defeat throws (the fx call is only reached when
+    // both exist); only a null root inside each is a silent skip.
     public void HideAll()
     {
         if (caughtRoot != null) caughtRoot.SetActive(false);
         if (timeUpRoot != null) timeUpRoot.SetActive(false);
-        if (victory != null && victory.root != null) victory.root.SetActive(false);
-        if (defeat != null && defeat.root != null) defeat.root.SetActive(false);
+        if (victory.root != null) victory.root.SetActive(false);
+        if (defeat.root != null) defeat.root.SetActive(false);
 
         PlayVictoryFx(false);
     }
@@ -191,26 +185,23 @@ public class HideModeResultUI : MonoBehaviour
         ShowOnly(caughtRoot);
     }
 
+    // FIX (confirmed from raw): a null victory, defeat or canvasGO throws - none are silent returns.
     private void ShowOnly(GameObject root)
     {
         RootManager.Instance?.SetNumber(2);
 
         if (caughtRoot != null) caughtRoot.SetActive(root == caughtRoot);
         if (timeUpRoot != null) timeUpRoot.SetActive(root == timeUpRoot);
-        if (victory != null && victory.root != null) victory.root.SetActive(root == victory.root);
-        if (defeat != null && defeat.root != null) defeat.root.SetActive(root == defeat.root);
-
-        if (canvasGO == null) return;
+        if (victory.root != null) victory.root.SetActive(root == victory.root);
+        if (defeat.root != null) defeat.root.SetActive(root == defeat.root);
 
         canvasGO.SetActive(true);
-
-        if (victory == null) return;
 
         if (root == victory.root)
         {
             AudioManager.Win();
         }
-        else if (defeat != null && root == defeat.root)
+        else if (root == defeat.root)
         {
             AudioManager.Lose();
         }
@@ -226,66 +217,47 @@ public class HideModeResultUI : MonoBehaviour
         ShowOnly(timeUpRoot);
     }
 
-    // NOTE: survivalSecs/timeLeftSecs (here and in the three sibling ShowXxx methods below) are
-    // decompiled as being loaded into the same register slot RollAndCredit's unused trailing
-    // "MethodInfo" parameter occupies, and RollAndCredit never reads that slot. That means, as
-    // decompiled, this parameter has no observable effect on behavior — kept in the signature since
-    // external callers pass it, but it isn't wired to anything in this dump.
+    // The seconds parameter here (and in the three siblings below) is confirmed unused in raw - it
+    // is only ever loaded into a dead register. Kept since callers pass it.
     public void ShowVictory(string rank, int survivalSecs, int paintScore)
     {
-        string score = paintScore.ToString();
-        int gold = RollAndCredit(true);
-        FillResult(victory, rank, score, gold);
+        FillResult(victory, rank, paintScore.ToString(), RollAndCredit(true));
     }
 
+    // FIX (confirmed from raw): no bounds checks - rr, rr.value, and an array shorter than 3 all
+    // throw. Only a null element is skipped. The gold text is "+" + gold (StringLiteral_943).
     private void FillResult(ResultUI rr, string rank, string score, int gold)
     {
         EnsureBuilt();
 
-        if (rr == null || rr.value == null) return;
-
-        if (rr.value.Length > 0 && rr.value[0] != null)
-        {
-            rr.value[0].text = rank;
-        }
-
-        if (rr.value.Length > 1 && rr.value[1] != null)
-        {
-            rr.value[1].text = score;
-        }
-
-        if (rr.value.Length > 2 && rr.value[2] != null)
-        {
-            rr.value[2].text = "+" + gold;
-        }
+        if (rr.value[0] != null) rr.value[0].text = rank;
+        if (rr.value[1] != null) rr.value[1].text = score;
+        if (rr.value[2] != null) rr.value[2].text = "+" + gold;
 
         ShowOnly(rr.root);
     }
 
     public void ShowDefeat(string rank, int timeLeftSecs, int found)
     {
-        string score = found.ToString();
-        int gold = RollAndCredit(false);
-        FillResult(defeat, rank, score, gold);
+        FillResult(defeat, rank, found.ToString(), RollAndCredit(false));
     }
 
     public void ShowVictorySeek(string rank, int timeLeftSecs, int found)
     {
-        string score = found.ToString();
-        int gold = RollAndCredit(true);
-        FillResult(victory, rank, score, gold);
+        FillResult(victory, rank, found.ToString(), RollAndCredit(true));
     }
 
     public void ShowDefeatSeek(string rank, int timeLeftSecs, int found)
     {
-        string score = found.ToString();
-        int gold = RollAndCredit(false);
-        FillResult(defeat, rank, score, gold);
+        FillResult(defeat, rank, found.ToString(), RollAndCredit(false));
     }
 
-    // Shows/hides a secondary camera that renders into a RenderTexture displayed on a RawImage, plus
-    // a particle-effect GameObject — used for the victory celebration effect. Resolves its three
-    // targets (by scene-wide name search) lazily, on first use.
+    // Shows/hides the victory celebration: a secondary camera rendering into a 1920x1080 ARGB32
+    // RenderTexture (24-bit depth) shown on a RawImage, plus a particle-effect object. Its three
+    // targets ("VictoryFxCam", "VictoryFxImage", "Effect") are resolved lazily by scene-wide name.
+    // FIX (confirmed from raw): a null particle array or a null element throws (it does not return
+    // early), and the "off" path stops with ParticleSystemStopBehavior 0 = StopEmittingAndClear,
+    // not StopEmitting.
     private void PlayVictoryFx(bool on)
     {
         if (_fxCam == null)
@@ -298,6 +270,11 @@ public class HideModeResultUI : MonoBehaviour
         {
             GameObject imgGO = FindGO("VictoryFxImage");
             if (imgGO != null) _fxImg = imgGO.GetComponent<RawImage>();
+
+            if (_fxImg != null)
+            {
+                _fxImg.raycastTarget = false;
+            }
         }
 
         if (_fxEffect == null)
@@ -324,43 +301,34 @@ public class HideModeResultUI : MonoBehaviour
             _fxCam.enabled = true;
             _fxEffect.SetActive(true);
 
-            ParticleSystem[] systems = _fxEffect.GetComponentsInChildren<ParticleSystem>(true);
-            if (systems != null)
+            foreach (ParticleSystem ps in _fxEffect.GetComponentsInChildren<ParticleSystem>(true))
             {
-                foreach (ParticleSystem ps in systems)
-                {
-                    if (ps == null) return;
-                    ps.Clear(true);
-                    ps.Play(true);
-                }
+                ps.Clear(true);
+                ps.Play(true);
             }
         }
         else
         {
-            _fxCam.enabled = false;
+            if (_fxCam != null) _fxCam.enabled = false;
 
-            Transform imgParent = _fxImg.transform.parent;
-            if (imgParent != null) imgParent.gameObject.SetActive(false);
-
-            ParticleSystem[] systems = _fxEffect.GetComponentsInChildren<ParticleSystem>(true);
-            if (systems != null)
+            if (_fxImg != null)
             {
-                foreach (ParticleSystem ps in systems)
+                Transform imgParent = _fxImg.transform.parent;
+                if (imgParent != null) imgParent.gameObject.SetActive(false);
+            }
+
+            if (_fxEffect != null)
+            {
+                foreach (ParticleSystem ps in _fxEffect.GetComponentsInChildren<ParticleSystem>(true))
                 {
-                    if (ps == null) return;
-                    ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 }
             }
         }
     }
 
-    // Scene-wide named-object lookup (same "GameObject.Find, then fall back to scanning every loaded
-    // Transform and filtering to ones actually in a valid scene" pattern used elsewhere in this
-    // project, e.g. GameModeManager.FindInSceneByName).
-    //
-    // FIX (confirmed): raw explicitly throws in three cases here that a prior draft instead handled
-    // silently - FindObjectsOfTypeAll<Transform>() returning null, a loop element being null, and
-    // t.gameObject being null. Same fix as GameModeManager.FindInSceneByName earlier this session.
+    // Scene-wide named-object lookup: GameObject.Find first, then a scan of every loaded Transform
+    // filtered to ones in a valid scene. A null array, null element or null gameObject throws.
     private static GameObject FindGO(string n)
     {
         GameObject found = GameObject.Find(n);
@@ -395,27 +363,24 @@ public class HideModeResultUI : MonoBehaviour
         return null;
     }
 
-    // See the NOTE on EnsureBuilt() above — identical decompiled body, forwarded here.
-    private void AuthorUI()
+    // See the note on EnsureBuilt() - identical decompiled body.
+    public void AuthorUI()
     {
         EnsureBuilt();
     }
 
-    // NOTE: as decompiled, this method loads 18 sprite-path-looking string literals in its static-init
-    // block but never actually reads any of them in the body — every statement below just re-assigns
-    // each sprite field to its own current value (a GC write-barrier touch, functionally a no-op).
-    // This strongly looks like dead code left over from what was probably originally a
-    // Resources.Load<Sprite>(path) call per field, optimized away because these are Inspector-assigned
-    // serialized fields already. Implemented faithfully as a no-op; the 18 literal path strings aren't
-    // reproduced here since nothing in this dump uses them.
+    // Confirmed no-op: raw loads 18 sprite-path string literals in its metadata-init block but never
+    // uses them - the body only re-assigns each of the 18 sprite fields to itself (a GC write-barrier
+    // touch). Almost certainly leftover from Resources.Load<Sprite>(path) calls that were removed.
+    // For reference, the 18 unused paths are: "end/ADS", "end/cion next", "end/gold", "end/home",
+    // "end/icon home", "end/next", "end/x2 gold", "end/Rectangle 2 copy 13",
+    // "mode/Rectangle 2 copy 11", "mode/Rounded Rectangle 5 copy 7",
+    // "mode/Rounded Rectangle 5 copy 9", "mode/You Got Caught_", "mode/Time’s Up_", "mode/ads2",
+    // "WinLose/Layer 33", "WinLose/Layer 34", "WinLose/victory", "WinLose/lose".
     private void ResolveSprites()
     {
-        // Intentionally empty — see note above.
     }
 
-    // FIX (confirmed): raw throws if canvasGO == null here (falls through the
-    // `canvasGO != null && get_transform(canvasGO) != null` guard to the function's shared throw) -
-    // a prior draft's `if (canvasGO == null) return;` silently skipped that case instead.
     private void EnsureCaught()
     {
         if (canvasGO == null)
@@ -433,7 +398,6 @@ public class HideModeResultUI : MonoBehaviour
         caughtRoot = existing.gameObject;
     }
 
-    // FIX (confirmed): same as EnsureCaught above - raw throws on canvasGO == null.
     private void EnsureTimeUp()
     {
         if (canvasGO == null)
@@ -451,7 +415,7 @@ public class HideModeResultUI : MonoBehaviour
         timeUpRoot = existing.gameObject;
     }
 
-    // FIX (confirmed): same as EnsureCaught above - raw throws on canvasGO == null.
+    // FIX (confirmed from raw): when the popup already exists, a null rr throws (not skipped).
     private void EnsureResult(ResultUI rr, string rootName, Sprite banner)
     {
         if (canvasGO == null)
@@ -466,149 +430,110 @@ public class HideModeResultUI : MonoBehaviour
             return;
         }
 
-        if (rr != null)
-        {
-            rr.root = existing.gameObject;
-            BindResultRows(rr);
-        }
+        rr.root = existing.gameObject;
+        BindResultRows(rr);
     }
 
+    // FIX (confirmed from raw): a missing root, "Panel", "ActionBtn" or "GiveUpBtn", or a missing
+    // Button on either, all throw - there are no silent returns in this method.
     private void BuildCaught()
     {
         caughtRoot = BuildModalPopup("CaughtPopup", titleCaught, "Watch an ad to get one more chance.", "Revive");
 
-        Transform panel = caughtRoot != null ? caughtRoot.transform.Find("Panel") : null;
-        Transform actionBtnTf = panel != null ? panel.Find("ActionBtn") : null;
-        if (actionBtnTf == null) return;
-
-        reviveBtn = actionBtnTf.GetComponent<Button>();
-
-        Transform giveUpBtnTf = panel.Find("GiveUpBtn");
-        if (giveUpBtnTf == null) return;
-
-        giveUpBtn = giveUpBtnTf.GetComponent<Button>();
+        Transform panel = caughtRoot.transform.Find("Panel");
+        reviveBtn = panel.Find("ActionBtn").GetComponent<Button>();
+        giveUpBtn = panel.Find("GiveUpBtn").GetComponent<Button>();
 
         if (reviveBtn != null) reviveBtn.onClick.AddListener(OnReviveClicked);
         if (giveUpBtn != null) giveUpBtn.onClick.AddListener(OnGiveUpClicked);
     }
 
+    // Same shape and same null handling as BuildCaught.
     private void BuildTimeUp()
     {
         timeUpRoot = BuildModalPopup("TimeUpPopup", titleTimeUp, "Watch an ad to get 30 extra seconds.", "+30s");
 
-        Transform panel = timeUpRoot != null ? timeUpRoot.transform.Find("Panel") : null;
-        Transform actionBtnTf = panel != null ? panel.Find("ActionBtn") : null;
-        if (actionBtnTf == null) return;
-
-        extraBtn = actionBtnTf.GetComponent<Button>();
-
-        Transform giveUpBtnTf = panel.Find("GiveUpBtn");
-        if (giveUpBtnTf == null) return;
-
-        giveUp2Btn = giveUpBtnTf.GetComponent<Button>();
+        Transform panel = timeUpRoot.transform.Find("Panel");
+        extraBtn = panel.Find("ActionBtn").GetComponent<Button>();
+        giveUp2Btn = panel.Find("GiveUpBtn").GetComponent<Button>();
 
         if (extraBtn != null) extraBtn.onClick.AddListener(OnExtraClicked);
         if (giveUp2Btn != null) giveUp2Btn.onClick.AddListener(OnGiveUp2Clicked);
     }
 
-    // Binds each of the 3 stat rows ("Row0".."Row2") under rr.root to rr.icon[i]/label[i]/value[i].
-    // A missing "RowN" is skipped (that index is simply left unbound) rather than aborting the loop.
+    // Binds each of the 3 stat rows ("Row0".."Row2", direct children of rr.root) to
+    // rr.icon[i]/label[i]/value[i]. A missing "RowN" or missing child is skipped.
+    // FIX (confirmed from raw): a null rr or rr.root throws rather than returning.
     private void BindResultRows(ResultUI rr)
     {
-        if (rr == null) return;
-
-        if (rr.icon == null || rr.icon.Length < 3)
-            rr.icon = new Image[3];
-
-        if (rr.label == null || rr.label.Length < 3)
-            rr.label = new Text[3];
-
-        if (rr.value == null || rr.value.Length < 3)
-            rr.value = new Text[3];
-
         for (int i = 0; i < 3; i++)
         {
-            if (rr.root == null) return;
-
             Transform rowTf = rr.root.transform.Find("Row" + i);
             if (rowTf == null) continue;
 
             Transform iconTf = rowTf.Find("Icon");
-            if (iconTf != null)
-                rr.icon[i] = iconTf.GetComponent<Image>();
+            if (iconTf != null) rr.icon[i] = iconTf.GetComponent<Image>();
 
             Transform labelTf = rowTf.Find("Label");
-            if (labelTf != null)
-                rr.label[i] = labelTf.GetComponent<Text>();
+            if (labelTf != null) rr.label[i] = labelTf.GetComponent<Text>();
 
             Transform valueTf = rowTf.Find("Value");
-            if (valueTf != null)
-                rr.value[i] = valueTf.GetComponent<Text>();
+            if (valueTf != null) rr.value[i] = valueTf.GetComponent<Text>();
         }
     }
 
     // Builds a victory/defeat popup: a full-screen dim, a banner sprite, three stat rows (Rank /
-    // Paint Score / Gold — the Gold row's value text uses GoldColor instead of white), and Home /
-    // X2 Gold / Next buttons along the bottom.
+    // Paint Score / Gold — the Gold row's value text uses GoldYellow), and Home / X2 Gold / Next
+    // buttons along the bottom.
+    // FIX (confirmed from raw): the "RowN" images are parented to rr.root's transform, NOT the
+    // banner's (a prior draft used the banner). This also matches BindResultRows, which looks the
+    // rows up directly under rr.root. A null rr throws rather than returning.
     private GameObject BuildResultPopup(ResultUI rr, string rootName, Sprite bannerSprite)
     {
         GameObject root = NewRoot(rootName);
-        if (rr == null) return root;
-
         rr.root = root;
-        if (rr.root == null) return root;
 
-        Transform rootTf = rr.root.transform;
-
-        Image dim = NewImage("Dim", rootTf, null, new Color(0f, 0f, 0f, 0.35f), true);
+        Image dim = NewImage("Dim", rr.root.transform, null, new Color(0f, 0f, 0f, 0.35f), true);
         Stretch(dim);
 
-        Image banner = NewImage("Banner", rootTf, bannerSprite, Color.white, false);
+        Image banner = NewImage("Banner", rr.root.transform, bannerSprite, Color.white, false);
         banner.preserveAspect = true;
         Place(banner, 0f, 250f, 820f, 560f);
 
         Sprite[] rowIcons = { iconRankPodium, iconPaintMedal, iconGold };
         string[] rowLabels = { "Rank", "Paint Score", "Gold" };
 
-        Transform bannerTf = banner.transform;
-
         for (int i = 0; i < 3; i++)
         {
-            Image rowBg = NewImage("Row" + i, bannerTf, statRow, Color.white, false);
+            Image rowBg = NewImage("Row" + i, rr.root.transform, statRow, Color.white, false);
             Place(rowBg, 250f, i * -112f + 30f, 640f, 92f);
 
-            Transform rowTf = rowBg.transform;
-
-            Image iconImg = NewImage("Icon", rowTf, rowIcons[i], Color.white, false);
+            Image iconImg = NewImage("Icon", rowBg.transform, rowIcons[i], Color.white, false);
             iconImg.preserveAspect = true;
             Place(iconImg, -262f, 0f, 64f, 64f);
             rr.icon[i] = iconImg;
 
-            Text labelText = NewText("Label", rowTf, rowLabels[i], 34, RowLabelTint, (int)TextAnchor.MiddleLeft, true);
-            Place(labelText, -70f, 0f, 340f, 50f);
-            rr.label[i] = labelText;
+            rr.label[i] = NewText("Label", rowBg.transform, rowLabels[i], 34, RowLabel, TextAnchor.MiddleLeft, true);
+            Place(rr.label[i], -70f, 0f, 340f, 50f);
 
-            Color valueColor = (i == 2) ? GoldColor : Color.white;
-            Text valueText = NewText("Value", rowTf, "", 36, valueColor, (int)TextAnchor.MiddleRight, true);
-            Place(valueText, 252f, 0f, 150f, 50f);
-            rr.value[i] = valueText;
+            Color valueColor = (i == 2) ? GoldYellow : Color.white;
+            rr.value[i] = NewText("Value", rowBg.transform, "", 36, valueColor, TextAnchor.MiddleRight, true);
+            Place(rr.value[i], 252f, 0f, 150f, 50f);
         }
 
-        BuildResultButton("HomeBtn", rootTf, btnHomeBg, iconHome, "Home", -320f, -370f, OnHomeClicked, 48f);
-        BuildResultButton("GoldBtn", rootTf, btnGoldBg, iconAds, "X2 Gold", 0f, -370f, OnX2GoldClicked, 54f);
-        BuildResultButton("NextBtn", rootTf, btnNextBg, iconNext, "Next", 320f, -370f, OnNextClicked, 48f);
+        BuildResultButton("HomeBtn", rr.root.transform, btnHomeBg, iconHome, "Home", -320f, -370f, OnHomeClicked, 48f);
+        BuildResultButton("GoldBtn", rr.root.transform, btnGoldBg, iconAds, "X2 Gold", 0f, -370f, OnX2GoldClicked, 54f);
+        BuildResultButton("NextBtn", rr.root.transform, btnNextBg, iconNext, "Next", 320f, -370f, OnNextClicked, 48f);
 
         return root;
     }
 
-    // Builds the shared "modal" popup shape used by both the Caught and Time-Up screens: a dim
-    // background, a panel with a title image and body text, and two buttons (a highlighted "action"
-    // button with an ads icon, and a plain "give up" button).
+    // The shared "modal" popup used by both the Caught and Time-Up screens: a dim background, a panel
+    // with a title image and body text, and two buttons (a highlighted "action" button with an ads
+    // icon, and a plain "Give up" button). Null intermediates throw (natural NREs).
     private GameObject BuildModalPopup(string rootName, Sprite title, string body, string actionLabel)
     {
         GameObject root = NewRoot(rootName);
-        if (root == null) return null;
-
         Transform rootTf = root.transform;
 
         Image dim = NewImage("Dim", rootTf, null, new Color(0f, 0f, 0f, 0.55f), true);
@@ -616,39 +541,33 @@ public class HideModeResultUI : MonoBehaviour
 
         Image panel = NewImage("Panel", rootTf, panelCaught, Color.white, true);
         Place(panel, 0f, 0f, 940f, 470f);
-
         Transform panelTf = panel.transform;
 
         Image titleImg = NewImage("Title", panelTf, title, Color.white, false);
         titleImg.preserveAspect = true;
         Place(titleImg, 0f, 150f, 600f, 72f);
 
-        Text bodyText = NewText("Body", panelTf, body, 33, new Color(0.95f, 0.97f, 1f, 1f), (int)TextAnchor.MiddleCenter, false);
+        Text bodyText = NewText("Body", panelTf, body, 33, new Color(0.95f, 0.97f, 1f, 1f), TextAnchor.MiddleCenter, false);
         Place(bodyText, 0f, 14f, 760f, 50f);
 
         Button actionBtn = NewButton("ActionBtn", panelTf, btnReviveBg, -178f, -122f, 326f, 104f);
-        Transform actionBtnTf = actionBtn.transform;
 
-        Image adsIconImg = NewImage("Ads", actionBtnTf, adsIcon, Color.white, false);
+        Image adsIconImg = NewImage("Ads", actionBtn.transform, adsIcon, Color.white, false);
         adsIconImg.preserveAspect = true;
         Place(adsIconImg, -98f, 0f, 66f, 66f);
 
-        Text actionLabelText = NewText("Label", actionBtnTf, actionLabel, 38, Color.white, (int)TextAnchor.MiddleCenter, true);
+        Text actionLabelText = NewText("Label", actionBtn.transform, actionLabel, 38, Color.white, TextAnchor.MiddleCenter, true);
         Place(actionLabelText, 30f, 0f, 210f, 56f);
 
         Button giveUpBtn = NewButton("GiveUpBtn", panelTf, btnGiveUpBg, 190f, -122f, 300f, 104f);
-        Text giveUpLabelText = NewText("Label", giveUpBtn.transform, "Give up", 38, Color.white, (int)TextAnchor.MiddleCenter, true);
+        Text giveUpLabelText = NewText("Label", giveUpBtn.transform, "Give up", 38, Color.white, TextAnchor.MiddleCenter, true);
         Place(giveUpLabelText, 0f, 0f, 250f, 56f);
 
         return root;
     }
 
-    // Creates a full-screen (stretched) root GameObject parented under canvasGO.
-    //
-    // FIX (confirmed): raw throws if canvasGO == null (there is no path that returns an unparented,
-    // RectTransform-less GameObject) - a prior draft's `if (canvasGO == null) return go;` returned
-    // exactly that malformed object instead, which would then fail confusingly wherever the caller
-    // (BuildModalPopup, BuildResultPopup) next treats it as having a RectTransform.
+    // Creates a full-screen (stretched) root GameObject parented under canvasGO. The GameObject is
+    // created before the canvasGO null check, so a null canvasGO throws after creating it.
     private GameObject NewRoot(string n)
     {
         GameObject go = new GameObject(n);
@@ -659,9 +578,7 @@ public class HideModeResultUI : MonoBehaviour
 
         go.transform.SetParent(canvasGO.transform, false);
         go.AddComponent<RectTransform>();
-
-        RectTransform rt = go.GetComponent<RectTransform>();
-        Stretch(rt);
+        Stretch(go.GetComponent<RectTransform>());
 
         return go;
     }
@@ -683,29 +600,24 @@ public class HideModeResultUI : MonoBehaviour
         return img;
     }
 
-    // Stretches a component's RectTransform to fill its parent (anchorMin 0,0 / anchorMax 1,1 /
-    // offsets zeroed).
+    // Stretches a component's RectTransform to fill its parent.
+    // FIX (confirmed from raw): a null component, or a transform that isn't a RectTransform, throws
+    // rather than returning. (Raw checks the exact class, which `as` matches in practice.)
     private static void Stretch(Component c)
     {
-        if (c == null) return;
-
         RectTransform rt = c.transform as RectTransform;
-        if (rt == null) return;
-
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.one;
         rt.offsetMin = Vector2.zero;
         rt.offsetMax = Vector2.zero;
     }
 
-    // Center-anchors a component's RectTransform at (x, y) with the given size.
-    private static void Place(Component c, float x, float y, float w, float h)
+    // Center-anchors a component's RectTransform at (x, y) with the given size. An instance method
+    // per dump.cs (unlike Stretch), though it never touches instance state.
+    // FIX (confirmed from raw): same null handling as Stretch - throws, not returns.
+    private void Place(Component c, float x, float y, float w, float h)
     {
-        if (c == null) return;
-
         RectTransform rt = c.transform as RectTransform;
-        if (rt == null) return;
-
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.anchorMin = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
@@ -713,7 +625,7 @@ public class HideModeResultUI : MonoBehaviour
         rt.sizeDelta = new Vector2(w, h);
     }
 
-    private Text NewText(string n, Transform parent, string content, int size, Color col, int anchor, bool bold)
+    private Text NewText(string n, Transform parent, string content, int size, Color col, TextAnchor anchor, bool bold)
     {
         GameObject go = new GameObject(n);
         go.transform.SetParent(parent, false);
@@ -723,7 +635,7 @@ public class HideModeResultUI : MonoBehaviour
         text.text = content;
         text.fontSize = size;
         text.color = col;
-        text.alignment = (TextAnchor)anchor;
+        text.alignment = anchor;
         text.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
         text.supportRichText = true;
         text.raycastTarget = false;
@@ -744,38 +656,30 @@ public class HideModeResultUI : MonoBehaviour
         return btn;
     }
 
+    // FIX (confirmed from raw): a null button, icon image or onClick throws rather than returning.
     private void BuildResultButton(string name, Transform parent, Sprite bg, Sprite icon, string label, float x, float y, UnityAction action, float iconSize)
     {
         Button btn = NewButton(name, parent, bg, x, y, 290f, 100f);
-        if (btn == null) return;
 
-        Transform btnTf = btn.transform;
-
-        Image iconImg = NewImage("Icon", btnTf, icon, Color.white, false);
-        if (iconImg == null) return;
-
+        Image iconImg = NewImage("Icon", btn.transform, icon, Color.white, false);
         iconImg.preserveAspect = true;
         Place(iconImg, -80f, 0f, iconSize, iconSize);
 
-        Text labelText = NewText("Label", btnTf, label, 32, Color.white, (int)TextAnchor.MiddleCenter, true);
+        Text labelText = NewText("Label", btn.transform, label, 32, Color.white, TextAnchor.MiddleCenter, true);
         Place(labelText, 24f, 0f, 200f, 46f);
 
-        if (btn.onClick != null)
-        {
-            btn.onClick.AddListener(action);
-        }
+        btn.onClick.AddListener(action);
     }
 
-    private void OnReviveClicked() => _onRevive?.Invoke();
-    private void OnGiveUpClicked() => _onGiveUp?.Invoke();
-    private void OnExtraClicked() => _onExtra?.Invoke();
-    private void OnGiveUp2Clicked() => _onGiveUp2?.Invoke();
+    public void OnReviveClicked() => _onRevive?.Invoke();
+    public void OnGiveUpClicked() => _onGiveUp?.Invoke();
+    public void OnExtraClicked() => _onExtra?.Invoke();
+    public void OnGiveUp2Clicked() => _onGiveUp2?.Invoke();
 
-    private void OnX2GoldClicked()
+    // With an AdMgr, shows a rewarded ad (success = GrantDoubleReward, fail = RewardFail - the only
+    // two delegate targets this method registers); with none, goes straight to replaying the mode.
+    public void OnX2GoldClicked()
     {
-        // NOTE: AdMgr is accessed here via a bare static-field read (**(AdMgr_TypeInfo+0xb8)), not
-        // through the SingletonMonoBehavior<T> base class GameController/RootManager elsewhere in this
-        // project use — AdMgr appears to have its own, simpler static Instance field.
         if (AdMgr.Instance != null)
         {
             AdMgr.Instance.OnRewardView(GrantDoubleReward, RewardFail);
@@ -786,23 +690,32 @@ public class HideModeResultUI : MonoBehaviour
         }
     }
 
-    // NOTE: the closure captured here (HideModeResultUI instance + a "was seeker" bool taken from
-    // gmm.PlayerIsSeeker) is passed to LoadingScreen.Run as the onComplete callback, but that
-    // callback's own body (<ReplayCurrentMode>b__0) is referenced by name in the static-init table and
-    // NOT included in this dump — so what actually happens once loading finishes (almost certainly
-    // restarting the round, possibly via gmm.BeginRound(wasSeeker) or similar) isn't decompiled here.
-    // Paste that lambda's body to complete this.
+    // Captures (this, seeker = gmm != null && gmm.PlayerIsSeeker) in
+    // HideModeResultUI.<>c__DisplayClass79_0 (fields <>4__this, seeker per dump.cs), hides
+    // everything, then runs the loading screen. The callback (<ReplayCurrentMode>b__0, decompiled)
+    // restarts the same role: via HomeUI.StartMode (1 = seek, 2 = hide) when a HomeUI exists, which
+    // also restores the gameplay UI and music; otherwise straight via GameModeManager.BeginRound.
+    // With neither present it does nothing.
     private void ReplayCurrentMode()
     {
         EnsureRefs();
 
-        bool wasSeeker = gmm != null && gmm.PlayerIsSeeker;
+        bool seeker = gmm != null && gmm.PlayerIsSeeker;
 
         HideAll();
 
         LoadingScreen.Run(() =>
         {
-            // TODO: not decompiled — see NOTE above. Captured state available here: wasSeeker.
+            if (homeUI != null)
+            {
+                homeUI.StartMode(seeker ? 1 : 2);
+                return;
+            }
+
+            if (gmm != null)
+            {
+                gmm.BeginRound(seeker);
+            }
         });
     }
 
@@ -810,69 +723,57 @@ public class HideModeResultUI : MonoBehaviour
     {
         GameData.Coin = _lastReward + GameData.Coin;
 
-        GameController controller = SingletonMonoBehavior<GameController>.Instance;
-        if (controller != null)
+        if (SingletonMonoBehavior<GameController>.Instance != null)
         {
-            controller.UpdateTextCoin();
+            SingletonMonoBehavior<GameController>.Instance.UpdateTextCoin();
         }
 
         ReplayCurrentMode();
     }
 
-    // NOTE: decompiles to a body byte-for-byte identical to ReplayCurrentMode() (same closure type,
-    // same static-init guard) — implemented as a forward rather than duplicating it.
+    // Confirmed: decompiles to a body byte-for-byte identical to ReplayCurrentMode() (same closure
+    // type DisplayClass79_0, same metadata-init guard) - forwarded rather than duplicated.
     private void RewardFail()
     {
         ReplayCurrentMode();
     }
 
-    private void OnHomeClicked()
+    // FIX (confirmed from raw): a null RootManager throws - it is not a silent no-op.
+    public void OnHomeClicked()
     {
-        // NOTE: RootManager is resolved via a distinct "Singleton<T>" base class here, not the
-        // "SingletonMonoBehavior<T>" base GameController uses elsewhere in this project — kept as a
-        // separate type to reflect that distinction rather than assuming they're the same pattern.
-        if (RootManager.Instance != null)
-        {
-            RootManager.Instance.ShowInterAds_Native();
-            ExitToHomeWithLoading();
-        }
+        // Singleton<RootManager>.Instance.ShowInterAds_Native();
+        ExitToHomeWithLoading();
     }
 
+    // The callback is HideModeResultUI.<ExitToHomeWithLoading>b__78_0 (decompiled; it uses only
+    // `this`, so it compiles to an instance lambda with no closure class, as dump.cs shows).
     private void ExitToHomeWithLoading()
     {
         EnsureRefs();
         HideAll();
-        LoadingScreen.Run(ExitToHomeCallback);
+        LoadingScreen.Run(() =>
+        {
+            if (homeUI != null)
+            {
+                homeUI.GoHome();
+                return;
+            }
+
+            if (gmm != null)
+            {
+                gmm.ShowMenu();
+            }
+        });
     }
 
-    // This is the <>b__78_0 lambda referenced by ExitToHomeWithLoading's static-init table — its body
-    // is included in this dump (unlike ReplayCurrentMode's onComplete lambda above).
-    private void ExitToHomeCallback()
+    // FIX (confirmed from raw): same as OnHomeClicked - a null RootManager throws.
+    public void OnNextClicked()
     {
-        if (homeUI != null)
-        {
-            homeUI.GoHome();
-            return;
-        }
-
-        if (gmm != null)
-        {
-            gmm.ShowMenu();
-        }
+        // Singleton<RootManager>.Instance.ShowInterAds_Native();
+        ReplayCurrentMode();
     }
 
-    private void OnNextClicked()
-    {
-        if (RootManager.Instance != null)
-        {
-            RootManager.Instance.ShowInterAds_Native();
-            ReplayCurrentMode();
-        }
-    }
-
-    // NOTE: a no-op passthrough as decompiled — `rel` is never used, it just returns `cur` unchanged.
-    // Not called anywhere else in this dump; likely a stub for a sprite-path-relative lookup that was
-    // never finished, or was simplified away.
+    // Confirmed no-op passthrough: `rel` is never used, it just returns `cur`. Not called anywhere.
     private Sprite L(Sprite cur, string rel)
     {
         return cur;

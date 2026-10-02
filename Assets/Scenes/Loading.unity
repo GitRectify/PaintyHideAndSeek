@@ -1431,21 +1431,27 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9bd2006b217d21645a77796aa6e64d3d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RootManager
-  loadingAdsUI: {fileID: 0}
-  InterNative: 0
-  OnInterPlayGame: 0
-  InterInApp: 0
-  InterPlayGame: 0
-  InterEndGame: 0
-  OnBanner: 0
-  PoseReward: 0
+  isShowAds: 0
+  isCapInter: 0
+  isShowAoA: 0
   isNativeNew: 0
-  LoadingShow: 0
-  EndInter_AoA: 0
-  PercentClick: 0
+  isInterNet: 0
+  loadingAdsUI: {fileID: 0}
+  number: 0
   Interdelay: 0
   TimeAdsStart: 0
   TypeAppOpen: 0
+  PercentClick: 0
+  nativeBag: 
+  EndInter_AoA: 0
+  OnBanner: 0
+  InterNative: 0
+  PoseReward: 0
+  LoadingShow: 1
+  InterInApp: 0
+  InterPlayGame: 0
+  InterEndGame: 0
+  OnInterPlayGame: 0
 --- !u!114 &391970317
 MonoBehaviour:
   m_ObjectHideFlags: 0

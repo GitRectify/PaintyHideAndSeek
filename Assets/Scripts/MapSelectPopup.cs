@@ -107,21 +107,25 @@ public class MapSelectPopup : MonoBehaviour
     public void Confirm()
     {
         int selected = _selected;
-        Action onRewardSuccess;
+        // Action onRewardSuccess;
 
         switch (selected)
         {
             case 1:
-                onRewardSuccess = ConfirmMap2Chosen;
+                ConfirmMap2Chosen();
+                // onRewardSuccess = ConfirmMap2Chosen;
                 break;
             case 2:
-                onRewardSuccess = ConfirmMap3Chosen;
+                ConfirmMap3Chosen();
+                // onRewardSuccess = ConfirmMap3Chosen;
                 break;
             case 3:
-                onRewardSuccess = ConfirmMap4Chosen;
+                ConfirmMap4Chosen();
+                // onRewardSuccess = ConfirmMap4Chosen;
                 break;
             case 4:
-                onRewardSuccess = ConfirmMap5Chosen;
+                ConfirmMap5Chosen();
+                // onRewardSuccess = ConfirmMap5Chosen;
                 break;
             default:
                 // selected == 0, or any out-of-range value - no ad gate, proceed immediately.
@@ -133,16 +137,16 @@ public class MapSelectPopup : MonoBehaviour
                 return;
         }
 
-        if (AdMgr.Instance == null)
-        {
-            throw new NullReferenceException("AdMgr instance not available");
-        }
-        if (!AdMgr.Instance.IsRewardReady)
-        {
-            return;
-        }
+        // if (AdMgr.Instance == null)
+        // {
+        //     throw new NullReferenceException("AdMgr instance not available");
+        // }
+        // if (!AdMgr.Instance.IsRewardReady)
+        // {
+        //     return;
+        // }
 
-        AdMgr.Instance.OnRewardView(onRewardSuccess, RewardFail);
+        // AdMgr.Instance.OnRewardView(onRewardSuccess, RewardFail);
     }
 
     private void Proceed()

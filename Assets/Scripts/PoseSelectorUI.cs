@@ -8,40 +8,52 @@ using UnityEngine.UI;
 // seen elsewhere) - finds a "PosePanel" under a paint canvas, binds numbered "SlotN" picks
 // (falling back through a few known ScrollView layout paths), and applies a chosen pose via an
 // Animator int parameter. Slots 2-8 can be gated behind either a simple rewarded-ad check or,
-// in a "test mode" (RootManager field, unconfirmed name/offset 0x57), per-slot unlock flags on
-// GameController (7 new unconfirmed bool fields). ApplyPick/SlotNoads are confirmed
-// byte-identical (same exact-duplicate-method pattern seen elsewhere) - implemented once here.
-// Also confirms "Btn_DoiDang" - Vietnamese for "change pose" - continuing the pattern of
-// Vietnamese-named UI hooks seen in JoystickMover ("Xoay Nhan Vat") and Mode1FirstPersonGun
-// ("Nam").
+// when RootManager.PoseReward (+0x57) is set, per-slot unlock flags GameController.isReward3..9.
+// ApplyPick/SlotNoads are confirmed byte-identical - implemented once here. "Btn_DoiDang" is
+// Vietnamese for "change pose".
+// Fields (names, order, offsets, attributes) and every method's accessibility match dump.cs
+// (TypeDefIndex 9704). All string literals are confirmed against Dumpstringliteral.json.
 public class PoseSelectorUI : MonoBehaviour
 {
-    [SerializeField] private string characterRootName = "Player";
-    [SerializeField] private string doiDangButtonName = "Btn_DoiDang";
-    [SerializeField] private string paintCanvasName = "PaintUICanvas";
-    [SerializeField] private string posePanelName = "PosePanel";
-    [SerializeField] private int[] rewardSlots = { 3, 4 };
-    [SerializeField] private bool simulateRewardInEditor = true;
-    [SerializeField] private float poseBlendDuration = 0.25f;
+    [Header("Scene refs (found by name)")]
+    public string characterRootName = "Player";
+    public string doiDangButtonName = "Btn_DoiDang";
+    public string paintCanvasName = "PaintUICanvas";
+    public string posePanelName = "PosePanel";
 
-    [SerializeField] private Sprite pickSprite;
-    [SerializeField] private Sprite gateOnSprite;
-    [SerializeField] private Sprite gateOffSprite;
-    [SerializeField] private Font font;
+    [Header("Selection overlay (Assets/Texture2D)")]
+    public Sprite pickSprite;
+
+    [Header("Btn_DoiDang state icons (Assets/Texture2D)")]
+    public Sprite gateOnSprite;
+    public Sprite gateOffSprite;
+
+    [Header("Reward-gated slots")]
+    [Tooltip("1-based slot numbers that require watching a rewarded ad before the pose applies (3,4 = Slot3, Slot4). Slots not listed change for free. Deselecting a gated slot is always free.")]
+    public int[] rewardSlots = { 3, 4 };
+    [Tooltip("Editor only: simulate a completed reward (no real rewarded ads run in the Editor) so gated slots stay testable in Play mode. Ignored in a device build.")]
+    public bool simulateRewardInEditor = true;
+
+    [Header("Pose blend (adjusting pose transition smoothness)")]
+    [Tooltip("Blend time when switching poses (in seconds). Changing this value automatically updates the transition settings for both the Player and Player2 Animators (within the Editor; saved to the .controller file). A higher value results in a smoother/slower transition, while a lower value makes it faster/snappier. This applies to both the player and the bot, as they share the same controller.")]
+    [Range(0.05f, 0.6f)]
+    public float poseBlendDuration = 0.25f;
+
+    // CONFIRMED: .cctor fills this from the metadata blob
+    // <PrivateImplementationDetails>.EE33C09BF561A6B24599D7DC2A136CF890BDFAEAB12A5F4DE406D6750BED8DB8
+    // (dump.cs: "Metadata offset 0x70E870"). The 36 bytes at that offset in global-metadata.dat,
+    // read as little-endian int32s, are 4, 1, 3, 2, 5, 6, 7, 8, 9. Slot index -> Animator "Pose" value.
+    private static readonly int[] PoseForSlot = { 4, 1, 3, 2, 5, 6, 7, 8, 9 };
 
     private Animator anim;
-    private GameObject panelRoot;
-    private Transform gateTf;
     private Button gateBtn;
     private Image gateImg;
-    public int activeSlot = -1;
+    private Transform gateTf;
+    private GameObject panelRoot;
+    private Font font;
+    private int activeSlot = -1;
     private readonly List<Image> slotPicks = new List<Image>();
 
-    // NOTE: embedded as a compiler-generated <PrivateImplementationDetails> data blob in the
-    // decompiled .cctor (RuntimeHelpers.InitializeArray) - the 9 actual int values aren't
-    // recoverable from the decompiled text itself. This is the per-slot Animator "Pose" integer
-    // value looked up by activeSlot.
-    private static readonly int[] PoseAnimValues = new int[9]; // TODO: real values not decompiled.
     private static readonly int PoseHash = Animator.StringToHash("Pose");
 
     public bool HasPose => activeSlot >= 0;
@@ -85,6 +97,10 @@ public class PoseSelectorUI : MonoBehaviour
         }
     }
 
+    // Re-verified against raw BindAll/BindGateButton. Confirmed: neither method adds any onClick
+    // listener - they only ensure Button components and target graphics exist. So the slot, close
+    // and gate buttons must reach PickSlot/Close/Toggle through listeners set in the scene
+    // (Inspector), not through code.
     private void BindAll()
     {
         slotPicks.Clear();
@@ -126,7 +142,7 @@ public class PoseSelectorUI : MonoBehaviour
             }
         }
 
-        for (int oneBased = 1; oneBased <= PoseAnimValues.Length; oneBased++)
+        for (int oneBased = 1; oneBased <= PoseForSlot.Length; oneBased++)
         {
             Transform slot = FindSlot(panel, oneBased);
             if (slot == null)
@@ -152,7 +168,7 @@ public class PoseSelectorUI : MonoBehaviour
         RefreshPicks();
     }
 
-    private void Close()
+    public void Close()
     {
         if (panelRoot != null)
         {
@@ -196,9 +212,9 @@ public class PoseSelectorUI : MonoBehaviour
         // Confirmed empty - decompiles to a bare `return;` with no other statements.
     }
 
-    // NOTE: static (no field access on the instance in the decompiled body) - a 10th occurrence
-    // of the cross-cutting scene-lookup helper.
-    private static GameObject FindInScene(string n)
+    // Instance method per dump.cs, though the body never touches instance state. Scene-wide lookup:
+    // GameObject.Find first, then a scan of every loaded Transform filtered to valid scenes.
+    private GameObject FindInScene(string n)
     {
         GameObject go = GameObject.Find(n);
         if (go != null)
@@ -218,12 +234,12 @@ public class PoseSelectorUI : MonoBehaviour
         return null;
     }
 
-    // NOTE: static. Tries "SlotN" directly under panel, then two known ScrollView content
+    // Instance method per dump.cs (a null panel throws). Tries "SlotN" directly under panel, then two known ScrollView content
     // paths ("List/Content/SlotN", "Content/SlotN"), then falls back to a full recursive
     // name search. Confirmed: the recursive fallback compares against the bare "SlotN" name,
     // not against either of the path-prefixed variants (raw re-uses the un-prefixed
     // concat-result variable for that final comparison).
-    private static Transform FindSlot(Transform panel, int oneBased)
+    private Transform FindSlot(Transform panel, int oneBased)
     {
         string slotName = "Slot" + oneBased;
 
@@ -303,6 +319,7 @@ public class PoseSelectorUI : MonoBehaviour
         gateImg = img;
     }
 
+    // Confirmed from raw: a null slotPicks throws (natural NRE on .Count); null entries are skipped.
     private void RefreshPicks()
     {
         for (int index = 0; index < slotPicks.Count; index++)
@@ -317,8 +334,18 @@ public class PoseSelectorUI : MonoBehaviour
 
     public void Toggle()
     {
+        RootManager root = RootManager.Instance;
+        if (root == null)
+        {
+            throw new NullReferenceException("RootManager instance not available");
+        }
+
+        root.ShowInterAds_Native();
+
         if (panelRoot == null)
+        {
             return;
+        }
 
         if (panelRoot.activeSelf)
         {
@@ -330,7 +357,7 @@ public class PoseSelectorUI : MonoBehaviour
         }
     }
 
-    private void Open()
+    public void Open()
     {
         if (panelRoot != null)
         {
@@ -346,10 +373,14 @@ public class PoseSelectorUI : MonoBehaviour
         RefreshPicks();
     }
 
-    // NOTE: root.PoseTestMode (offset 0x57, unconfirmed name) switches between two very
-    // different flows. In the non-test-mode branch, slots 2-8 gate on a rewarded ad. There was
-    // also a dead code path here - a search through rewardSlots whose result was never used -
-    // omitted since it has no observable effect.
+    // Re-verified against raw PickSlot. The flag at RootManager+0x57 is `PoseReward` (a Firebase
+    // Remote Config flag, per the RootManager block in dump.cs). It switches between two flows:
+    //   PoseReward == false: slots 2-8 always cost a rewarded ad (closure DisplayClass31_0 captures
+    //     this + slotIndex; onSuccess = <PickSlot>b__7, onFail = RewardFail). Other slots apply
+    //     directly. A dead search through rewardSlots (result never used) is omitted.
+    //   PoseReward == true: slots 0-1 apply directly; slots 2-8 check a per-slot "already unlocked"
+    //     bool on GameController (raw offsets 0x38..0x3E, one byte per slot) and either apply the
+    //     pick or go through SlotAds with a cached, captureless callback <>c.<PickSlot>b__31_0..6.
     //
     // FIX (confirmed): the very first test-mode check in raw is an UNSIGNED comparison
     // ((uint)slotIndex < 2), true only for slotIndex == 0 or 1. A negative slotIndex does NOT
@@ -359,51 +390,146 @@ public class PoseSelectorUI : MonoBehaviour
     // to ApplyPick. Fixed to match the unsigned semantics exactly.
     public void PickSlot(int slotIndex)
     {
-        if (slotIndex < 0 || slotIndex >= PoseAnimValues.Length)
-            return;
+        RootManager root = RootManager.Instance;
+        if (root == null)
+        {
+            throw new NullReferenceException("RootManager instance not available");
+        }
 
-        ApplyPick(slotIndex);
+        if (!root.PoseReward)
+        {
+            if (slotIndex >= 2 && slotIndex <= 8)
+            {
+                if (AdMgr.Instance == null)
+                {
+                    throw new NullReferenceException("AdMgr instance not available");
+                }
+                if (!AdMgr.Instance.IsRewardReady)
+                {
+                    return;
+                }
+                // onSuccess = <>c__DisplayClass31_0.<PickSlot>b__7 (decompiled): ApplyPick(slotIndex).
+                AdMgr.Instance.OnRewardView(() => ApplyPick(slotIndex), RewardFail);
+                return;
+            }
+
+            ApplyPick(slotIndex);
+            return;
+        }
+
+        if (slotIndex == 0 || slotIndex == 1)
+        {
+            ApplyPick(slotIndex);
+            return;
+        }
+
+        GameController controller = GameController.Instance;
+        if (controller == null)
+        {
+            throw new NullReferenceException("GameController instance not available");
+        }
+
+        // CONFIRMED: raw reads GameController offsets 0x38..0x3E (slot 2 -> 0x38 ... slot 8 -> 0x3E),
+        // which dump.cs names isReward3..isReward9 - the same flags GameController.ResetPoseReward
+        // clears.
+        bool unlocked;
+        Action callback;
+        switch (slotIndex)
+        {
+            case 2: unlocked = controller.isReward3; callback = PickSlot2Callback; break;
+            case 3: unlocked = controller.isReward4; callback = PickSlot3Callback; break;
+            case 4: unlocked = controller.isReward5; callback = PickSlot4Callback; break;
+            case 5: unlocked = controller.isReward6; callback = PickSlot5Callback; break;
+            case 6: unlocked = controller.isReward7; callback = PickSlot6Callback; break;
+            case 7: unlocked = controller.isReward8; callback = PickSlot7Callback; break;
+            case 8: unlocked = controller.isReward9; callback = PickSlot8Callback; break;
+            default:
+                return;
+        }
+
+        if (unlocked)
+        {
+            ApplyPick(slotIndex);
+        }
+        else
+        {
+            SlotAds(slotIndex, callback);
+        }
     }
 
-    // NOTE: these seven callbacks are each cached once (compiler lambda-caching pattern for
-    // captureless lambdas - confirmed captureless since the cache lives on a shared, stateless
-    // <>c-style holder) and passed as the "onSuccess" callback into SlotAds for slots 2-8
-    // respectively. None of them capture this instance or a slot index, so whatever they do
-    // can't be slot-specific via closure state. Bodies were not decompiled (only their
-    // existence/caching mechanism was visible) - left as explicit TODOs rather than guessed.
-    // private static void PickSlot2Callback() { /* TODO: not decompiled. */ }
-    // private static void PickSlot3Callback() { /* TODO: not decompiled. */ }
-    // private static void PickSlot4Callback() { /* TODO: not decompiled. */ }
-    // private static void PickSlot5Callback() { /* TODO: not decompiled. */ }
-    // private static void PickSlot6Callback() { /* TODO: not decompiled. */ }
-    // private static void PickSlot7Callback() { /* TODO: not decompiled. */ }
-    // private static void PickSlot8Callback() { /* TODO: not decompiled. */ }
+    // These are PoseSelectorUI.<>c.<PickSlot>b__31_0 .. b__31_6 (slot 2 .. slot 8), cached in the
+    // <>c singleton's static fields at +0x08 .. +0x38 and passed to SlotAds as onSuccess.
+    // Decompiled: each permanently unlocks its slot for the session - sets GameController's
+    // isRewardN flag (raw offsets 0x38..0x3E) and hides the matching poseRewardN lock overlay
+    // (0x40..0x70). GameController.ResetPoseReward undoes both. Raw fetches the singleton twice; a
+    // null GameController or a null overlay throws.
+    private static void PickSlot2Callback()
+    {
+        SingletonMonoBehavior<GameController>.Instance.isReward3 = true;
+        SingletonMonoBehavior<GameController>.Instance.poseReward3.SetActive(false);
+    }
 
-    // NOTE: the success-callback body passed to AdMgr.OnRewardView here (`<SlotAds>b__0`) was
-    // not itself decompiled - only that its closure captures (onSuccess, this, slotIndex).
-    // Reconstructed as calling ApplyPick(slotIndex) then onSuccess - a strong inference from
-    // exactly those captured variables, but not a byte-confirmed transcription.
-    // private void SlotAds(int slotIndex, Action onSuccess)
-    // {
-    //     if (AdMgr.Instance == null)
-    //     {
-    //         throw new NullReferenceException("AdMgr instance not available");
-    //     }
-    //     if (!AdMgr.Instance.IsRewardReady)
-    //     {
-    //         return;
-    //     }
+    private static void PickSlot3Callback()
+    {
+        SingletonMonoBehavior<GameController>.Instance.isReward4 = true;
+        SingletonMonoBehavior<GameController>.Instance.poseReward4.SetActive(false);
+    }
 
-    //     AdMgr.Instance.OnRewardView(
-    //         () =>
-    //         {
-    //             ApplyPick(slotIndex);
-    //             onSuccess?.Invoke();
-    //         },
-    //         RewardFail);
-    // }
+    private static void PickSlot4Callback()
+    {
+        SingletonMonoBehavior<GameController>.Instance.isReward5 = true;
+        SingletonMonoBehavior<GameController>.Instance.poseReward5.SetActive(false);
+    }
 
-    public bool IsRewardSlot(int slotIndex)
+    private static void PickSlot5Callback()
+    {
+        SingletonMonoBehavior<GameController>.Instance.isReward6 = true;
+        SingletonMonoBehavior<GameController>.Instance.poseReward6.SetActive(false);
+    }
+
+    private static void PickSlot6Callback()
+    {
+        SingletonMonoBehavior<GameController>.Instance.isReward7 = true;
+        SingletonMonoBehavior<GameController>.Instance.poseReward7.SetActive(false);
+    }
+
+    private static void PickSlot7Callback()
+    {
+        SingletonMonoBehavior<GameController>.Instance.isReward8 = true;
+        SingletonMonoBehavior<GameController>.Instance.poseReward8.SetActive(false);
+    }
+
+    private static void PickSlot8Callback()
+    {
+        SingletonMonoBehavior<GameController>.Instance.isReward9 = true;
+        SingletonMonoBehavior<GameController>.Instance.poseReward9.SetActive(false);
+    }
+
+    // Re-verified against raw SlotAds: closure DisplayClass32_0 captures (onSuccess, this,
+    // slotIndex); a null AdMgr throws; not-ready returns; onFail = RewardFail.
+    // onSuccess = <>c__DisplayClass32_0.<SlotAds>b__0 (decompiled): invokes the caller's onSuccess
+    // FIRST (if set), then ApplyPick(slotIndex).
+    public void SlotAds(int slotIndex, Action onSuccess)
+    {
+        if (AdMgr.Instance == null)
+        {
+            throw new NullReferenceException("AdMgr instance not available");
+        }
+        if (!AdMgr.Instance.IsRewardReady)
+        {
+            return;
+        }
+
+        AdMgr.Instance.OnRewardView(
+            () =>
+            {
+                onSuccess?.Invoke();
+                ApplyPick(slotIndex);
+            },
+            RewardFail);
+    }
+
+    private bool IsRewardSlot(int slotIndex)
     {
         if (rewardSlots == null)
         {
@@ -431,7 +557,7 @@ public class PoseSelectorUI : MonoBehaviour
         int value = 0;
         if (activeSlot >= 0)
         {
-            value = PoseAnimValues[activeSlot];
+            value = PoseForSlot[activeSlot];
         }
 
         if (anim != null)
@@ -443,15 +569,15 @@ public class PoseSelectorUI : MonoBehaviour
         AudioManager.PoseChange();
     }
 
-    private void SlotNoads(int slotIndex)
+    public void SlotNoads(int slotIndex)
     {
         ApplyPick(slotIndex);
     }
 
-    // private void RewardFail()
-    // {
-    //     // Intentional no-op (confirmed empty body).
-    // }
+    private void RewardFail()
+    {
+        // Intentional no-op (confirmed empty body).
+    }
 
     public void ClearSelection()
     {
