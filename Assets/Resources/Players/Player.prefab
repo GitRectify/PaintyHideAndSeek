@@ -527,8 +527,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SeekerCamProfile
   tpsSide: -0.07
   tpsLookAhead: 10.7
-  tpsHeight: 4.99
-  tpsBack: 0.12
+  tpsHeight: 4
+  tpsBack: 0.3
   proneHeightDrop: 2.5
   proneLookDrop: 1.8
   tpsLookHeight: 2.5

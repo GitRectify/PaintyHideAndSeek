@@ -8,9 +8,9 @@ public class SeekerCamProfile : MonoBehaviour
 {
     [Header("Camera POSITION (relative to the character)")]
     [Tooltip("Camera height relative to the character's pivot (hips). Higher value = higher camera; lower value = lower camera (watch out for the camera clipping into the head when tpsBack ≈ 0).")]
-    public float tpsHeight = 4.99f;
+    public float tpsHeight = 4f;
     [Tooltip("How far back to pull the camera. 0 = directly overhead (first-person); higher values ​​= pulled back (third-person, character visible).")]
-    public float tpsBack = 0.12f;
+    public float tpsBack = 0.3f;
     [Tooltip("Shifted horizontally toward the right shoulder (+ = right). When shifted to the right, the character is positioned on the left side of the frame.")]
     public float tpsSide = -0.07f;
 

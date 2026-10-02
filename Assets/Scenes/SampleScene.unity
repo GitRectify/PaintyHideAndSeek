@@ -53794,7 +53794,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::JoystickMover
   characterRootName: Player
-  moveSpeed: 12
+  moveSpeed: 20
   acceleration: 80
   moveRelativeToCamera: 1
   faceMovement: 1
@@ -53804,7 +53804,7 @@ MonoBehaviour:
   jumpHeight: 8
   unstickAfter: 0.6
   fpTurnSpeed: 120
-  joystick: {fileID: 1899169570}
+  joystick: {fileID: 0}
   rotateButtonName: Btn_XoayNhanVat
   rotateLeftButtonName: ButtonRotationLeft
   rotateRightButtonName: ButtonRotationRight
@@ -57715,7 +57715,7 @@ MonoBehaviour:
   targetHeight: 2
   pitch: 22
   distance: 33
-  followLerp: 8
+  followLerp: 30
   stairCamSmooth: 6
   orbitSpeed: 80
   orbitDragSpeed: 0.22
@@ -57725,8 +57725,8 @@ MonoBehaviour:
   maxDistance: 60
   zoomScrollSpeed: 5
   zoomPinchSpeed: 0.08
-  tpsBack: 10
-  tpsHeight: 5.5
+  tpsBack: 0.3
+  tpsHeight: 4
   tpsSide: 2.5
   tpsLookAhead: 11.5
   tpsLookHeight: 1.7
@@ -64306,23 +64306,23 @@ MonoBehaviour:
   levels:
   - roomName: Room
     displayName: Room
-    playerSpawnPos: {x: 0, y: 0, z: 0}
+    playerSpawnPos: {x: 0, y: 7.5, z: 0}
     playerSpawnEuler: {x: 0, y: 0, z: 0}
   - roomName: Room2
     displayName: Room 2
-    playerSpawnPos: {x: 0, y: 0, z: 0}
+    playerSpawnPos: {x: 0, y: 7.5, z: 0}
     playerSpawnEuler: {x: 0, y: 0, z: 0}
   - roomName: Room3
     displayName: Room 3
-    playerSpawnPos: {x: 0, y: 0, z: 0}
+    playerSpawnPos: {x: 0, y: 7.5, z: 0}
     playerSpawnEuler: {x: 0, y: 0, z: 0}
   - roomName: Room4
     displayName: Room 4
-    playerSpawnPos: {x: 0, y: 0, z: 0}
+    playerSpawnPos: {x: 0, y: 7.5, z: 0}
     playerSpawnEuler: {x: 0, y: 0, z: 0}
   - roomName: Room5
     displayName: Room 5
-    playerSpawnPos: {x: 0, y: 0, z: 0}
+    playerSpawnPos: {x: 0, y: 7.5, z: 0}
     playerSpawnEuler: {x: 0, y: 0, z: 0}
   prefsKey: SelectedLevel
   prefabDir: Rooms/
@@ -64991,6 +64991,14 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 714}
     m_Modifications:
+    - target: {fileID: 3045755349479160984, guid: baa0d0800e6124a49940b35f619dc5c3, type: 3}
+      propertyPath: tpsBack
+      value: 0.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 3045755349479160984, guid: baa0d0800e6124a49940b35f619dc5c3, type: 3}
+      propertyPath: tpsHeight
+      value: 4
+      objectReference: {fileID: 0}
     - target: {fileID: 6561002774915774094, guid: baa0d0800e6124a49940b35f619dc5c3, type: 3}
       propertyPath: m_LocalPosition.x
       value: -54.7
@@ -65052,6 +65060,14 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 714}
     m_Modifications:
+    - target: {fileID: 2417668119410564640, guid: 31137ef9cf82b2d41a6abe1c37e3a59f, type: 3}
+      propertyPath: tpsBack
+      value: 0.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 2417668119410564640, guid: 31137ef9cf82b2d41a6abe1c37e3a59f, type: 3}
+      propertyPath: tpsHeight
+      value: 4
+      objectReference: {fileID: 0}
     - target: {fileID: 2851645928761040417, guid: 31137ef9cf82b2d41a6abe1c37e3a59f, type: 3}
       propertyPath: m_Name
       value: Player

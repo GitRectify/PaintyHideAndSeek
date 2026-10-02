@@ -25,7 +25,7 @@ public class LevelManager : MonoBehaviour
         {
             roomName = "Room",
             displayName = "Room",
-            playerSpawnPos = Vector3.zero,
+            playerSpawnPos = new Vector3(0,7.5f,0),
             playerSpawnEuler = Vector3.zero
         },
 
@@ -33,7 +33,7 @@ public class LevelManager : MonoBehaviour
         {
             roomName = "Room2",
             displayName = "Room 2",
-            playerSpawnPos = Vector3.zero,
+            playerSpawnPos = new Vector3(0,7.5f,0),
             playerSpawnEuler = Vector3.zero
         },
 
@@ -41,7 +41,7 @@ public class LevelManager : MonoBehaviour
         {
             roomName = "Room3",
             displayName = "Room 3",
-            playerSpawnPos = Vector3.zero,
+            playerSpawnPos = new Vector3(0,7.5f,0),
             playerSpawnEuler = Vector3.zero
         },
 
@@ -49,7 +49,7 @@ public class LevelManager : MonoBehaviour
         {
             roomName = "Room4",
             displayName = "Room 4",
-            playerSpawnPos = Vector3.zero,
+            playerSpawnPos = new Vector3(0,7.5f,0),
             playerSpawnEuler = Vector3.zero
         },
 
@@ -57,7 +57,7 @@ public class LevelManager : MonoBehaviour
         {
             roomName = "Room5",
             displayName = "Room 5",
-            playerSpawnPos = Vector3.zero,
+            playerSpawnPos = new Vector3(0,7.5f,0),
             playerSpawnEuler = Vector3.zero
         }
     };

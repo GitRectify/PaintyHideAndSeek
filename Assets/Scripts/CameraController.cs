@@ -31,7 +31,7 @@ public class CameraController : MonoBehaviour
     [Range(5f, 70f)]
     public float pitch = 22f;
     public float distance = 33f;
-    public float followLerp = 8f;
+    public float followLerp = 30f;
     [Tooltip("How fast the camera's VERTICAL follow catches up. Lower = smoother over stairs — absorbs the CharacterController's per-step Y 'pops' (~4u) that otherwise make the camera jitter while climbing. X/Z follow stays snappy.")]
     public float stairCamSmooth = 6f;
     private float _smoothY;
@@ -56,9 +56,9 @@ public class CameraController : MonoBehaviour
 
     [Header("Mode 1 camera (over-the-shoulder)")]
     [Tooltip("How far BEHIND the character the Mode-1 camera sits.")]
-    public float tpsBack = 10f;
+    public float tpsBack = 0.3f;
     [Tooltip("Camera height above the character pivot (hips).")]
-    public float tpsHeight = 5.5f;
+    public float tpsHeight = 4f;
     [Tooltip("Sideways offset over the right shoulder (+) so the gun stays in view.")]
     public float tpsSide = 2.5f;
     [Tooltip("How far AHEAD of the character the camera aims (keeps the room in view for seeking).")]
