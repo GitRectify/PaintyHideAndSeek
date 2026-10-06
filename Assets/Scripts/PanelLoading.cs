@@ -57,19 +57,19 @@ public class PanelLoading : MonoBehaviour
                 if (adType == 2)
                 {
                     // NOTE: AdMgr.ShowAdIfReady(Action) — not previously catalogued for AdMgr.
-                    AdMgr.Instance.ShowAdIfReady(null);
+                    // AdMgr.Instance.ShowAdIfReady(null);
                 }
                 else if (adType == 1)
                 {
                     // NOTE: GoogleAdmobManager.ShowInter_AOA() — not previously catalogued for
                     // GoogleAdmobManager (prior known members: Instance, ShowInter_EndGame,
                     // ShowInter_Inapp, ShowInter_PlayGame, ShowAppOpenAd).
-                    GoogleAdmobManager.Instance.ShowInter_AOA();
+                    // GoogleAdmobManager.Instance.ShowInter_AOA();
                 }
                 else if (adType == 0)
                 {
                     Debug.Log("vvvvvv");
-                    GoogleAdmobManager.Instance.ShowAppOpenAd();
+                    // GoogleAdmobManager.Instance.ShowAppOpenAd();
                 }
                 // NOTE: if adType is anything other than 0/1/2, none of the three branches run —
                 // no ad is actually shown — but isShowAOA (both this field and RootManager's

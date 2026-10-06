@@ -2407,27 +2407,27 @@ public class BotSeekController : MonoBehaviour
     // A null AdMgr throws.
     private void RevivePlayer()
     {
-        if (!AdMgr.Instance.IsRewardReady) return;
+        // if (!AdMgr.Instance.IsRewardReady) return;
 
-        // <RevivePlayer>b__187_0
-        AdMgr.Instance.OnRewardView(() =>
-        {
-            hideUI.HideAll();
-            RestorePlayerRagdoll();
-            GroundPlayer();
-            ResetBots();
-            _lastGraceSec = -1;
-            state = State.Grace;
-            timeLeft = roundTime;
-            graceLeft = graceTime;
-            SetStatusVisible(chasePlayer);
-            if (resultText != null)
-            {
-                resultText.text = "";
-            }
-            RootManager.Instance?.SetNumber(1);
-            Debug.Log("[BotSeek] Player revived — hide again!");
-        }, RewardFail);
+        // // <RevivePlayer>b__187_0
+        // AdMgr.Instance.OnRewardView(() =>
+        // {
+            // hideUI.HideAll();
+            // RestorePlayerRagdoll();
+            // GroundPlayer();
+            // ResetBots();
+            // _lastGraceSec = -1;
+            // state = State.Grace;
+            // timeLeft = roundTime;
+            // graceLeft = graceTime;
+            // SetStatusVisible(chasePlayer);
+            // if (resultText != null)
+            // {
+            //     resultText.text = "";
+            // }
+            // RootManager.Instance?.SetNumber(1);
+            // Debug.Log("[BotSeek] Player revived — hide again!");
+        // }, RewardFail);
     }
 
     private void RewardFail()

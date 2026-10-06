@@ -680,14 +680,14 @@ public class HideModeResultUI : MonoBehaviour
     // two delegate targets this method registers); with none, goes straight to replaying the mode.
     public void OnX2GoldClicked()
     {
-        if (AdMgr.Instance != null)
-        {
-            AdMgr.Instance.OnRewardView(GrantDoubleReward, RewardFail);
-        }
-        else
-        {
+        // if (AdMgr.Instance != null)
+        // {
+        //     AdMgr.Instance.OnRewardView(GrantDoubleReward, RewardFail);
+        // }
+        // else
+        // {
             ReplayCurrentMode();
-        }
+        // }
     }
 
     // Captures (this, seeker = gmm != null && gmm.PlayerIsSeeker) in

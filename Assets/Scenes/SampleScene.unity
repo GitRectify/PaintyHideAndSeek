@@ -2779,23 +2779,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!1 &173
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 706}
-  - component: {fileID: 2090}
-  m_Layer: 0
-  m_Name: RemoveAdsUI
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
 --- !u!1 &174
 GameObject:
   m_ObjectHideFlags: 0
@@ -10988,21 +10971,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 701}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!4 &706
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 173}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 709}
-  m_LocalEulerAnglesHint: {x: 0, y: -0, z: -0}
 --- !u!4 &707
 Transform:
   m_ObjectHideFlags: 0
@@ -11055,7 +11023,6 @@ Transform:
   - {fileID: 710}
   - {fileID: 701}
   - {fileID: 720}
-  - {fileID: 706}
   - {fileID: 715}
   - {fileID: 693}
   m_Father: {fileID: 0}
@@ -46222,18 +46189,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 065ac467649ac5c45ad9e4332cd93bc3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::UIDrag
---- !u!114 &2090
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 173}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ea1df2cbf41bce266e4c9ed64ec4d552, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!114 &2094
 MonoBehaviour:
   m_ObjectHideFlags: 0

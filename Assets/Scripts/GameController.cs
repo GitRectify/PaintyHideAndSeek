@@ -95,13 +95,13 @@ public class GameController : SingletonMonoBehavior<GameController>
 
     public void OnHead()
     {
-        HandleFireBase.Instance.LogEventWithString("PlayNowMode");
+        // HandleFireBase.Instance.LogEventWithString("PlayNowMode");
         head.SetActive(true);
     }
 
     public void OffHead()
     {
-        HandleFireBase.Instance.LogEventWithString("SeekerMode");
+        // HandleFireBase.Instance.LogEventWithString("SeekerMode");
         head.SetActive(false);
     }
 

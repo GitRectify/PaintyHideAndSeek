@@ -400,16 +400,18 @@ public class PoseSelectorUI : MonoBehaviour
         {
             if (slotIndex >= 2 && slotIndex <= 8)
             {
-                if (AdMgr.Instance == null)
-                {
-                    throw new NullReferenceException("AdMgr instance not available");
-                }
-                if (!AdMgr.Instance.IsRewardReady)
-                {
-                    return;
-                }
-                // onSuccess = <>c__DisplayClass31_0.<PickSlot>b__7 (decompiled): ApplyPick(slotIndex).
-                AdMgr.Instance.OnRewardView(() => ApplyPick(slotIndex), RewardFail);
+                // if (AdMgr.Instance == null)
+                // {
+                //     throw new NullReferenceException("AdMgr instance not available");
+                // }
+                // if (!AdMgr.Instance.IsRewardReady)
+                // {
+                //     return;
+                // }
+                // // onSuccess = <>c__DisplayClass31_0.<PickSlot>b__7 (decompiled): ApplyPick(slotIndex).
+                // AdMgr.Instance.OnRewardView(() => 
+                    ApplyPick(slotIndex);
+                // , RewardFail);
                 return;
             }
 
@@ -511,22 +513,22 @@ public class PoseSelectorUI : MonoBehaviour
     // FIRST (if set), then ApplyPick(slotIndex).
     public void SlotAds(int slotIndex, Action onSuccess)
     {
-        if (AdMgr.Instance == null)
-        {
-            throw new NullReferenceException("AdMgr instance not available");
-        }
-        if (!AdMgr.Instance.IsRewardReady)
-        {
-            return;
-        }
+        // if (AdMgr.Instance == null)
+        // {
+        //     throw new NullReferenceException("AdMgr instance not available");
+        // }
+        // if (!AdMgr.Instance.IsRewardReady)
+        // {
+        //     return;
+        // }
 
-        AdMgr.Instance.OnRewardView(
-            () =>
-            {
+        // AdMgr.Instance.OnRewardView(
+        //     () =>
+        //     {
                 onSuccess?.Invoke();
                 ApplyPick(slotIndex);
-            },
-            RewardFail);
+            // },
+            // RewardFail);
     }
 
     private bool IsRewardSlot(int slotIndex)
