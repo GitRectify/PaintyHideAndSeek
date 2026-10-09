@@ -5348,8 +5348,6 @@ GameObject:
   - component: {fileID: 1447}
   - component: {fileID: 2286}
   - component: {fileID: 2285}
-  - component: {fileID: 2281}
-  - component: {fileID: 2280}
   m_Layer: 0
   m_Name: RemoveAdsCanvas
   m_TagString: Untagged
@@ -46541,30 +46539,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 065ac467649ac5c45ad9e4332cd93bc3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::UIDrag
---- !u!114 &2280
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 315}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8ee12030eb21a552eab3b591138874e8, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
---- !u!114 &2281
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 315}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8204c7b1fe61728a6756284ce98431ae, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!114 &2285
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -50714,7 +50688,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: 5f8e476ed65e6844d8723f6948183d58, type: 3}
+  m_Sprite: {fileID: 21300000, guid: 21f12db4a8de11240875fc5ed74fb477, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
@@ -56956,7 +56930,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: 21f12db4a8de11240875fc5ed74fb477, type: 3}
+  m_Sprite: {fileID: 21300000, guid: 5f8e476ed65e6844d8723f6948183d58, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
