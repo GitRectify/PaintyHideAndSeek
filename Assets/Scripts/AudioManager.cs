@@ -10,7 +10,7 @@ public class AudioManager : MonoBehaviour
         {
             if (_instance == null)
             {
-                _instance = Object.FindFirstObjectByType<AudioManager>();
+                _instance = Object.FindAnyObjectByType<AudioManager>();
                 if (_instance == null)
                 {
                     GameObject go = GameObject.Find("AudioManager");
@@ -141,7 +141,7 @@ public class AudioManager : MonoBehaviour
 
     private void EnsureListener()
     {
-        if (Object.FindFirstObjectByType<AudioListener>() == null)
+        if (Object.FindAnyObjectByType<AudioListener>() == null)
         {
             // NOTE: confirmed via trace — falls back to THIS component's own gameObject if
             // Camera.main is null, not just skipping listener creation entirely.
@@ -152,10 +152,10 @@ public class AudioManager : MonoBehaviour
 
     private void HookButtons()
     {
-        // NOTE: (1, 0) read as (FindObjectsInactive.Include, FindObjectsSortMode.None) — matches
+        // NOTE: (1, 0) read as (FindObjectsInactive.Include) — matches
         // Unity's documented enum ordinals for this overload, though the decompile itself only
         // shows the raw ints, not the enum names.
-        Button[] buttons = Object.FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        Button[] buttons = Object.FindObjectsByType<Button>(FindObjectsInactive.Include);
 
         foreach (Button btn in buttons)
         {

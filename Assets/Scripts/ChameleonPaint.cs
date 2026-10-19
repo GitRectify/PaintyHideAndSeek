@@ -210,7 +210,7 @@ public class ChameleonPaint : MonoBehaviour
     {
         font = UIFont.Default;
         cam = Camera.main;
-        camCtrl = FindFirstObjectByType<CameraController>();
+        camCtrl = FindAnyObjectByType<CameraController>();
         readTex = new Texture2D(5, 5, TextureFormat.RGBA32, false);
         solidSprite = MakeSolid();
         circleSprite = MakeCircle(96);
@@ -419,7 +419,7 @@ public class ChameleonPaint : MonoBehaviour
     {
         if (levelMgr == null)
         {
-            levelMgr = FindFirstObjectByType<LevelManager>(FindObjectsInactive.Include);
+            levelMgr = FindAnyObjectByType<LevelManager>(FindObjectsInactive.Include);
         }
 
         if (levelMgr != null && levelMgr.CurrentRoomInstance != null)
@@ -1197,7 +1197,7 @@ public class ChameleonPaint : MonoBehaviour
     // present (looked up by name), else StandaloneInputModule.
     private void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null) return;
+        if (FindAnyObjectByType<EventSystem>() != null) return;
 
         GameObject go = new GameObject("EventSystem");
         go.AddComponent<EventSystem>();

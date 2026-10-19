@@ -28,7 +28,7 @@ public class ScoutCamButtonIcon : MonoBehaviour
     private void Start()
     {
         img = GetComponent<Image>();
-        cam = FindFirstObjectByType<CameraController>();
+        cam = FindAnyObjectByType<CameraController>();
         Apply(true);
     }
 
@@ -46,7 +46,7 @@ public class ScoutCamButtonIcon : MonoBehaviour
 
         if (cam == null)
         {
-            cam = FindFirstObjectByType<CameraController>();
+            cam = FindAnyObjectByType<CameraController>();
             if (cam == null)
             {
                 return;

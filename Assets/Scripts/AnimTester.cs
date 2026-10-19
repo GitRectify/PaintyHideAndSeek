@@ -63,7 +63,7 @@ public class AnimTester : MonoBehaviour
     // StandaloneInputModule.
     private void EnsureEventSystem()
     {
-        if (Object.FindFirstObjectByType<EventSystem>() != null) return;
+        if (Object.FindAnyObjectByType<EventSystem>() != null) return;
 
         GameObject go = new GameObject("EventSystem");
         go.AddComponent<EventSystem>();

@@ -156,8 +156,8 @@ public class CameraController : MonoBehaviour
             character = player.transform;
         }
         cam = Camera.main;
-        paint = FindFirstObjectByType<ChameleonPaint>();
-        gmm = FindFirstObjectByType<GameModeManager>();
+        paint = FindAnyObjectByType<ChameleonPaint>();
+        gmm = FindAnyObjectByType<GameModeManager>();
         _defPitch = pitch;
         _defDistance = distance;
         _defYaw = yaw;
@@ -723,7 +723,7 @@ public class CameraController : MonoBehaviour
     // present (looked up by name), else StandaloneInputModule.
     private void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null) return;
+        if (FindAnyObjectByType<EventSystem>() != null) return;
 
         GameObject go = new GameObject("EventSystem");
         go.AddComponent<EventSystem>();

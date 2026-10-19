@@ -145,12 +145,12 @@ public class WallClimber : MonoBehaviour
             Debug.LogWarning("[WallClimber] Character '" + characterRootName + "' not found.");
         }
 
-        joystick = UnityEngine.Object.FindFirstObjectByType<Joystick>(FindObjectsInactive.Include);
+        joystick = UnityEngine.Object.FindAnyObjectByType<Joystick>(FindObjectsInactive.Include);
         cam = Camera.main;
-        seek = UnityEngine.Object.FindFirstObjectByType<BotSeekController>();
-        gmm = UnityEngine.Object.FindFirstObjectByType<GameModeManager>();
-        camCtrl = UnityEngine.Object.FindFirstObjectByType<CameraController>();
-        poseSel = UnityEngine.Object.FindFirstObjectByType<PoseSelectorUI>();
+        seek = UnityEngine.Object.FindAnyObjectByType<BotSeekController>();
+        gmm = UnityEngine.Object.FindAnyObjectByType<GameModeManager>();
+        camCtrl = UnityEngine.Object.FindAnyObjectByType<CameraController>();
+        poseSel = UnityEngine.Object.FindAnyObjectByType<PoseSelectorUI>();
         font = UIFont.Default;
 
         EnsureEventSystem();
@@ -168,7 +168,7 @@ public class WallClimber : MonoBehaviour
     // than static, even though it never touches instance state.
     private void EnsureEventSystem()
     {
-        if (UnityEngine.Object.FindFirstObjectByType<EventSystem>() != null) return;
+        if (UnityEngine.Object.FindAnyObjectByType<EventSystem>() != null) return;
 
         var go = new GameObject("EventSystem");
         go.AddComponent<EventSystem>();

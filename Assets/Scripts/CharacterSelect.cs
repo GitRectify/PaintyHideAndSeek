@@ -90,7 +90,7 @@ public class CharacterSelect : MonoBehaviour
 
     private void Start()
     {
-        gmm = Object.FindFirstObjectByType<GameModeManager>();
+        gmm = Object.FindAnyObjectByType<GameModeManager>();
 
         if (showHomeButtons)
         {

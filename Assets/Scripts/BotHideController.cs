@@ -198,10 +198,10 @@ public class BotHideController : MonoBehaviour
 
     private void Start()
     {
-        botMgr = Object.FindFirstObjectByType<BotManager>();
-        gmm = Object.FindFirstObjectByType<GameModeManager>();
-        resultUI = Object.FindFirstObjectByType<HideModeResultUI>();
-        levelMgr = Object.FindFirstObjectByType<LevelManager>(FindObjectsInactive.Include);
+        botMgr = Object.FindAnyObjectByType<BotManager>();
+        gmm = Object.FindAnyObjectByType<GameModeManager>();
+        resultUI = Object.FindAnyObjectByType<HideModeResultUI>();
+        levelMgr = Object.FindAnyObjectByType<LevelManager>(FindObjectsInactive.Include);
 
         if (botMgr == null)
         {
@@ -246,7 +246,7 @@ public class BotHideController : MonoBehaviour
     {
         if (levelMgr == null)
         {
-            levelMgr = FindFirstObjectByType<LevelManager>(
+            levelMgr = FindAnyObjectByType<LevelManager>(
                 FindObjectsInactive.Include
             );
         }
@@ -1601,7 +1601,7 @@ public class BotHideController : MonoBehaviour
     // StandaloneInputModule.
     private void EnsureEventSystem()
     {
-        if (Object.FindFirstObjectByType<EventSystem>() != null) return;
+        if (Object.FindAnyObjectByType<EventSystem>() != null) return;
 
         GameObject go = new GameObject("EventSystem");
         go.AddComponent<EventSystem>();

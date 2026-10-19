@@ -10,7 +10,7 @@ public class BotNameTag : MonoBehaviour
     public Color textColor = Color.white;
 
     private string pendingName = "Player";
-    private Transform tag;
+    private Transform nameTagTransform;
     private Text label;
     private Camera cam;
 
@@ -25,9 +25,9 @@ public class BotNameTag : MonoBehaviour
 
     public void SetVisible(bool v)
     {
-        if (tag == null) return;
+        if (nameTagTransform == null) return;
 
-        GameObject go = tag.gameObject;
+        GameObject go = nameTagTransform.gameObject;
         if (go.activeSelf == v) return;
 
         go.SetActive(v);
@@ -41,7 +41,7 @@ public class BotNameTag : MonoBehaviour
 
     private void Build()
     {
-        if (tag != null) return;
+        if (nameTagTransform != null) return;
 
         // Force the shared UI font to resolve/load before anything below uses it.
         _ = UIFont.Default;
@@ -63,7 +63,7 @@ public class BotNameTag : MonoBehaviour
         label = NewText("Text", root.transform, pendingName, fontSize, textColor);
         Stretch(label, 8f);
 
-        tag = root.transform;
+        nameTagTransform = root.transform;
     }
 
     private Image NewImage(string name, Transform parent, Color color)
@@ -110,7 +110,7 @@ public class BotNameTag : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (tag == null) return;
+        if (nameTagTransform == null) return;
 
         if (cam == null)
         {
@@ -119,13 +119,13 @@ public class BotNameTag : MonoBehaviour
 
         // CORRECTION: the earlier draft silently returned here if `cam` was still null after the
         // Camera.main fallback attempt. Confirmed via trace — the real decompile only has a
-        // silent return for the `tag == null` case above; if tag exists but no camera can be
+        // silent return for the `nameTagTransform == null` case above; if nameTagTransform exists but no camera can be
         // found, it falls through to a throw instead. Natural crash-on-null reproduces that
         // correctly without an explicit guard.
-        Vector3 forward = tag.position - cam.transform.position;
+        Vector3 forward = nameTagTransform.position - cam.transform.position;
 
         // Billboard: face the same direction the camera is looking (i.e. point away from the
         // camera), rather than facing the camera directly — keeps the text readable and upright.
-        tag.rotation = Quaternion.LookRotation(forward, Vector3.up);
+        nameTagTransform.rotation = Quaternion.LookRotation(forward, Vector3.up);
     }
 }

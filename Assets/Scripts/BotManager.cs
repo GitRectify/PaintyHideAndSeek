@@ -62,7 +62,7 @@ public class BotManager : MonoBehaviour
         if (spawned) return;
         spawned = true;
 
-        MatchmakingUI matchmakingUI = Object.FindFirstObjectByType<MatchmakingUI>();
+        MatchmakingUI matchmakingUI = Object.FindAnyObjectByType<MatchmakingUI>();
         if (matchmakingUI != null)
         {
             int count = matchmakingUI.hunterSlots + matchmakingUI.FugitiveCount - 1;
@@ -74,8 +74,8 @@ public class BotManager : MonoBehaviour
         Spawn();
         string[] botNames = BotNames;
 
-        BotHideController botHideController = Object.FindFirstObjectByType<BotHideController>();
-        BotSeekController botSeekController = Object.FindFirstObjectByType<BotSeekController>();
+        BotHideController botHideController = Object.FindAnyObjectByType<BotHideController>();
+        BotSeekController botSeekController = Object.FindAnyObjectByType<BotSeekController>();
 
         if (botHideController != null)
         {

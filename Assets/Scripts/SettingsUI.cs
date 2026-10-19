@@ -180,7 +180,7 @@ public class SettingsUI : MonoBehaviour
 
     public void OnHome()
     {
-        HomeUI homeUI = FindFirstObjectByType<HomeUI>();
+        HomeUI homeUI = FindAnyObjectByType<HomeUI>();
         if (homeUI != null)
         {
             homeUI.GoHome();

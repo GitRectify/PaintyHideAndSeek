@@ -12,7 +12,7 @@ public class SingletonMonoBehavior<T> : MonoBehaviour
             if (_instance == null)
             {
                 #if UNITY_6000_0_OR_NEWER
-                    _instance = Object.FindFirstObjectByType<T>();
+                    _instance = Object.FindAnyObjectByType<T>();
                 #else
                     _instance = Object.FindObjectOfType<T>();
                 #endif

@@ -29,7 +29,7 @@ public class LoadingScreen : MonoBehaviour
         {
             if (_instance == null)
             {
-                _instance = FindFirstObjectByType<LoadingScreen>();
+                _instance = FindAnyObjectByType<LoadingScreen>();
                 if (_instance == null)
                 {
                     GameObject go = new GameObject("LoadingScreenRunner");

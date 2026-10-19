@@ -343,11 +343,11 @@ public class BotSeekController : MonoBehaviour
             playerRends = playerTf.GetComponentsInChildren<Renderer>();
         }
 
-        paint = Object.FindFirstObjectByType<ChameleonPaint>();
-        resultUI = Object.FindFirstObjectByType<HideModeResultUI>();
-        gmm = Object.FindFirstObjectByType<GameModeManager>();
-        botMgr = Object.FindFirstObjectByType<BotManager>();
-        camCtrl = Object.FindFirstObjectByType<CameraController>();
+        paint = Object.FindAnyObjectByType<ChameleonPaint>();
+        resultUI = Object.FindAnyObjectByType<HideModeResultUI>();
+        gmm = Object.FindAnyObjectByType<GameModeManager>();
+        botMgr = Object.FindAnyObjectByType<BotManager>();
+        camCtrl = Object.FindAnyObjectByType<CameraController>();
 
         if (bulletPrefab == null)
         {
@@ -388,7 +388,7 @@ public class BotSeekController : MonoBehaviour
 
         if (paint == null)
         {
-            paint = Object.FindFirstObjectByType<ChameleonPaint>();
+            paint = Object.FindAnyObjectByType<ChameleonPaint>();
         }
 
         EnsureColliders();
@@ -2016,7 +2016,7 @@ public class BotSeekController : MonoBehaviour
     private void AttachGunsToSeekers()
     {
         GameObject gunSrc = FindInScene(gunObjectName);
-        // GunHolder holder = Object.FindFirstObjectByType<GunHolder>();
+        // GunHolder holder = Object.FindAnyObjectByType<GunHolder>();
         // Vector3 localPos = holder != null ? holder.localPosition : Vector3.zero;
         // Vector3 localEuler = holder != null ? holder.localEuler : Vector3.zero;
         // Vector3 localScale = holder != null ? holder.localScale : Vector3.one;
@@ -2436,7 +2436,7 @@ public class BotSeekController : MonoBehaviour
 
     private void GroundPlayer()
     {
-        WallClimber climber = Object.FindFirstObjectByType<WallClimber>();
+        WallClimber climber = Object.FindAnyObjectByType<WallClimber>();
         if (climber != null)
         {
             climber.DropToGround();

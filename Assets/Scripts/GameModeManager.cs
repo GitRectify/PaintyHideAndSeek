@@ -64,12 +64,12 @@ public class GameModeManager : MonoBehaviour
     // before use, consistent with it legitimately being allowed to stay unset here.
     private void Start()
     {
-        hide = Object.FindFirstObjectByType<BotHideController>();
-        seek = Object.FindFirstObjectByType<BotSeekController>();
-        botMgr = Object.FindFirstObjectByType<BotManager>();
-        matchmaking = Object.FindFirstObjectByType<MatchmakingUI>();
-        levelMgr = Object.FindFirstObjectByType<LevelManager>();
-        paint = Object.FindFirstObjectByType<ChameleonPaint>();
+        hide = Object.FindAnyObjectByType<BotHideController>();
+        seek = Object.FindAnyObjectByType<BotSeekController>();
+        botMgr = Object.FindAnyObjectByType<BotManager>();
+        matchmaking = Object.FindAnyObjectByType<MatchmakingUI>();
+        levelMgr = Object.FindAnyObjectByType<LevelManager>();
+        paint = Object.FindAnyObjectByType<ChameleonPaint>();
 
         GameObject playerObj = PlayerRef.Resolve("Player");
         if (playerObj != null)
@@ -139,7 +139,7 @@ public class GameModeManager : MonoBehaviour
     // UI module when the package is present, otherwise fall back to the legacy StandaloneInputModule.
     private void EnsureEventSystem()
     {
-        if (Object.FindFirstObjectByType<EventSystem>() != null) return;
+        if (Object.FindAnyObjectByType<EventSystem>() != null) return;
 
         GameObject go = new GameObject("EventSystem");
         go.AddComponent<EventSystem>();
@@ -373,7 +373,7 @@ public class GameModeManager : MonoBehaviour
     // `if (ragdolls == null) return;` silently skipped that case.
     private void RestoreAllRagdolls()
     {
-        Ragdoll[] ragdolls = Object.FindObjectsByType<Ragdoll>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        Ragdoll[] ragdolls = Object.FindObjectsByType<Ragdoll>(FindObjectsInactive.Include);
         if (ragdolls == null)
         {
             throw new NullReferenceException("FindObjectsByType<Ragdoll> returned null");

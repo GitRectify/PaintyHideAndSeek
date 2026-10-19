@@ -55,8 +55,8 @@ public class HomeUI : MonoBehaviour
     // to PlayerPrefs before a scene reload.
     private void Start()
     {
-        gmm = Object.FindFirstObjectByType<GameModeManager>();
-        matchmaking = Object.FindFirstObjectByType<MatchmakingUI>();
+        gmm = Object.FindAnyObjectByType<GameModeManager>();
+        matchmaking = Object.FindAnyObjectByType<MatchmakingUI>();
 
         homeCanvas = FindInSceneIncludingInactive("HomeCanvas");
 

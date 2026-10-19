@@ -42,7 +42,7 @@ public class SelectPlayerUI : MonoBehaviour
     private void Awake()
     {
         Instance = this;
-        _cs = FindFirstObjectByType<CharacterSelect>();
+        _cs = FindAnyObjectByType<CharacterSelect>();
         Resolve();
         if (_canvas != null)
         {

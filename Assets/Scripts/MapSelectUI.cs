@@ -17,8 +17,8 @@ public class MapSelectUI : MonoBehaviour
 
     private void Start()
     {
-        gmm = FindFirstObjectByType<GameModeManager>();
-        lm = (LevelManager.Instance != null) ? LevelManager.Instance : FindFirstObjectByType<LevelManager>();
+        gmm = FindAnyObjectByType<GameModeManager>();
+        lm = (LevelManager.Instance != null) ? LevelManager.Instance : FindAnyObjectByType<LevelManager>();
 
         Build();
 
@@ -45,7 +45,7 @@ public class MapSelectUI : MonoBehaviour
     {
         if (lm == null)
         {
-            lm = FindFirstObjectByType<LevelManager>();
+            lm = FindAnyObjectByType<LevelManager>();
         }
         Build();
         RefreshLabel();

@@ -133,10 +133,10 @@ public class Mode1FirstPersonGun : MonoBehaviour
 
     private void Resolve()
     {
-        hide = FindFirstObjectByType<BotHideController>();
-        gmm = FindFirstObjectByType<GameModeManager>();
-        camCtrl = FindFirstObjectByType<CameraController>();
-        gunHolder = FindFirstObjectByType<GunHolder>();
+        hide = FindAnyObjectByType<BotHideController>();
+        gmm = FindAnyObjectByType<GameModeManager>();
+        camCtrl = FindAnyObjectByType<CameraController>();
+        gunHolder = FindAnyObjectByType<GunHolder>();
 
         if (bulletPrefab == null)
         {
@@ -886,7 +886,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
     // present (looked up by name), else StandaloneInputModule.
     private void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null) return;
+        if (FindAnyObjectByType<EventSystem>() != null) return;
 
         GameObject go = new GameObject("EventSystem");
         go.AddComponent<EventSystem>();

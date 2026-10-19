@@ -29,8 +29,8 @@ public class HomeShowcaseBots : MonoBehaviour
     {
         if (!showOnHome) return;
 
-        gmm = Object.FindFirstObjectByType<GameModeManager>();
-        botMgr = Object.FindFirstObjectByType<BotManager>();
+        gmm = Object.FindAnyObjectByType<GameModeManager>();
+        botMgr = Object.FindAnyObjectByType<BotManager>();
 
         if (!RoundActive())
         {

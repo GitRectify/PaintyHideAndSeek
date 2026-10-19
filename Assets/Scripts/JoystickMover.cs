@@ -98,15 +98,15 @@ public class JoystickMover : MonoBehaviour
         cam = Camera.main;
         if (joystick == null)
         {
-            joystick = FindFirstObjectByType<Joystick>(FindObjectsInactive.Include);
+            joystick = FindAnyObjectByType<Joystick>(FindObjectsInactive.Include);
         }
         if (joystick == null)
         {
             Debug.LogWarning("[JoystickMover] No Joystick (Joystick Pack) assigned or found in the scene.");
         }
-        climber = FindFirstObjectByType<WallClimber>(FindObjectsInactive.Include);
-        camCtrl = FindFirstObjectByType<CameraController>(FindObjectsInactive.Include);
-        gmm = FindFirstObjectByType<GameModeManager>(FindObjectsInactive.Include);
+        climber = FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
+        camCtrl = FindAnyObjectByType<CameraController>(FindObjectsInactive.Include);
+        gmm = FindAnyObjectByType<GameModeManager>(FindObjectsInactive.Include);
         WireRotateButton();
         Debug.Log("[JoystickMover] Ready (character=" + (character != null) + ", joystick=" + (joystick != null) + ").");
     }

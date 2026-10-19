@@ -34,7 +34,7 @@ public class MatchHUD : MonoBehaviour
 
     private void Start()
     {
-        gmm = FindFirstObjectByType<GameModeManager>();
+        gmm = FindAnyObjectByType<GameModeManager>();
         EnsureBuilt();
         SetVisible(false);
     }

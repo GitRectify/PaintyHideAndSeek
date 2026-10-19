@@ -37,7 +37,7 @@ public class MapSelectPopup : MonoBehaviour
     private void Awake()
     {
         Instance = this;
-        _lm = FindFirstObjectByType<LevelManager>();
+        _lm = FindAnyObjectByType<LevelManager>();
         Resolve();
         if (_canvas != null)
         {

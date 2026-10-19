@@ -114,12 +114,12 @@ public class HideModeResultUI : MonoBehaviour
     {
         if (homeUI == null)
         {
-            homeUI = Object.FindFirstObjectByType<HomeUI>();
+            homeUI = Object.FindAnyObjectByType<HomeUI>();
         }
 
         if (gmm == null)
         {
-            gmm = Object.FindFirstObjectByType<GameModeManager>();
+            gmm = Object.FindAnyObjectByType<GameModeManager>();
         }
     }
 

@@ -350,7 +350,7 @@ public class Ragdoll : MonoBehaviour
             smr.updateWhenOffscreen = true;
         }
 
-        CharacterController[] otherCCs = FindObjectsByType<CharacterController>(FindObjectsSortMode.None);
+        CharacterController[] otherCCs = FindObjectsByType<CharacterController>();
 
         Vector3 dir = (worldDir.sqrMagnitude <= 0.0001f) ? transform.forward : worldDir.normalized;
         Vector3 launchVel = (dir * launchSpeed + Vector3.up * upBoost) * forceScale;

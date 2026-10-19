@@ -2,6 +2,7 @@
   "dependencies": {
     "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity",
     "com.unity.2d.sprite": "1.0.0",
+    "com.unity.ai.assistant": "file:D:/Program/Unity/com.unity.ai.assistant-2.18.0-pre.2.tgz",
     "com.unity.ai.navigation": "2.0.14",
     "com.unity.inputsystem": "1.20.0",
     "com.unity.microsoft.gdk": "1.7.0",
