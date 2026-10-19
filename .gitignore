@@ -29,6 +29,7 @@
 .vs/
 *.csproj
 *.sln
+*.slnx
 *.suo
 *.user
 *.userprefs
@@ -95,3 +96,6 @@ sysinfo.txt
 
 # Never add:
 # *.meta
+
+# Unity temporary Android build files
+/.utmp/
