@@ -293,38 +293,39 @@ public class SettingsUI : MonoBehaviour
 
         int pixelLightCount = (idx != 1) ? 4 : 2;
         float shadowDistance = (idx != 1) ? 150f : 100f;
-        int antiAliasing = pixelLightCount;
 
         if (idx == 0)
         {
             pixelLightCount = 1;
             shadowDistance = 50f;
-            antiAliasing = 0;
         }
 
         QualitySettings.lodBias = lodBias;
         QualitySettings.maximumLODLevel = 0;
         QualitySettings.shadows = (UnityEngine.ShadowQuality)shadowQuality;
         QualitySettings.shadowDistance = shadowDistance;
-        QualitySettings.antiAliasing = antiAliasing;
+        // URP controls multisample anti-aliasing on the URP asset below.
+        // Avoid changing the legacy quality setting at the same time.
+        QualitySettings.antiAliasing = 0;
         QualitySettings.pixelLightCount = pixelLightCount;
         QualitySettings.softParticles = idx > 0;
 
         UniversalRenderPipelineAsset urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
         if (urpAsset != null)
         {
-            if (idx == 0)
-            {
-                urpAsset.renderScale = 0.6f;
-                urpAsset.shadowDistance = 50f;
-                urpAsset.msaaSampleCount = 1;
-            }
-            else
-            {
-                urpAsset.renderScale = (idx == 1) ? 0.85f : 1.0f;
-                urpAsset.shadowDistance = shadowDistance;
-                urpAsset.msaaSampleCount = (idx == 1) ? 2 : 4;
-            }
+            // LDPlayer compatibility test: High retains the better texture, LOD
+            // and shadow settings, but avoids switching render target size to
+            // 100% and avoids 4x MSAA. These can trigger renderer/driver issues
+            // on some emulator configurations.
+            urpAsset.renderScale = idx == 0 ? 0.6f : 0.85f;
+            urpAsset.shadowDistance = shadowDistance;
+            urpAsset.msaaSampleCount = idx == 0 ? 1 : 2;
+
+            Debug.Log($"[SettingsUI] Quality={QualityNames[Mathf.Clamp(idx, 0, 2)]}, " +
+                      $"Screen={Screen.width}x{Screen.height}, " +
+                      $"URP renderScale={urpAsset.renderScale}, " +
+                      $"MSAA={urpAsset.msaaSampleCount}, " +
+                      $"Graphics API={SystemInfo.graphicsDeviceType}");
         }
     }
 
