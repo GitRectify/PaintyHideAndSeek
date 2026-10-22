@@ -847,7 +847,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
         rt.anchorMin = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = Vector2.zero;
-        rt.sizeDelta = new Vector2(64f, 64f);
+        rt.sizeDelta = new Vector2(200f, 200f);
 
         CrosshairBar(go.transform, "Up", new Vector2(0f, 18f), new Vector2(4f, 18f), new Color(1f, 1f, 1f, 0.85f));
         CrosshairBar(go.transform, "Down", new Vector2(0f, -18f), new Vector2(4f, 18f), new Color(1f, 1f, 1f, 0.85f));

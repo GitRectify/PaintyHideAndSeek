@@ -139,7 +139,7 @@ public class MatchHUD : MonoBehaviour
 
         if (ringFillImg != null)
         {
-            ringFillImg.fillAmount = Mathf.Clamp01(frac);
+            ringFillImg.fillAmount = Mathf.Clamp01(1 - frac);
         }
 
         if (timerText != null)
