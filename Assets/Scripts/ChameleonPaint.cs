@@ -1477,7 +1477,7 @@ public class ChameleonPaint : MonoBehaviour
         // Preserve original button images on authored scene objects. Their BaseIcon
         // stays visible; only the selected-state Icon is enabled/disabled.
         Image eye = NewToolButtonImage("EyeBtn", p, new Color(0.25f, 0.27f, 0.32f, 1f));
-        Place(eye, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(680f, -815f), new Vector2(150f, 150f));
+        Place(eye, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(680f, -800f), new Vector2(150f, 150f));
         Button eyeButton = SceneUI.GetOrAdd<Button>(eye.gameObject);
         eyeButton.targetGraphic = eye;
         if (eyeButton.onClick.GetPersistentEventCount() == 0)
@@ -1488,7 +1488,7 @@ public class ChameleonPaint : MonoBehaviour
         eyeBtnIcon = AddToolButtonContent(eye.transform, pickerIcon, "PICK");
 
         Image erase = NewToolButtonImage("EraseBtn", p, new Color(0.32f, 0.22f, 0.22f, 1f));
-        Place(erase, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(80f, -815f), new Vector2(150f, 150f));
+        Place(erase, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(80f, -800f), new Vector2(150f, 150f));
         Button eraseButton = SceneUI.GetOrAdd<Button>(erase.gameObject);
         eraseButton.targetGraphic = erase;
         if (eraseButton.onClick.GetPersistentEventCount() == 0)
@@ -1499,7 +1499,7 @@ public class ChameleonPaint : MonoBehaviour
         eraseBtnIcon = AddToolButtonContent(erase.transform, eraserIcon, "ERASE");
 
         Image brushButtonImage = NewToolButtonImage("BrushBtn", p, new Color(0.25f, 0.35f, 0.29f, 1f));
-        Place(brushButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(480f, -815f), new Vector2(150f, 150f));
+        Place(brushButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(480f, -800f), new Vector2(150f, 150f));
         Button brushButton = SceneUI.GetOrAdd<Button>(brushButtonImage.gameObject);
         brushButton.targetGraphic = brushButtonImage;
         if (brushButton.onClick.GetPersistentEventCount() == 0)
@@ -1513,7 +1513,7 @@ public class ChameleonPaint : MonoBehaviour
         // Fill is a one-click action. Put its default layout in a second row so
         // existing Eye/Erase/Brush buttons and authored positions remain unchanged.
         Image fillButtonImage = NewToolButtonImage("FillBtn", p, new Color(0.25f, 0.34f, 0.42f, 1f));
-        Place(fillButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(280f, -815f), new Vector2(150f, 150f));
+        Place(fillButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(280f, -800f), new Vector2(150f, 150f));
         Button fillButton = SceneUI.GetOrAdd<Button>(fillButtonImage.gameObject);
         fillButton.targetGraphic = fillButtonImage;
         // Keep Inspector-assigned listeners. Hook FillBody unless the Inspector
@@ -1552,14 +1552,14 @@ public class ChameleonPaint : MonoBehaviour
 
         // The old wheel, RGB bars, and their readouts are hidden rather than destroyed.
 
-        MakeSizeSlider(p, 36f, 548f);
-        MakeSliderBox(p, "Metallic", 440f, v =>
+        MakeSizeSlider(p, 100f, 660f);
+        MakeSliderBox(p, "Metallic", 420f, v =>
         {
             metallic = Mathf.Clamp01(v);
             ApplyMaterialParams();
             RefreshMaterialUI();
         }, out mFill, out mVal, out metallicHandleRt);
-        MakeSliderBox(p, "Roughness", 580f, v =>
+        MakeSliderBox(p, "Roughness", 540f, v =>
         {
             roughness = Mathf.Clamp01(v);
             ApplyMaterialParams();
@@ -2130,7 +2130,7 @@ public class ChameleonPaint : MonoBehaviour
         ring.raycastTarget = false;
         ring.preserveAspect = true;
         // In newly created layouts the ring sits beside the 600px track, centered on it.
-        Place(ring, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0 + trackWidth + 24f, -(y - 25f)), new Vector2(ringSize, ringSize));
+        Place(ring, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0 + trackWidth + ringSize / 2, -(y - ringSize / 2)), new Vector2(ringSize, ringSize));
         ring.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, ringSize);
         ring.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, ringSize);
 
@@ -2194,7 +2194,7 @@ public class ChameleonPaint : MonoBehaviour
         Image track = NewImage(label + "Box", parent, Color.white,
             trackSkin != null ? trackSkin : solidSprite);
         Place(track, new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(230f, -y), new Vector2(600f, 30f));
+            new Vector2(100f, -y), new Vector2(600f, 30f));
         RectTransform trackRt = track.rectTransform;
         trackRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, 30f);
         track.type = Image.Type.Simple;
