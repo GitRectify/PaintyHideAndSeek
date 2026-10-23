@@ -71,10 +71,23 @@ public class ChameleonPaint : MonoBehaviour
     public Sprite sizeDotSprite;
     public Sprite sizeRingSprite;
     public Sprite brushIconSprite;
+
+    [Header("Material slider appearance")]
+    [Tooltip("Diameter of Metallic/Roughness handles; uses the same sprite as SizeHandle. Smaller than SizeHandle to fit the existing two rows.")]
+    [Range(24f, 80f)]
+    public float materialSliderHandleSize = 50f;
     [Tooltip("Diameter of SizeDot (UI units) with the minimum brush size.")]
     public float sizePreviewDotMin = 20f;
     [Tooltip("Diameter of SizeDot (UI units) with the maximum brush size.")]
     public float sizePreviewDotMax = 70f;
+
+    [Header("Horizontal color picker")]
+    [Tooltip("Optional custom rainbow image. Leave empty to generate the rainbow automatically.")]
+    public Sprite hueBarSprite;
+    [Tooltip("Optional custom black-to-white image. Leave empty to generate it automatically.")]
+    public Sprite lightnessBarSprite;
+    [Tooltip("Optional white triangular pointer image (points UP). Leave empty to generate it automatically.")]
+    public Sprite colorPointerSprite;
 
     [Header("Fill button")]
     [Tooltip("Optional icon for FillBtn. The button instantly paints the whole character with the selected brush color.")]
@@ -136,10 +149,18 @@ public class ChameleonPaint : MonoBehaviour
     private LevelManager levelMgr;
     private Color brush = Color.white;
     private float metallic;
-    private float roughness = 0.5f;
+    private float roughness = 1f;
     private float H;
     private float S;
     private float V;
+    // Stored independently so the hue pointer does not jump when brush becomes black/white.
+    private float selectedHue;
+    // HSL saturation is remembered even at pure black or white, where RGB cannot
+    // encode hue/saturation. Sliding back from either end restores the original color.
+    private float selectedColorSaturation = 1f;
+    private float selectedHueBarPosition = 1f; // Both ends of the rainbow are red; remember the exact end clicked.
+    private RectTransform huePointer;
+    private RectTransform lightnessPointer;
     private int brushPx = 22;
     private Mode mode;
     private Transform characterTf;
@@ -175,6 +196,8 @@ public class ChameleonPaint : MonoBehaviour
     private Image paintGateImg;
     private Image mFill;
     private Image roFill;
+    private RectTransform metallicHandleRt;
+    private RectTransform roughnessHandleRt;
     private GameObject panelGO;
     private RectTransform panelRect;
     private Vector2 panelOpenPosition;
@@ -207,6 +230,7 @@ public class ChameleonPaint : MonoBehaviour
     private Texture2D vSliderTex;
     private Image _sizeFill;
     private RectTransform _sizeHandleRt;
+    private Image _sizeHandleImg;
     private RectTransform _sizeDotRt;
     private Image _sizeDotImg;
     private float _sizeTrackW;
@@ -234,7 +258,6 @@ public class ChameleonPaint : MonoBehaviour
         solidSprite = MakeSolid();
         circleSprite = MakeCircle(96);
         ringSprite = MakeRing(96, 0.7f);
-        wheelSprite = MakeWheel(256);
         lineSprite = MakeSolid();
         FindCharacter();
         ResolveGoop();
@@ -573,7 +596,7 @@ public class ChameleonPaint : MonoBehaviour
     {
         if (paintBuf == null) return;
         metallic = 0f;
-        roughness = 0.5f;
+        roughness = 1f;
         ClearCanvas(Color.white);
         ApplyCanvasToBody();
         SetBrush(Color.white);
@@ -941,37 +964,67 @@ public class ChameleonPaint : MonoBehaviour
     {
         brush = new Color(c.r, c.g, c.b, 1f);
         Color.RGBToHSV(brush, out H, out S, out V);
+        // Black and white do not encode hue or saturation. Keep the last meaningful
+        // selection so the lightness slider can restore it when moved back inward.
+        RGBToHSL(brush, out float h, out float saturation, out float lightness);
+        if (lightness > 0.00001f && lightness < 0.99999f)
+        {
+            selectedColorSaturation = saturation;
+        }
+        if (S > 0.00001f && lightness > 0.00001f && lightness < 0.99999f)
+        {
+            // Keep whichever red endpoint was clicked rather than snapping to the other.
+            float hueDistance = Mathf.Abs(Mathf.Repeat(H - selectedHue + 0.5f, 1f) - 0.5f);
+            if (hueDistance > 0.001f) selectedHueBarPosition = 1f - H;
+            selectedHue = H;
+        }
         RefreshColorUI();
     }
 
-    // Wheel pick. A near-black brush jumps to full brightness so the hue is visible.
-    private void SetHS(float h, float s)
+    // The rainbow runs red -> magenta -> blue -> cyan -> green -> yellow -> red,
+    // matching the supplied reference. Clicking hue makes fully saturated paint.
+    private void SetHueFromBar(float t)
     {
-        SetBrush(Color.HSVToRGB(Mathf.Repeat(h, 1f), Mathf.Clamp01(s), V >= 0.03f ? V : 1f));
+        selectedHueBarPosition = Mathf.Clamp01(t);
+        selectedHue = Mathf.Repeat(1f - selectedHueBarPosition, 1f);
+        float h, s, l;
+        RGBToHSL(brush, out h, out s, out l);
+        // A white/black starting brush otherwise hides the newly selected hue.
+        if (l < 0.02f || l > 0.98f) l = 0.5f;
+        selectedColorSaturation = 1f;
+        SetBrush(HSLToRGB(selectedHue, selectedColorSaturation, l));
     }
 
-    private void SetV(float v)
+    // Lightness: left=black, middle=vivid selected hue, right=white.
+    // Preserve existing saturation when the eyedropper sampled a muted color.
+    private void SetLightnessFromBar(float t)
     {
-        SetBrush(Color.HSVToRGB(H, S, Mathf.Clamp01(v)));
+        // Do NOT recalculate saturation from brush here: at black/white it is zero.
+        // Use the last selected HSL saturation instead.
+        SetBrush(HSLToRGB(selectedHue, selectedColorSaturation, Mathf.Clamp01(t)));
     }
 
-    private void SetChannel(int i, float val)
+    private static void RGBToHSL(Color color, out float h, out float s, out float l)
     {
-        Color c = brush;
-        val = Mathf.Clamp01(val);
-        if (i == 0)
-        {
-            c.r = val;
-        }
-        else if (i == 1)
-        {
-            c.g = val;
-        }
-        else
-        {
-            c.b = val;
-        }
-        SetBrush(c);
+        float hsvS, hsvV;
+        Color.RGBToHSV(color, out h, out hsvS, out hsvV);
+        float min = hsvV * (1f - hsvS);
+        l = (hsvV + min) * 0.5f;
+        float chroma = hsvV - min;
+        float denom = 1f - Mathf.Abs(2f * l - 1f);
+        s = denom > 0.00001f ? Mathf.Clamp01(chroma / denom) : 0f;
+    }
+
+    private static Color HSLToRGB(float h, float s, float l)
+    {
+        l = Mathf.Clamp01(l);
+        s = Mathf.Clamp01(s);
+        float chroma = (1f - Mathf.Abs(2f * l - 1f)) * s;
+        float v = l + chroma * 0.5f;
+        float hsvS = v > 0.00001f ? chroma / v : 0f;
+        Color color = Color.HSVToRGB(Mathf.Repeat(h, 1f), Mathf.Clamp01(hsvS), v);
+        color.a = 1f;
+        return color;
     }
 
     // Slider 0..1 -> brush radius 5..48 texels.
@@ -1202,56 +1255,35 @@ public class ChameleonPaint : MonoBehaviour
 
     private void RefreshColorUI()
     {
-        if (preview != null)
-        {
-            preview.color = brush;
-        }
-        // The brush-size preview displays the exact same color as Preview.
-        if (_sizeDotImg != null)
-        {
-            _sizeDotImg.color = brush;
-        }
-        if (wheelMarker != null)
-        {
-            float a = H * Mathf.PI * 2f;
-            float r = S * wheelRadius;
-            wheelMarker.anchoredPosition = new Vector2(Mathf.Cos(a) * r, Mathf.Sin(a) * r);
-        }
-        if (vSliderTex != null)
-        {
-            // The V slider shows the current hue / saturation from black to full value.
-            for (int y = 0; y < vSliderTex.height; y++)
-            {
-                Color c = Color.HSVToRGB(H, S, y / (float)(vSliderTex.height - 1));
-                c.a = 1f;
-                vSliderTex.SetPixel(0, y, c);
-            }
-            vSliderTex.Apply(false);
-        }
-        SetMarkerY(vMarker, V);
-        SetMarkerX(rMark, brush.r);
-        SetMarkerX(gMark, brush.g);
-        SetMarkerX(bMark, brush.b);
-        if (rVal != null)
-        {
-            rVal.text = brush.r.ToString("0.00");
-        }
-        if (gVal != null)
-        {
-            gVal.text = brush.g.ToString("0.00");
-        }
-        if (bVal != null)
-        {
-            bVal.text = brush.b.ToString("0.00");
-        }
-        if (hsvVal != null)
-        {
-            hsvVal.text = "H " + (H * 360f).ToString("0") + "   S " + S.ToString("0.00") + "   V " + V.ToString("0.00");
-        }
-        if (hexVal != null)
-        {
-            hexVal.text = "#" + ColorUtility.ToHtmlStringRGB(brush);
-        }
+        if (preview != null) preview.color = brush;
+        if (_sizeDotImg != null) _sizeDotImg.color = brush;
+        if (_sizeHandleImg != null) _sizeHandleImg.color = brush;
+
+        float h, saturation, lightness;
+        RGBToHSL(brush, out h, out saturation, out lightness);
+        // The rainbow is drawn in reverse HSV order, red at both ends.
+        PositionColorPointer(huePointer, selectedHueBarPosition);
+        PositionColorPointer(lightnessPointer, lightness);
+
+        // Keep the optional hex readout synchronized if one already exists.
+        if (hexVal != null) hexVal.text = "#" + ColorUtility.ToHtmlStringRGB(brush);
+    }
+
+    // Position the *entire* triangle inside its bar, including at 0% and 100%.
+    // The bar is the pointer's parent, so all math is in that bar's local UI units.
+    private static void PositionColorPointer(RectTransform pointer, float t)
+    {
+        if (pointer == null) return;
+        RectTransform bar = pointer.parent as RectTransform;
+        if (bar == null) return;
+        t = Mathf.Clamp01(t);
+        float halfPointer = Mathf.Min(pointer.rect.width * 0.2f, bar.rect.width * 0.2f);
+        float x = Mathf.Lerp(bar.rect.xMin + halfPointer,
+            bar.rect.xMax - halfPointer, t);
+        pointer.anchorMin = new Vector2(0f, 0f);
+        pointer.anchorMax = new Vector2(0f, 0f);
+        pointer.pivot = new Vector2(0.5f, 1f);
+        pointer.anchoredPosition = new Vector2(x - bar.rect.xMin, 40f);
     }
 
     private void RefreshMaterialUI()
@@ -1264,6 +1296,8 @@ public class ChameleonPaint : MonoBehaviour
         {
             roFill.fillAmount = roughness;
         }
+        PositionMaterialHandle(metallicHandleRt, metallic);
+        PositionMaterialHandle(roughnessHandleRt, roughness);
         if (mVal != null)
         {
             mVal.text = metallic.ToString("0.00");
@@ -1272,6 +1306,16 @@ public class ChameleonPaint : MonoBehaviour
         {
             roVal.text = roughness.ToString("0.00");
         }
+    }
+
+    private static void PositionMaterialHandle(RectTransform handle, float value)
+    {
+        if (handle == null) return;
+        RectTransform track = handle.parent as RectTransform;
+        if (track == null) return;
+        handle.anchoredPosition = new Vector2(
+            Mathf.Lerp(track.rect.xMin, track.rect.xMax, Mathf.Clamp01(value)) - track.rect.xMin,
+            0f);
     }
 
     // Map brushPx (5..48) to the FULL track length and to a 5..75 preview dot.
@@ -1347,8 +1391,7 @@ public class ChameleonPaint : MonoBehaviour
             solidSprite = MakeSolid();
             circleSprite = MakeCircle(96);
             ringSprite = MakeRing(96, 0.7f);
-            wheelSprite = MakeWheel(256);
-            lineSprite = MakeSolid();
+                lineSprite = MakeSolid();
         }
         EnsureEventSystem();
         BuildUI();
@@ -1357,13 +1400,11 @@ public class ChameleonPaint : MonoBehaviour
 
     // "ChameleonPaintCanvas" (1080x1920): a full-screen invisible "Scene" catcher for painting /
     // orbiting, and the "PickerPanel" (860x520 top-left, scaled by panelScale) with the close
-    // button, HSV wheel, V slider, preview, PICK / ERASE / BRUSH buttons, R/G/B bars, HSV / hex readouts,
+    // button, horizontal rainbow + lightness bars, preview, PICK / ERASE / BRUSH buttons,
     // brush size slider and Metallic / Roughness boxes. Objects that already existed keep their
     // authored layout (_reusedUi).
     private void BuildUI()
     {
-        RectTransform wrt;
-        RectTransform vrt;
         _reusedUi.Clear();
 
         GameObject canvasGO = SceneUI.GetOrCreateCanvas("ChameleonPaintCanvas", out bool canvasCreated);
@@ -1412,7 +1453,7 @@ public class ChameleonPaint : MonoBehaviour
             close.color = new Color(0.5f, 0.2f, 0.2f, 0.95f);
         }
         close.preserveAspect = true;
-        Place(close, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(796f, -6f), new Vector2(58f, 58f));
+        Place(close, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(930f, -120f), new Vector2(60f, 60f));
         Button closeButton = SceneUI.GetOrAdd<Button>(close.gameObject);
         closeButton.targetGraphic = close;
         // Respect Inspector callbacks; auto-wire runtime-created CloseBtn only when needed.
@@ -1423,36 +1464,9 @@ public class ChameleonPaint : MonoBehaviour
         }
         NewTextIn("X", close.transform, "X", 32, TextAnchor.MiddleCenter, Color.white).gameObject.SetActive(!hasClose);
 
-        Image wheel = NewImage("Wheel", p, Color.white, wheelSprite);
-        Place(wheel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(22f, -22f), new Vector2(250f, 250f));
-        wrt = wheel.rectTransform;
-        wheelRadius = wrt.rect.width * 0.5f;
-        SceneUI.GetOrAdd<UIDrag>(wheel.gameObject).cb = e =>
-        {
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(wrt, e.position, null, out Vector2 lp);
-            Vector2 d = lp - wrt.rect.center;
-            float x = d.x / (wrt.rect.width * 0.5f);
-            float y = d.y / (wrt.rect.height * 0.5f);
-            SetHS(Mathf.Atan2(y, x) / (Mathf.PI * 2f), Mathf.Min(Mathf.Sqrt(x * x + y * y), 1f));
-        };
-        wheelMarker = NewImage("WheelMark", wheel.transform, Color.white, ringSprite).rectTransform;
-        wheelMarker.anchorMax = new Vector2(0.5f, 0.5f);
-        wheelMarker.anchorMin = new Vector2(0.5f, 0.5f);
-        wheelMarker.sizeDelta = new Vector2(20f, 20f);
-        wheelMarker.GetComponent<Image>().raycastTarget = false;
-
-        vSliderTex = new Texture2D(1, 64, TextureFormat.RGBA32, false);
-        vSliderTex.wrapMode = TextureWrapMode.Clamp;
-        Sprite vSprite = Sprite.Create(vSliderTex, new Rect(0f, 0f, 1f, 64f), new Vector2(0.5f, 0.5f), 100f);
-        vSliderImg = NewImage("VSlider", p, Color.white, vSprite);
-        Place(vSliderImg, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(286f, -22f), new Vector2(46f, 250f));
-        vrt = vSliderImg.rectTransform;
-        SceneUI.GetOrAdd<UIDrag>(vSliderImg.gameObject).cb = e =>
-        {
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(vrt, e.position, null, out Vector2 lp);
-            SetV(Mathf.Clamp01((lp.y - vrt.rect.yMin) / vrt.rect.height));
-        };
-        vMarker = MakeMarker(vSliderImg.transform);
+        // Replace the old HSV wheel, V-slider and R/G/B bars with two horizontal bars.
+        HideLegacyColorPicker(p);
+        BuildHorizontalColorPicker(p);
 
         Image previewBack = NewImage("PreviewBack", p, new Color(0f, 0f, 0f, 0.6f), solidSprite);
         Place(previewBack, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(22f, -288f), new Vector2(310f, 46f));
@@ -1463,7 +1477,7 @@ public class ChameleonPaint : MonoBehaviour
         // Preserve original button images on authored scene objects. Their BaseIcon
         // stays visible; only the selected-state Icon is enabled/disabled.
         Image eye = NewToolButtonImage("EyeBtn", p, new Color(0.25f, 0.27f, 0.32f, 1f));
-        Place(eye, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(22f, -340f), new Vector2(96f, 62f));
+        Place(eye, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(680f, -815f), new Vector2(150f, 150f));
         Button eyeButton = SceneUI.GetOrAdd<Button>(eye.gameObject);
         eyeButton.targetGraphic = eye;
         if (eyeButton.onClick.GetPersistentEventCount() == 0)
@@ -1474,7 +1488,7 @@ public class ChameleonPaint : MonoBehaviour
         eyeBtnIcon = AddToolButtonContent(eye.transform, pickerIcon, "PICK");
 
         Image erase = NewToolButtonImage("EraseBtn", p, new Color(0.32f, 0.22f, 0.22f, 1f));
-        Place(erase, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(128f, -340f), new Vector2(96f, 62f));
+        Place(erase, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(80f, -815f), new Vector2(150f, 150f));
         Button eraseButton = SceneUI.GetOrAdd<Button>(erase.gameObject);
         eraseButton.targetGraphic = erase;
         if (eraseButton.onClick.GetPersistentEventCount() == 0)
@@ -1485,7 +1499,7 @@ public class ChameleonPaint : MonoBehaviour
         eraseBtnIcon = AddToolButtonContent(erase.transform, eraserIcon, "ERASE");
 
         Image brushButtonImage = NewToolButtonImage("BrushBtn", p, new Color(0.25f, 0.35f, 0.29f, 1f));
-        Place(brushButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(234f, -340f), new Vector2(96f, 62f));
+        Place(brushButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(480f, -815f), new Vector2(150f, 150f));
         Button brushButton = SceneUI.GetOrAdd<Button>(brushButtonImage.gameObject);
         brushButton.targetGraphic = brushButtonImage;
         if (brushButton.onClick.GetPersistentEventCount() == 0)
@@ -1499,7 +1513,7 @@ public class ChameleonPaint : MonoBehaviour
         // Fill is a one-click action. Put its default layout in a second row so
         // existing Eye/Erase/Brush buttons and authored positions remain unchanged.
         Image fillButtonImage = NewToolButtonImage("FillBtn", p, new Color(0.25f, 0.34f, 0.42f, 1f));
-        Place(fillButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(22f, -414f), new Vector2(150f, 62f));
+        Place(fillButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(280f, -815f), new Vector2(150f, 150f));
         Button fillButton = SceneUI.GetOrAdd<Button>(fillButtonImage.gameObject);
         fillButton.targetGraphic = fillButtonImage;
         // Keep Inspector-assigned listeners. Hook FillBody unless the Inspector
@@ -1536,30 +1550,21 @@ public class ChameleonPaint : MonoBehaviour
             erase.rectTransform.sizeDelta = new Vector2(96f, 62f);
         }
 
-        rMark = MakeBar(p, "R", 384f, 70f, 288f, GradSprite(c => new Color(c, 0f, 0f, 1f)), v => SetChannel(0, v), out rVal);
-        gMark = MakeBar(p, "G", 384f, 112f, 288f, GradSprite(c => new Color(0f, c, 0f, 1f)), v => SetChannel(1, v), out gVal);
-        bMark = MakeBar(p, "B", 384f, 154f, 288f, GradSprite(c => new Color(0f, 0f, c, 1f)), v => SetChannel(2, v), out bVal);
-
-        hsvVal = NewText("HSV", p, "", 24, TextAnchor.MiddleLeft, new Color(1f, 1f, 1f, 0.85f));
-        Place(hsvVal, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(388f, -200f), new Vector2(470f, 30f));
-        hsvVal.raycastTarget = false;
-        hexVal = NewText("Hex", p, "", 26, TextAnchor.MiddleLeft, Color.white);
-        Place(hexVal, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(388f, -234f), new Vector2(470f, 32f));
-        hexVal.raycastTarget = false;
+        // The old wheel, RGB bars, and their readouts are hidden rather than destroyed.
 
         MakeSizeSlider(p, 36f, 548f);
-        MakeSliderBox(p, "Metallic", 424f, v =>
+        MakeSliderBox(p, "Metallic", 440f, v =>
         {
             metallic = Mathf.Clamp01(v);
             ApplyMaterialParams();
             RefreshMaterialUI();
-        }, out mFill, out mVal);
-        MakeSliderBox(p, "Roughness", 472f, v =>
+        }, out mFill, out mVal, out metallicHandleRt);
+        MakeSliderBox(p, "Roughness", 580f, v =>
         {
             roughness = Mathf.Clamp01(v);
             ApplyMaterialParams();
             RefreshMaterialUI();
-        }, out roFill, out roVal);
+        }, out roFill, out roVal, out roughnessHandleRt);
 
         cursorIcon = NewImage("CursorIcon", uiRoot, Color.white, pickerIcon);
         cursorIcon.raycastTarget = false;
@@ -1888,6 +1893,142 @@ public class ChameleonPaint : MonoBehaviour
         return selectedGO;
     }
 
+    // Horizontal rainbow + black-to-white picker from the first reference image.
+    // Existing HueBar / LightnessBar layout and artwork are preserved when authored in the scene.
+    private void BuildHorizontalColorPicker(Transform parent)
+    {
+        Sprite hueDefault = MakeRoundedColorBar(t => Color.HSVToRGB(Mathf.Repeat(1f - t, 1f), 1f, 1f));
+        Sprite lightDefault = MakeRoundedColorBar(t => new Color(t, t, t, 1f));
+        Sprite pointerDefault = colorPointerSprite != null ? colorPointerSprite : MakeUpTrianglePointer();
+
+        Image hue = NewColorBarImage("HueBar", parent, hueBarSprite != null ? hueBarSprite : hueDefault);
+        Place(hue, new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(50f, -80f), new Vector2(800f, 100f));
+        AttachHorizontalColorDrag(hue, SetHueFromBar);
+        huePointer = MakeColorPointer(hue.transform, pointerDefault);
+
+        Image lightness = NewColorBarImage("LightnessBar", parent,
+            lightnessBarSprite != null ? lightnessBarSprite : lightDefault);
+        Place(lightness, new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(50f, -230f), new Vector2(800f, 100f));
+        AttachHorizontalColorDrag(lightness, SetLightnessFromBar);
+        lightnessPointer = MakeColorPointer(lightness.transform, pointerDefault);
+
+        RefreshColorUI();
+    }
+
+    // Unlike NewImage, do not replace existing scene-authored bar images.
+    private Image NewColorBarImage(string name, Transform parent, Sprite fallback)
+    {
+        GameObject go = SceneUI.GetOrCreate(name, parent, out bool created);
+        if (!created) _reusedUi.Add(go);
+        Image img = SceneUI.GetOrAdd<Image>(go);
+        if (created || img.sprite == null) img.sprite = fallback;
+        img.color = Color.white;
+        img.type = Image.Type.Simple;
+        img.raycastTarget = true;
+        go.SetActive(true);
+        return img;
+    }
+
+    private void AttachHorizontalColorDrag(Image bar, Action<float> onValue)
+    {
+        RectTransform rt = bar.rectTransform;
+        SceneUI.GetOrAdd<UIDrag>(bar.gameObject).cb = e =>
+        {
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                rt, e.position, e.pressEventCamera, out Vector2 lp)) return;
+
+            // Match the pointer's safe center-to-center travel. Touching the left
+            // or right edge reaches the endpoint without the triangle spilling out.
+            RectTransform pointer = rt.Find("Pointer") as RectTransform;
+            float halfPointer = pointer != null
+                ? Mathf.Min(pointer.rect.width * 0.2f, rt.rect.width * 0.2f) : 0f;
+            float minX = rt.rect.xMin + halfPointer;
+            float maxX = rt.rect.xMax - halfPointer;
+            if (maxX <= minX) return;
+            onValue(Mathf.Clamp01((lp.x - minX) / (maxX - minX)));
+        };
+    }
+
+    private RectTransform MakeColorPointer(Transform bar, Sprite fallback)
+    {
+        GameObject go = SceneUI.GetOrCreate("Pointer", bar, out bool created);
+        Image img = SceneUI.GetOrAdd<Image>(go);
+        if (created || img.sprite == null) img.sprite = fallback;
+        img.color = Color.white;
+        img.preserveAspect = true;
+        img.raycastTarget = false; // Allow clicks/drags through the pointer to the bar.
+        RectTransform rt = img.rectTransform;
+        if (created)
+        {
+            rt.sizeDelta = new Vector2(60f, 60f);
+        }
+        go.SetActive(true);
+        return rt;
+    }
+
+    // Deactivate old UI elements rather than destroying scene-authored artwork.
+    private static void HideLegacyColorPicker(Transform parent)
+    {
+        string[] names = {
+            "Wheel", "VSlider", "RLbl", "RBar", "RVal",
+            "GLbl", "GBar", "GVal", "BLbl", "BBar", "BVal", "HSV", "Hex"
+        };
+        foreach (string name in names)
+        {
+            Transform old = parent.Find(name);
+            if (old != null) old.gameObject.SetActive(false);
+        }
+    }
+
+    // Runtime sprite with dark rounded border and a smoothly interpolated interior.
+    private static Sprite MakeRoundedColorBar(Func<float, Color> gradient)
+    {
+        const int width = 512, height = 64;
+        const float radius = 10f, border = 3f;
+        Texture2D texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        texture.wrapMode = TextureWrapMode.Clamp;
+        texture.filterMode = FilterMode.Bilinear;
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                float dx = Mathf.Max(Mathf.Abs(x + 0.5f - width * 0.5f) - (width * 0.5f - radius), 0f);
+                float dy = Mathf.Max(Mathf.Abs(y + 0.5f - height * 0.5f) - (height * 0.5f - radius), 0f);
+                float distance = Mathf.Sqrt(dx * dx + dy * dy);
+                Color color = distance > radius ? Color.clear
+                    : (distance > radius - border ? new Color(0.08f, 0.1f, 0.14f, 1f)
+                        : gradient(x / (float)(width - 1)));
+                texture.SetPixel(x, y, color);
+            }
+        }
+        texture.Apply(false);
+        return Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.5f), 100f);
+    }
+
+    // White upward triangle, dark outline; rendered below the chosen bar.
+    private static Sprite MakeUpTrianglePointer()
+    {
+        const int width = 44, height = 32;
+        Texture2D texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        texture.filterMode = FilterMode.Bilinear;
+        for (int y = 0; y < height; y++)
+        {
+            float down = (height - 1f - y) / (height - 1f);
+            float outerHalf = 18f * down;
+            for (int x = 0; x < width; x++)
+            {
+                float dx = Mathf.Abs(x + 0.5f - width * 0.5f);
+                bool inside = down >= 0.09f && down <= 0.94f && dx <= outerHalf;
+                bool inner = down >= 0.21f && down <= 0.80f && dx <= outerHalf - 3.2f;
+                texture.SetPixel(x, y, inside ? (inner ? Color.white : new Color(0.08f, 0.1f, 0.13f, 1f)) : Color.clear);
+            }
+        }
+        texture.Apply(false);
+        return Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.5f), 100f);
+    }
+
     // "<label>Lbl" + draggable gradient "<label>Bar" (with a marker, returned) + "<label>Val" text.
     private RectTransform MakeBar(Transform parent, string label, float x0, float y, float barW, Sprite grad, Action<float> onVal, out Text valText)
     {
@@ -1923,8 +2064,8 @@ public class ChameleonPaint : MonoBehaviour
         const float ringSize = 80f;
         // Upgrade the old script's serialized 12..44 dot range to the new 5..75 range.
         // Other custom Inspector ranges remain configurable.
-        if (Mathf.Approximately(sizePreviewDotMin, 12f)
-            && Mathf.Approximately(sizePreviewDotMax, 44f))
+        if (Mathf.Approximately(sizePreviewDotMin, 20f)
+            && Mathf.Approximately(sizePreviewDotMax, 70f))
         {
             sizePreviewDotMin = 20f;
             sizePreviewDotMax = 70f;
@@ -1960,6 +2101,8 @@ public class ChameleonPaint : MonoBehaviour
         hrt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, handleSize);
         hrt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, handleSize);
         _sizeHandleRt = hrt;
+        _sizeHandleImg = handle;
+        _sizeHandleImg.color = brush;
 
         // Shared handler: clicking the track OR grabbing/dragging the handle works.
         UIDrag trackDrag = SceneUI.GetOrAdd<UIDrag>(track.gameObject);
@@ -2027,36 +2170,78 @@ public class ChameleonPaint : MonoBehaviour
         RefreshBrushUI();
     }
 
-    // "<label>Lbl" + a dark draggable "<label>Box" with a horizontal "<label>Fill" and a centred
-    // "<label>Val" text.
-    private void MakeSliderBox(Transform parent, string label, float y, Action<float> onVal, out Image fill, out Text valText)
+    // Metallic/Roughness reuse SizeTrack / SizeFill / SizeHandle artwork, so all three
+    // sliders look like one set. Retains the existing Box object and authored position.
+    private void MakeSliderBox(Transform parent, string label, float y,
+        Action<float> onVal, out Image fill, out Text valText, out RectTransform handleRt)
     {
-        RectTransform brt;
         Text lbl = NewText(label + "Lbl", parent, label, 28, TextAnchor.MiddleLeft, Color.white);
-        Place(lbl, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -y), new Vector2(196f, 40f));
+        Place(lbl, new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(24f, -y), new Vector2(196f, 40f));
         lbl.raycastTarget = false;
 
-        Image box = NewImage(label + "Box", parent, new Color(0.05f, 0.05f, 0.07f, 1f), solidSprite);
-        Place(box, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(226f, -y), new Vector2(606f, 40f));
+        // Use the exact same sprites as SizeTrack, even when those sprites were
+        // authored directly onto SizeTrack/SizeHandle instead of assigned in Inspector.
+        Transform sizeTrack = parent.Find("SizeTrack");
+        Sprite trackSkin = sizeTrackSprite != null ? sizeTrackSprite
+            : (sizeTrack != null ? sizeTrack.GetComponent<Image>()?.sprite : null);
+        Sprite fillSkin = sizeFillSprite != null ? sizeFillSprite
+            : (_sizeFill != null ? _sizeFill.sprite : null);
+        Sprite handleSkin = sizeHandleSprite != null ? sizeHandleSprite
+            : (_sizeHandleImg != null ? _sizeHandleImg.sprite : null);
 
-        fill = NewImage(label + "Fill", box.transform, new Color(0.3f, 0.46f, 0.66f, 0.95f), solidSprite);
+        // "MetallicBox" / "RoughnessBox" are retained for scene compatibility.
+        Image track = NewImage(label + "Box", parent, Color.white,
+            trackSkin != null ? trackSkin : solidSprite);
+        Place(track, new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(230f, -y), new Vector2(600f, 30f));
+        RectTransform trackRt = track.rectTransform;
+        trackRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, 30f);
+        track.type = Image.Type.Simple;
+        track.preserveAspect = false;
+        track.raycastTarget = true;
+
+        fill = NewImage(label + "Fill", track.transform, Color.white,
+            fillSkin != null ? fillSkin : solidSprite);
+        fill.color = _sizeFill != null ? _sizeFill.color : new Color(0f, 0f, 0f, 0f);
         fill.type = Image.Type.Filled;
         fill.fillMethod = Image.FillMethod.Horizontal;
         fill.fillOrigin = 0;
         fill.fillAmount = 0f;
         fill.raycastTarget = false;
-        Stretch(fill, 3f);
+        // Replace the old box inset with the same full-track fill layout as SizeFill.
+        RectTransform fillRt = fill.rectTransform;
+        fillRt.anchorMin = Vector2.zero;
+        fillRt.anchorMax = Vector2.one;
+        fillRt.offsetMin = Vector2.zero;
+        fillRt.offsetMax = Vector2.zero;
 
-        valText = NewText(label + "Val", box.transform, "0.00", 26, TextAnchor.MiddleCenter, Color.white);
+        valText = NewText(label + "Val", track.transform, "0.00", 26, TextAnchor.MiddleCenter, Color.white);
         Stretch(valText, 0f);
         valText.raycastTarget = false;
 
-        brt = box.rectTransform;
-        SceneUI.GetOrAdd<UIDrag>(box.gameObject).cb = e =>
+        Image handle = NewImage(label + "Handle", track.transform, Color.white,
+            handleSkin != null ? handleSkin : circleSprite);
+        handle.preserveAspect = true;
+        handle.raycastTarget = true;
+        handleRt = handle.rectTransform;
+        handleRt.anchorMin = new Vector2(0f, 0.5f);
+        handleRt.anchorMax = new Vector2(0f, 0.5f);
+        handleRt.pivot = new Vector2(0.5f, 0.5f);
+        handleRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, materialSliderHandleSize);
+        handleRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, materialSliderHandleSize);
+        handle.transform.SetAsLastSibling();
+
+        // The track and the handle are both draggable, like SizeTrack/SizeHandle.
+        UIDrag drag = SceneUI.GetOrAdd<UIDrag>(track.gameObject);
+        drag.cb = e =>
         {
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(brt, e.position, null, out Vector2 lp);
-            onVal(Mathf.Clamp01((lp.x - brt.rect.xMin) / brt.rect.width));
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                trackRt, e.position, e.pressEventCamera, out Vector2 lp)) return;
+            if (trackRt.rect.width <= 0f) return;
+            onVal(Mathf.InverseLerp(trackRt.rect.xMin, trackRt.rect.xMax, lp.x));
         };
+        SceneUI.GetOrAdd<UIDrag>(handle.gameObject).cb = drag.cb;
     }
 
     // 6px white "Mark" line with a darker "MarkO" outline behind it.
