@@ -67,6 +67,13 @@ public class ChameleonPaint : MonoBehaviour
     public float sizePreviewDotMin = 12f;
     public float sizePreviewDotMax = 44f;
 
+    [Header("Fill button")]
+    [Tooltip("Optional icon for FillBtn. The button instantly paints the whole character with the selected brush color.")]
+    public Sprite fillIconSprite;
+    [Tooltip("Seconds to show FillBtn/Icon after each click. Uses real time, even if the game is paused.")]
+    [Range(0.05f, 1f)]
+    public float fillIconFlashDuration = 0.2f;
+
     [Header("Paint splatter (GoopSpray prefab) — bắn hạt khi tô, màu = màu brush")]
     [Tooltip("Prefab GoopSpray — instantiate 1 bản lúc runtime (KHÔNG để trong scene). BẮT BUỘC gán ở đây; để trống → không có splatter (prefab không nằm trong Resources/ nên fallback Resources.Load chỉ là dự phòng).")]
     public GameObject goopSprayPrefab;
@@ -82,11 +89,8 @@ public class ChameleonPaint : MonoBehaviour
     [Tooltip("Shift the cursor icon UP (px) from the touch/finger point so it isn't hidden under the thumb on mobile. The paint still lands exactly where you touch. 0 = icon at the touch point (old behaviour).")]
     public float cursorTouchLift = 120f;
 
-    [Header("Tool-button skins (Assets/Texture2D)")]
-    [Tooltip("Background sprite for a tool button while its mode is ACTIVE / pressed (pick.png).")]
-    public Sprite pickBgSprite;
-    [Tooltip("Background sprite for a tool button while its mode is INACTIVE / unpressed (no pick.png).")]
-    public Sprite noPickBgSprite;
+    [Header("Tool buttons")]
+    // Tool selection is shown by enabling/disabling each button's child Icon GameObject.
     [Tooltip("Close (X) button sprite (x.png). Falls back to a red box + \"X\" text when unset.")]
     public Sprite closeIcon;
 
@@ -153,8 +157,11 @@ public class ChameleonPaint : MonoBehaviour
     private Font font;
     private Image preview;
     private Image vSliderImg;
-    private Image eyeBtnImg;
-    private Image eraseBtnImg;
+    private GameObject eyeBtnIcon;
+    private GameObject eraseBtnIcon;
+    private GameObject brushBtnIcon;
+    private GameObject fillBtnIcon;
+    private Coroutine fillIconFlashCoroutine;
     private Image cursorIcon;
     private Image paintGateImg;
     private Image mFill;
@@ -961,7 +968,7 @@ public class ChameleonPaint : MonoBehaviour
         RefreshBrushUI();
     }
 
-    // Tool button skins / colours, the hint text and the cursor icon for the new mode.
+    // Show only the selected tool's Icon child; keep the button backgrounds unchanged.
     private void SetMode(Mode m)
     {
         mode = m;
@@ -969,30 +976,23 @@ public class ChameleonPaint : MonoBehaviour
         {
             HideLoupe();
         }
-        bool skinned = pickBgSprite != null && noPickBgSprite != null;
-        if (eyeBtnImg != null)
+
+        if (eyeBtnIcon != null)
         {
-            if (skinned)
-            {
-                eyeBtnImg.sprite = m == Mode.Eyedrop ? pickBgSprite : noPickBgSprite;
-                eyeBtnImg.color = Color.white;
-            }
-            else
-            {
-                eyeBtnImg.color = m == Mode.Eyedrop ? new Color(0.95f, 0.7f, 0.2f, 1f) : new Color(0.25f, 0.27f, 0.32f, 1f);
-            }
+            eyeBtnIcon.SetActive(m == Mode.Eyedrop);
         }
-        if (eraseBtnImg != null)
+        if (eraseBtnIcon != null)
         {
-            if (skinned)
-            {
-                eraseBtnImg.sprite = m == Mode.Erase ? pickBgSprite : noPickBgSprite;
-                eraseBtnImg.color = Color.white;
-            }
-            else
-            {
-                eraseBtnImg.color = m == Mode.Erase ? new Color(0.9f, 0.45f, 0.4f, 1f) : new Color(0.32f, 0.22f, 0.22f, 1f);
-            }
+            eraseBtnIcon.SetActive(m == Mode.Erase);
+        }
+        if (brushBtnIcon != null)
+        {
+            brushBtnIcon.SetActive(m == Mode.Paint);
+        }
+        // Fill is an immediate action, not a persistent editing mode.
+        if (fillBtnIcon != null)
+        {
+            fillBtnIcon.SetActive(false);
         }
         if (modeText != null)
         {
@@ -1046,7 +1046,7 @@ public class ChameleonPaint : MonoBehaviour
     {
         drawingOn = false;
         EndPaintCollider();
-        mode = Mode.Paint;
+        SetMode(Mode.Paint);
         if (panelGO != null)
         {
             panelGO.SetActive(false);
@@ -1074,6 +1074,49 @@ public class ChameleonPaint : MonoBehaviour
     public void ToggleErase()
     {
         SetMode(mode == Mode.Erase ? Mode.Paint : Mode.Erase);
+    }
+
+    // The brush button explicitly selects Paint mode.
+    public void SelectBrush()
+    {
+        SetMode(Mode.Paint);
+    }
+
+    // One-click fill of the entire character: every pixel in the shared paint texture
+    // changes to the current brush color immediately, without changing the active tool.
+    public void FillBody()
+    {
+        // Also works when this method is wired directly through the Inspector's OnClick.
+        FlashFillButtonIcon();
+        if (paintBuf == null) return;
+        ClearCanvas(brush);
+        dirty = false; // The texture was already uploaded by ClearCanvas.
+        ApplyCanvasToBody();
+        AudioManager.PaintStroke();
+    }
+
+    // Briefly show FillBtn/Icon as click feedback, then hide it automatically.
+    // Restarting the timer on a rapid second click avoids the first click hiding it early.
+    private void FlashFillButtonIcon()
+    {
+        if (fillBtnIcon == null) return;
+        if (fillIconFlashCoroutine != null)
+        {
+            StopCoroutine(fillIconFlashCoroutine);
+            fillIconFlashCoroutine = null;
+        }
+        fillBtnIcon.SetActive(true);
+        fillIconFlashCoroutine = StartCoroutine(HideFillIconAfterDelay());
+    }
+
+    private IEnumerator HideFillIconAfterDelay()
+    {
+        yield return new WaitForSecondsRealtime(fillIconFlashDuration);
+        if (fillBtnIcon != null)
+        {
+            fillBtnIcon.SetActive(false);
+        }
+        fillIconFlashCoroutine = null;
     }
 
     private void RefreshColorUI()
@@ -1226,11 +1269,12 @@ public class ChameleonPaint : MonoBehaviour
         }
         EnsureEventSystem();
         BuildUI();
+        SetMode(Mode.Paint);
     }
 
     // "ChameleonPaintCanvas" (1080x1920): a full-screen invisible "Scene" catcher for painting /
     // orbiting, and the "PickerPanel" (860x520 top-left, scaled by panelScale) with the close
-    // button, HSV wheel, V slider, preview, PICK / ERASE buttons, R/G/B bars, HSV / hex readouts,
+    // button, HSV wheel, V slider, preview, PICK / ERASE / BRUSH buttons, R/G/B bars, HSV / hex readouts,
     // brush size slider and Metallic / Roughness boxes. Objects that already existed keep their
     // authored layout (_reusedUi).
     private void BuildUI()
@@ -1261,7 +1305,7 @@ public class ChameleonPaint : MonoBehaviour
         sceneDrag.onUp = OnScenePointerUp;
         sceneDrag.onExit = OnScenePointerExit;
 
-        Image panel = NewImage("PickerPanel", uiRoot, new Color(0.1f, 0.11f, 0.13f, 0.94f), solidSprite);
+        Image panel = NewImage("PickerPanel", uiRoot, new Color(0.1f, 0.11f, 0.13f, 0f), solidSprite);
         Place(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(30f, -30f), new Vector2(860f, 520f));
         if (!_reusedUi.Contains(panel.gameObject))
         {
@@ -1318,25 +1362,81 @@ public class ChameleonPaint : MonoBehaviour
         Stretch(preview, 4f);
         preview.raycastTarget = false;
 
-        Image eye = NewImage("EyeBtn", p, Color.white, noPickBgSprite != null ? noPickBgSprite : solidSprite);
-        if (noPickBgSprite == null)
+        // Preserve original button images on authored scene objects. Their BaseIcon
+        // stays visible; only the selected-state Icon is enabled/disabled.
+        Image eye = NewToolButtonImage("EyeBtn", p, new Color(0.25f, 0.27f, 0.32f, 1f));
+        Place(eye, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(22f, -340f), new Vector2(96f, 62f));
+        Button eyeButton = SceneUI.GetOrAdd<Button>(eye.gameObject);
+        eyeButton.targetGraphic = eye;
+        if (eyeButton.onClick.GetPersistentEventCount() == 0)
         {
-            eye.color = new Color(0.25f, 0.27f, 0.32f, 1f);
+            eyeButton.onClick.RemoveListener(ToggleEyedrop);
+            eyeButton.onClick.AddListener(ToggleEyedrop);
         }
-        Place(eye, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(22f, -340f), new Vector2(150f, 62f));
-        eyeBtnImg = eye;
-        SceneUI.GetOrAdd<Button>(eye.gameObject).targetGraphic = eye;
-        AddButtonContent(eye.transform, pickerIcon, "PICK");
+        eyeBtnIcon = AddToolButtonContent(eye.transform, pickerIcon, "PICK");
 
-        Image erase = NewImage("EraseBtn", p, Color.white, noPickBgSprite != null ? noPickBgSprite : solidSprite);
-        if (noPickBgSprite == null)
+        Image erase = NewToolButtonImage("EraseBtn", p, new Color(0.32f, 0.22f, 0.22f, 1f));
+        Place(erase, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(128f, -340f), new Vector2(96f, 62f));
+        Button eraseButton = SceneUI.GetOrAdd<Button>(erase.gameObject);
+        eraseButton.targetGraphic = erase;
+        if (eraseButton.onClick.GetPersistentEventCount() == 0)
         {
-            erase.color = new Color(0.32f, 0.22f, 0.22f, 1f);
+            eraseButton.onClick.RemoveListener(ToggleErase);
+            eraseButton.onClick.AddListener(ToggleErase);
         }
-        Place(erase, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(182f, -340f), new Vector2(150f, 62f));
-        eraseBtnImg = erase;
-        SceneUI.GetOrAdd<Button>(erase.gameObject).targetGraphic = erase;
-        AddButtonContent(erase.transform, eraserIcon, "ERASE");
+        eraseBtnIcon = AddToolButtonContent(erase.transform, eraserIcon, "ERASE");
+
+        Image brushButtonImage = NewToolButtonImage("BrushBtn", p, new Color(0.25f, 0.35f, 0.29f, 1f));
+        Place(brushButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(234f, -340f), new Vector2(96f, 62f));
+        Button brushButton = SceneUI.GetOrAdd<Button>(brushButtonImage.gameObject);
+        brushButton.targetGraphic = brushButtonImage;
+        if (brushButton.onClick.GetPersistentEventCount() == 0)
+        {
+            brushButton.onClick.RemoveListener(SelectBrush);
+            brushButton.onClick.AddListener(SelectBrush);
+        }
+        brushBtnIcon = AddToolButtonContent(brushButtonImage.transform,
+            brushIconSprite != null ? brushIconSprite : paintIcon, "BRUSH");
+
+        // Fill is a one-click action. Put its default layout in a second row so
+        // existing Eye/Erase/Brush buttons and authored positions remain unchanged.
+        Image fillButtonImage = NewToolButtonImage("FillBtn", p, new Color(0.25f, 0.34f, 0.42f, 1f));
+        Place(fillButtonImage, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(22f, -414f), new Vector2(150f, 62f));
+        Button fillButton = SceneUI.GetOrAdd<Button>(fillButtonImage.gameObject);
+        fillButton.targetGraphic = fillButtonImage;
+        // Keep Inspector-assigned listeners. Hook FillBody unless the Inspector
+        // already calls this exact method on this component.
+        bool inspectorCallsFillBody = false;
+        for (int i = 0; i < fillButton.onClick.GetPersistentEventCount(); i++)
+        {
+            if (fillButton.onClick.GetPersistentTarget(i) == this
+                && fillButton.onClick.GetPersistentMethodName(i) == nameof(FillBody))
+            {
+                inspectorCallsFillBody = true;
+                break;
+            }
+        }
+        fillButton.onClick.RemoveListener(FillBody);
+        if (!inspectorCallsFillBody)
+        {
+            fillButton.onClick.AddListener(FillBody);
+        }
+        fillBtnIcon = AddToolButtonContent(fillButtonImage.transform, fillIconSprite, "FILL");
+        fillBtnIcon.SetActive(false); // Initially off; clicking FillBody flashes this selected-state Icon.
+
+        // Upgrade the two-button default layout when adding BrushBtn. Custom
+        // scene-authored layouts are left untouched.
+        if (!_reusedUi.Contains(brushButtonImage.gameObject)
+            && _reusedUi.Contains(eye.gameObject) && _reusedUi.Contains(erase.gameObject)
+            && Mathf.Abs(eye.rectTransform.anchoredPosition.x - 22f) < 0.1f
+            && Mathf.Abs(erase.rectTransform.anchoredPosition.x - 182f) < 0.1f
+            && Mathf.Abs(eye.rectTransform.sizeDelta.x - 150f) < 0.1f
+            && Mathf.Abs(erase.rectTransform.sizeDelta.x - 150f) < 0.1f)
+        {
+            eye.rectTransform.sizeDelta = new Vector2(96f, 62f);
+            erase.rectTransform.anchoredPosition = new Vector2(128f, -340f);
+            erase.rectTransform.sizeDelta = new Vector2(96f, 62f);
+        }
 
         rMark = MakeBar(p, "R", 384f, 70f, 288f, GradSprite(c => new Color(c, 0f, 0f, 1f)), v => SetChannel(0, v), out rVal);
         gMark = MakeBar(p, "G", 384f, 112f, 288f, GradSprite(c => new Color(0f, c, 0f, 1f)), v => SetChannel(1, v), out gVal);
@@ -1597,18 +1697,97 @@ public class ChameleonPaint : MonoBehaviour
         paintGateImg = paintGateButton.GetComponent<Image>();
     }
 
-    // Icon (inset 12) when there is one, else a fallback text label.
-    private void AddButtonContent(Transform btn, Sprite icon, string fallbackText)
+    // Unlike NewImage, this deliberately does not overwrite scene-authored Image
+    // sprites or colors. Existing EyeBtn/EraseBtn/BrushBtn/FillBtn artwork is preserved.
+    private Image NewToolButtonImage(string name, Transform parent, Color fallbackColor)
     {
-        if (icon != null)
+        GameObject go = SceneUI.GetOrCreate(name, parent, out bool created);
+        if (!created)
         {
-            Image img = NewImage("Icon", btn, Color.white, icon);
-            Stretch(img, 12f);
-            img.raycastTarget = false;
-            img.preserveAspect = true;
-            return;
+            _reusedUi.Add(go);
         }
-        NewTextIn("Label", btn, fallbackText, 24, TextAnchor.MiddleCenter, Color.white);
+        Image img = go.GetComponent<Image>();
+        bool needsDefaults = created || img == null;
+        if (img == null)
+        {
+            img = SceneUI.GetOrAdd<Image>(go);
+        }
+        if (needsDefaults)
+        {
+            img.sprite = solidSprite;
+            img.color = fallbackColor;
+        }
+        return img;
+    }
+
+    // BaseIcon: the normal tool image, always visible (including inactive states).
+    // Icon: the selection overlay, enabled only in this tool's mode.
+    // Scene-authored Icon and BaseIcon objects keep their images and layouts.
+    private GameObject AddToolButtonContent(Transform btn, Sprite defaultIcon, string fallbackText)
+    {
+        Transform selected = btn.Find("Icon");
+        Image selectedImage = selected != null ? selected.GetComponent<Image>() : null;
+        // For projects made with the old script, Icon WAS the only tool image.
+        // Copy that image into BaseIcon so deselecting no longer leaves a blank button.
+        Sprite baseSprite = selectedImage != null && selectedImage.sprite != null
+            ? selectedImage.sprite : defaultIcon;
+
+        GameObject baseGO = SceneUI.GetOrCreate("BaseIcon", btn, out bool baseCreated);
+        Image baseImage = SceneUI.GetOrAdd<Image>(baseGO);
+        if (baseCreated)
+        {
+            baseImage.sprite = baseSprite;
+            // Legacy Icon is also the selected image: keep a softly faded copy
+            // underneath so the tool remains identifiable when not selected.
+            Color baseColor = selectedImage != null ? selectedImage.color : Color.white;
+            if (selectedImage != null) baseColor.a *= 0.65f;
+            baseImage.color = baseColor;
+            baseImage.raycastTarget = false;
+            baseImage.preserveAspect = true;
+            if (selectedImage != null)
+            {
+                // Match the original tool image's authored position/size.
+                RectTransform from = selectedImage.rectTransform;
+                RectTransform to = baseImage.rectTransform;
+                to.anchorMin = from.anchorMin;
+                to.anchorMax = from.anchorMax;
+                to.pivot = from.pivot;
+                to.sizeDelta = from.sizeDelta;
+                to.anchoredPosition = from.anchoredPosition;
+                to.localRotation = from.localRotation;
+                to.localScale = from.localScale;
+            }
+            else
+            {
+                Stretch(baseImage, 12f);
+            }
+            baseGO.transform.SetAsFirstSibling();
+        }
+        // The base artwork is never hidden by switching between tools.
+        baseGO.SetActive(true);
+
+        if (baseImage.sprite == null && btn.Find("Label") == null)
+        {
+            NewTextIn("Label", btn, fallbackText, 24, TextAnchor.MiddleCenter, Color.white);
+        }
+
+        GameObject selectedGO = SceneUI.GetOrCreate("Icon", btn, out bool selectedCreated);
+        if (selectedCreated)
+        {
+            // New UI: a small highlight bar is the selected-state Icon.
+            // The regular tool graphic remains in BaseIcon underneath it.
+            Image selectedIndicator = SceneUI.GetOrAdd<Image>(selectedGO);
+            selectedIndicator.sprite = solidSprite;
+            selectedIndicator.color = new Color(1f, 0.82f, 0.22f, 1f);
+            selectedIndicator.raycastTarget = false;
+            RectTransform rt = selectedIndicator.rectTransform;
+            rt.anchorMin = new Vector2(0.12f, 0f);
+            rt.anchorMax = new Vector2(0.88f, 0f);
+            rt.pivot = new Vector2(0.5f, 0f);
+            rt.anchoredPosition = new Vector2(0f, 3f);
+            rt.sizeDelta = new Vector2(0f, 4f);
+        }
+        return selectedGO;
     }
 
     // "<label>Lbl" + draggable gradient "<label>Bar" (with a marker, returned) + "<label>Val" text.
@@ -1647,7 +1826,7 @@ public class ChameleonPaint : MonoBehaviour
         Place(track, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0, -y), new Vector2(320f, 30f));
         trackRt = track.rectTransform;
 
-        Image fill = NewImage("SizeFill", track.transform, Color.white, sizeFillSprite);
+        Image fill = NewImage("SizeFill", track.transform, new Color(0.1f, 0.11f, 0.13f, 0f), sizeFillSprite);
         fill.type = Image.Type.Filled;
         fill.fillMethod = Image.FillMethod.Horizontal;
         fill.fillOrigin = 0;

@@ -219,7 +219,7 @@ TextureImporter:
         width: 205
         height: 205
       alignment: 0
-      pivot: {x: 0, y: 0}
+      pivot: {x: 0.5, y: 0.5}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
       outline: []
@@ -228,6 +228,270 @@ TextureImporter:
       bones: []
       spriteID: e1854585d2eabb343874bbfdefd55f56
       internalID: -177302206
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_picker_panel
+      rect:
+        serializedVersion: 2
+        x: 0
+        y: 0
+        width: 642
+        height: 733
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 7fb73646bd4ade842a2898a4aa52c1da
+      internalID: 1541131808
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_pick_on
+      rect:
+        serializedVersion: 2
+        x: 1523
+        y: 558
+        width: 113
+        height: 113
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: e41e5ec8c34013b42ae12d53734d40c9
+      internalID: -1237162153
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_pick
+      rect:
+        serializedVersion: 2
+        x: 1520
+        y: 680
+        width: 113
+        height: 113
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: fa1fb2a3c1591524888a03bed1ee0998
+      internalID: 1624098210
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_brush
+      rect:
+        serializedVersion: 2
+        x: 498
+        y: 741
+        width: 113
+        height: 113
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: e9e9d58d86611974889c5ce17b83eaf1
+      internalID: -1289758671
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_brush_on
+      rect:
+        serializedVersion: 2
+        x: 1640
+        y: 522
+        width: 113
+        height: 113
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: a6ecd377ce1a9a04e8df77204f1cce28
+      internalID: -1460548948
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_eraser
+      rect:
+        serializedVersion: 2
+        x: 1193
+        y: 647
+        width: 113
+        height: 113
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 4f9824f27c6fc054c8fa6257cd0476cc
+      internalID: -1070314861
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_eraser_on
+      rect:
+        serializedVersion: 2
+        x: 1641
+        y: 645
+        width: 113
+        height: 113
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 1cccbcf4f03e50c4daad0e17ce4da84e
+      internalID: -702329881
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_size_bar
+      rect:
+        serializedVersion: 2
+        x: 315
+        y: 886
+        width: 417
+        height: 20
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 82246fae276ca224aa5a4b1bc8e55786
+      internalID: 1672644404
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_round
+      rect:
+        serializedVersion: 2
+        x: 1093
+        y: 829
+        width: 58
+        height: 58
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 0e04064c9ec9e804eb1a38672528dbad
+      internalID: 758215325
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_triangle
+      rect:
+        serializedVersion: 2
+        x: 1154
+        y: 826
+        width: 36
+        height: 30
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: f1f9df051d0bb224781af41ef3316e3f
+      internalID: -2114234106
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_fill
+      rect:
+        serializedVersion: 2
+        x: 1631
+        y: 399
+        width: 113
+        height: 113
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: b0e23fe849a89a04296035e93d7c1340
+      internalID: 1816131386
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_fill_on
+      rect:
+        serializedVersion: 2
+        x: 1749
+        y: 305
+        width: 113
+        height: 113
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 47ebaa5a0a9c48d49a8772744b6a2224
+      internalID: 2121073933
       vertices: []
       indices: 
       edges: []
@@ -248,11 +512,23 @@ TextureImporter:
     nameFileIdTable:
       atlas_hider: 2873458095671816581
       atlas_seeker: -3548260698357352397
+      gameplay_atlas_brush: -1289758671
+      gameplay_atlas_brush_on: -1460548948
       gameplay_atlas_clock: 605453544
       gameplay_atlas_clock_fill: 892752246
+      gameplay_atlas_eraser: -1070314861
+      gameplay_atlas_eraser_on: -702329881
+      gameplay_atlas_fill: 1816131386
+      gameplay_atlas_fill_on: 2121073933
       gameplay_atlas_hider: -1085018791
       gameplay_atlas_jump: -177302206
+      gameplay_atlas_pick: 1624098210
+      gameplay_atlas_pick_on: -1237162153
+      gameplay_atlas_picker_panel: 1541131808
+      gameplay_atlas_round: 758215325
       gameplay_atlas_seeker: -427110407
+      gameplay_atlas_size_bar: 1672644404
+      gameplay_atlas_triangle: -2114234106
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
