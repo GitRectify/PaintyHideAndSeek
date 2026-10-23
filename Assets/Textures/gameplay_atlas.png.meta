@@ -461,7 +461,7 @@ TextureImporter:
         width: 113
         height: 113
       alignment: 0
-      pivot: {x: 0, y: 0}
+      pivot: {x: 0.5, y: 0.5}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
       outline: []
@@ -483,7 +483,7 @@ TextureImporter:
         width: 113
         height: 113
       alignment: 0
-      pivot: {x: 0, y: 0}
+      pivot: {x: 0.5, y: 0.5}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
       outline: []
@@ -492,6 +492,50 @@ TextureImporter:
       bones: []
       spriteID: 47ebaa5a0a9c48d49a8772744b6a2224
       internalID: 2121073933
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_color_bar
+      rect:
+        serializedVersion: 2
+        x: 1040
+        y: 208
+        width: 526
+        height: 70
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: d30bb8ab35ad8a74988d12c230a61e34
+      internalID: -1121865268
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: gameplay_atlas_color_bar_black
+      rect:
+        serializedVersion: 2
+        x: 1247
+        y: 1
+        width: 526
+        height: 70
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 05a466892eeca214a94c431005e2f023
+      internalID: -1106909248
       vertices: []
       indices: 
       edges: []
@@ -516,6 +560,8 @@ TextureImporter:
       gameplay_atlas_brush_on: -1460548948
       gameplay_atlas_clock: 605453544
       gameplay_atlas_clock_fill: 892752246
+      gameplay_atlas_color_bar: -1121865268
+      gameplay_atlas_color_bar_black: -1106909248
       gameplay_atlas_eraser: -1070314861
       gameplay_atlas_eraser_on: -702329881
       gameplay_atlas_fill: 1816131386

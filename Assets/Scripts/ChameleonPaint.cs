@@ -49,6 +49,14 @@ public class ChameleonPaint : MonoBehaviour
     [Range(0.7f, 2.2f)]
     public float panelScale = 1.4f;
 
+    [Header("PickerPanel slide animation")]
+    [Tooltip("Duration (seconds) of the PickerPanel open/close slide. Set to 0 for instant movement.")]
+    [Min(0f)]
+    public float panelSlideDuration = 0.25f;
+    [Tooltip("How far left (UI units) the PickerPanel slides when hidden.")]
+    [Min(0f)]
+    public float panelSlideDistance = 1000f;
+
     [Header("Icons (Assets/Texture2D)")]
     public Sprite pickerIcon;
     public Sprite eraserIcon;
@@ -63,9 +71,10 @@ public class ChameleonPaint : MonoBehaviour
     public Sprite sizeDotSprite;
     public Sprite sizeRingSprite;
     public Sprite brushIconSprite;
-    [Tooltip("Đường kính chấm preview (px UI) khi cọ NHỎ nhất (brushPx=5) và LỚN nhất (brushPx=48). Chấm to/nhỏ tuyến tính theo cỡ cọ.")]
-    public float sizePreviewDotMin = 12f;
-    public float sizePreviewDotMax = 44f;
+    [Tooltip("Diameter of SizeDot (UI units) with the minimum brush size.")]
+    public float sizePreviewDotMin = 20f;
+    [Tooltip("Diameter of SizeDot (UI units) with the maximum brush size.")]
+    public float sizePreviewDotMax = 70f;
 
     [Header("Fill button")]
     [Tooltip("Optional icon for FillBtn. The button instantly paints the whole character with the selected brush color.")]
@@ -167,6 +176,9 @@ public class ChameleonPaint : MonoBehaviour
     private Image mFill;
     private Image roFill;
     private GameObject panelGO;
+    private RectTransform panelRect;
+    private Vector2 panelOpenPosition;
+    private Coroutine panelSlideCoroutine;
     private readonly HashSet<GameObject> _reusedUi = new HashSet<GameObject>();
     private bool drawingOn;
     private CameraController camCtrl;
@@ -196,8 +208,8 @@ public class ChameleonPaint : MonoBehaviour
     private Image _sizeFill;
     private RectTransform _sizeHandleRt;
     private RectTransform _sizeDotRt;
+    private Image _sizeDotImg;
     private float _sizeTrackW;
-    private float _sizeHandleD;
     private float wheelRadius = 100f;
     private Sprite solidSprite;
     private Sprite circleSprite;
@@ -235,7 +247,8 @@ public class ChameleonPaint : MonoBehaviour
         RefreshMaterialUI();
         RefreshBrushUI();
         SetMode(Mode.Paint);
-        CloseDrawing();
+        // Initial startup must hide the panel instantly; only user actions animate it.
+        CloseDrawing(true);
     }
 
     // Body renderers of the player (anything under a "gun" is excluded), its skinned parts (stale
@@ -1027,10 +1040,7 @@ public class ChameleonPaint : MonoBehaviour
     {
         drawingOn = true;
         BeginPaintCollider();
-        if (panelGO != null)
-        {
-            panelGO.SetActive(true);
-        }
+        SlidePickerPanel(true);
         if (paintGateImg != null && gateOnSprite != null)
         {
             paintGateImg.sprite = gateOnSprite;
@@ -1044,12 +1054,30 @@ public class ChameleonPaint : MonoBehaviour
 
     public void CloseDrawing()
     {
+        CloseDrawing(false);
+    }
+
+    private void CloseDrawing(bool immediately)
+    {
         drawingOn = false;
         EndPaintCollider();
         SetMode(Mode.Paint);
-        if (panelGO != null)
+        if (immediately)
         {
-            panelGO.SetActive(false);
+            StopPickerPanelSlide();
+            if (panelRect != null)
+            {
+                panelRect.anchoredPosition = panelOpenPosition + Vector2.left * panelSlideDistance;
+            }
+            if (panelGO != null)
+            {
+                panelGO.SetActive(false);
+            }
+        }
+        else
+        {
+            // Keep PickerPanel active until it has finished sliding offscreen.
+            SlidePickerPanel(false);
         }
         if (paintGateImg != null && gateOffSprite != null)
         {
@@ -1064,6 +1092,59 @@ public class ChameleonPaint : MonoBehaviour
             cursorIcon.gameObject.SetActive(false);
         }
         HideLoupe();
+    }
+
+    private void StopPickerPanelSlide()
+    {
+        if (panelSlideCoroutine != null)
+        {
+            StopCoroutine(panelSlideCoroutine);
+            panelSlideCoroutine = null;
+        }
+    }
+
+    // Slides horizontally on the RectTransform's X axis, leaving Y unchanged.
+    // Open: X -1000 -> 0; Close: X 0 -> -1000 (by default).
+    private void SlidePickerPanel(bool open)
+    {
+        if (panelGO == null || panelRect == null) return;
+
+        StopPickerPanelSlide();
+        Vector2 target = panelOpenPosition + Vector2.left * (open ? 0f : panelSlideDistance);
+
+        if (open && !panelGO.activeSelf)
+        {
+            // If the panel was fully hidden, start from the left.
+            panelRect.anchoredPosition = panelOpenPosition + Vector2.left * panelSlideDistance;
+            panelGO.SetActive(true);
+        }
+        if (panelSlideDuration <= 0f || !isActiveAndEnabled)
+        {
+            panelRect.anchoredPosition = target;
+            if (!open) panelGO.SetActive(false);
+            return;
+        }
+        panelSlideCoroutine = StartCoroutine(AnimatePickerPanel(target, open));
+    }
+
+    private IEnumerator AnimatePickerPanel(Vector2 target, bool opening)
+    {
+        Vector2 from = panelRect.anchoredPosition;
+        float elapsed = 0f;
+        while (elapsed < panelSlideDuration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / panelSlideDuration);
+            t = t * t * (3f - 2f * t); // smooth ease-in/ease-out
+            panelRect.anchoredPosition = Vector2.LerpUnclamped(from, target, t);
+            yield return null;
+        }
+        panelRect.anchoredPosition = target;
+        if (!opening && panelGO != null)
+        {
+            panelGO.SetActive(false);
+        }
+        panelSlideCoroutine = null;
     }
 
     public void ToggleEyedrop()
@@ -1124,6 +1205,11 @@ public class ChameleonPaint : MonoBehaviour
         if (preview != null)
         {
             preview.color = brush;
+        }
+        // The brush-size preview displays the exact same color as Preview.
+        if (_sizeDotImg != null)
+        {
+            _sizeDotImg.color = brush;
         }
         if (wheelMarker != null)
         {
@@ -1188,27 +1274,24 @@ public class ChameleonPaint : MonoBehaviour
         }
     }
 
-    // Size slider handle / fill and the preview dot follow brushPx (5..48).
+    // Map brushPx (5..48) to the FULL track length and to a 5..75 preview dot.
     private void RefreshBrushUI()
     {
         float t = Mathf.Clamp01((brushPx - 5f) / 43f);
-        if (_sizeHandleRt != null || _sizeFill != null)
+        if (_sizeHandleRt != null)
         {
-            float half = _sizeHandleD * 0.5f;
-            float x = Mathf.Lerp(half, _sizeTrackW - half, t);
-            if (_sizeHandleRt != null)
-            {
-                _sizeHandleRt.anchoredPosition = new Vector2(x, 0f);
-            }
-            if (_sizeFill != null)
-            {
-                _sizeFill.fillAmount = _sizeTrackW > 0f ? x / _sizeTrackW : t;
-            }
+            // The handle's center reaches BOTH actual endpoints of SizeTrack.
+            _sizeHandleRt.anchoredPosition = new Vector2(_sizeTrackW * t, 0f);
+        }
+        if (_sizeFill != null)
+        {
+            _sizeFill.fillAmount = t;
         }
         if (_sizeDotRt != null)
         {
             float d = Mathf.Lerp(sizePreviewDotMin, sizePreviewDotMax, t);
-            _sizeDotRt.sizeDelta = new Vector2(d, d);
+            _sizeDotRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, d);
+            _sizeDotRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, d);
         }
     }
 
@@ -1306,13 +1389,21 @@ public class ChameleonPaint : MonoBehaviour
         sceneDrag.onExit = OnScenePointerExit;
 
         Image panel = NewImage("PickerPanel", uiRoot, new Color(0.1f, 0.11f, 0.13f, 0f), solidSprite);
-        Place(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(30f, -30f), new Vector2(860f, 520f));
+        // Additional bottom row holds the 600px size slider without overlapping other controls.
+        // Existing/custom-authored panel layouts are not overwritten by Place().
+        Place(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(30f, -30f), new Vector2(860f, 652f));
         if (!_reusedUi.Contains(panel.gameObject))
         {
             panel.rectTransform.localScale = Vector3.one * Mathf.Clamp(panelScale, 0.5f, 3f);
         }
         Transform p = panel.transform;
         panelGO = panel.gameObject;
+        // Open ends at X = 0; keep the original Y position and UI anchoring/layout.
+        if (panelRect != panel.rectTransform)
+        {
+            panelRect = panel.rectTransform;
+            panelOpenPosition = new Vector2(0f, panelRect.anchoredPosition.y);
+        }
 
         bool hasClose = closeIcon != null;
         Image close = NewImage("CloseBtn", p, Color.white, hasClose ? closeIcon : solidSprite);
@@ -1322,7 +1413,14 @@ public class ChameleonPaint : MonoBehaviour
         }
         close.preserveAspect = true;
         Place(close, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(796f, -6f), new Vector2(58f, 58f));
-        SceneUI.GetOrAdd<Button>(close.gameObject).targetGraphic = close;
+        Button closeButton = SceneUI.GetOrAdd<Button>(close.gameObject);
+        closeButton.targetGraphic = close;
+        // Respect Inspector callbacks; auto-wire runtime-created CloseBtn only when needed.
+        if (closeButton.onClick.GetPersistentEventCount() == 0)
+        {
+            closeButton.onClick.RemoveListener(CloseDrawing);
+            closeButton.onClick.AddListener(CloseDrawing);
+        }
         NewTextIn("X", close.transform, "X", 32, TextAnchor.MiddleCenter, Color.white).gameObject.SetActive(!hasClose);
 
         Image wheel = NewImage("Wheel", p, Color.white, wheelSprite);
@@ -1449,7 +1547,7 @@ public class ChameleonPaint : MonoBehaviour
         Place(hexVal, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(388f, -234f), new Vector2(470f, 32f));
         hexVal.raycastTarget = false;
 
-        MakeSizeSlider(p, 384f, 276f);
+        MakeSizeSlider(p, 36f, 548f);
         MakeSliderBox(p, "Metallic", 424f, v =>
         {
             metallic = Mathf.Clamp01(v);
@@ -1814,17 +1912,33 @@ public class ChameleonPaint : MonoBehaviour
         return mark;
     }
 
-    // 320x30 brush-size track (fill + 38px handle, draggable), brush icon + "Size" label below,
-    // and a preview ring with a dot sized like the brush.
+    // 600x30 size track with an 80x80 draggable handle. The handle's CENTER can
+    // reach both ends of the track. SizeRing is 80x80; SizeDot grows from 5 to 75
+    // and always matches the current brush/Preview color.
     private void MakeSizeSlider(Transform parent, float x0, float y)
     {
-        RectTransform trackRt;
-        _sizeTrackW = 320f;
-        _sizeHandleD = 38f;
+        const float trackWidth = 600f;
+        const float trackHeight = 30f;
+        const float handleSize = 80f;
+        const float ringSize = 80f;
+        // Upgrade the old script's serialized 12..44 dot range to the new 5..75 range.
+        // Other custom Inspector ranges remain configurable.
+        if (Mathf.Approximately(sizePreviewDotMin, 12f)
+            && Mathf.Approximately(sizePreviewDotMax, 44f))
+        {
+            sizePreviewDotMin = 20f;
+            sizePreviewDotMax = 70f;
+        }
+        _sizeTrackW = trackWidth;
 
         Image track = NewImage("SizeTrack", parent, Color.white, sizeTrackSprite);
-        Place(track, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0, -y), new Vector2(320f, 30f));
-        trackRt = track.rectTransform;
+        Place(track, new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(x0, -y), new Vector2(trackWidth, trackHeight));
+        RectTransform trackRt = track.rectTransform;
+        // Force the requested dimensions EVEN when a SizeTrack already exists in the scene.
+        trackRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, trackWidth);
+        trackRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, trackHeight);
+        if (track.sprite == null) track.sprite = solidSprite;
 
         Image fill = NewImage("SizeFill", track.transform, new Color(0.1f, 0.11f, 0.13f, 0f), sizeFillSprite);
         fill.type = Image.Type.Filled;
@@ -1836,47 +1950,79 @@ public class ChameleonPaint : MonoBehaviour
         _sizeFill = fill;
 
         Image handle = NewImage("SizeHandle", track.transform, Color.white, sizeHandleSprite);
-        handle.raycastTarget = false;
+        if (handle.sprite == null) handle.sprite = circleSprite;
+        handle.raycastTarget = true; // Lets the user drag the actual 80x80 thumb.
         handle.preserveAspect = true;
         RectTransform hrt = handle.rectTransform;
-        hrt.anchorMax = new Vector2(0f, 0.5f);
         hrt.anchorMin = new Vector2(0f, 0.5f);
+        hrt.anchorMax = new Vector2(0f, 0.5f);
         hrt.pivot = new Vector2(0.5f, 0.5f);
-        hrt.sizeDelta = new Vector2(38f, 38f);
-        hrt.anchoredPosition = Vector2.zero;
+        hrt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, handleSize);
+        hrt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, handleSize);
         _sizeHandleRt = hrt;
 
-        SceneUI.GetOrAdd<UIDrag>(track.gameObject).cb = e =>
+        // Shared handler: clicking the track OR grabbing/dragging the handle works.
+        UIDrag trackDrag = SceneUI.GetOrAdd<UIDrag>(track.gameObject);
+        trackDrag.cb = e =>
         {
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(trackRt, e.position, null, out Vector2 lp);
-            SetBrushSize(Mathf.Clamp01((lp.x - trackRt.rect.xMin) / trackRt.rect.width));
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                trackRt, e.position, e.pressEventCamera, out Vector2 lp);
+            float normalized = Mathf.InverseLerp(trackRt.rect.xMin, trackRt.rect.xMax, lp.x);
+            SetBrushSize(normalized);
         };
+        SceneUI.GetOrAdd<UIDrag>(handle.gameObject).cb = trackDrag.cb;
 
         Image icon = NewImage("SizeIcon", parent, Color.white, brushIconSprite);
         icon.raycastTarget = false;
         icon.preserveAspect = true;
-        float rowY = -(y + 30f + 10f);
+        float rowY = -(y + 70f); // Keep label below the 80px handle (no overlap).
         Place(icon, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0, rowY), new Vector2(30f, 30f));
 
         Text lbl = NewText("SizeLbl", parent, "Size", 24, TextAnchor.MiddleLeft, Color.white);
-        Place(lbl, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0 + 30f + 8f, rowY), new Vector2(160f, 30f));
+        Place(lbl, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0 + 38f, rowY), new Vector2(160f, 30f));
         lbl.raycastTarget = false;
 
         Image ring = NewImage("SizeRing", parent, Color.white, sizeRingSprite);
+        if (ring.sprite == null) ring.sprite = ringSprite;
         ring.raycastTarget = false;
         ring.preserveAspect = true;
-        Place(ring, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0 + 320f + 36f, -(y - 13f)), new Vector2(56f, 56f));
+        // In newly created layouts the ring sits beside the 600px track, centered on it.
+        Place(ring, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x0 + trackWidth + 24f, -(y - 25f)), new Vector2(ringSize, ringSize));
+        ring.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, ringSize);
+        ring.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, ringSize);
 
-        Image dot = NewImage("SizeDot", ring.transform, Color.white, sizeDotSprite);
+        Image dot = NewImage("SizeDot", ring.transform, brush, sizeDotSprite);
+        if (dot.sprite == null) dot.sprite = circleSprite;
+        dot.color = brush;
         dot.raycastTarget = false;
         dot.preserveAspect = true;
         RectTransform drt = dot.rectTransform;
-        drt.anchorMax = new Vector2(0.5f, 0.5f);
         drt.anchorMin = new Vector2(0.5f, 0.5f);
+        drt.anchorMax = new Vector2(0.5f, 0.5f);
         drt.pivot = new Vector2(0.5f, 0.5f);
         drt.anchoredPosition = Vector2.zero;
-        drt.sizeDelta = new Vector2(sizePreviewDotMin, sizePreviewDotMin);
+        _sizeDotImg = dot;
         _sizeDotRt = drt;
+
+        // One-time upgrade of the old auto-generated 320px layout (NOT custom layouts).
+        // Without this, a reused 860x520 panel puts the newly widened track offscreen.
+        if (_reusedUi.Contains(track.gameObject)
+            && Mathf.Abs(trackRt.anchoredPosition.x - 384f) < 0.1f
+            && Mathf.Abs(trackRt.anchoredPosition.y + 276f) < 0.1f
+            && Mathf.Abs(ring.rectTransform.anchoredPosition.x - 740f) < 0.1f
+            && Mathf.Abs(ring.rectTransform.anchoredPosition.y + 263f) < 0.1f
+            && panelRect != null
+            && Mathf.Abs(panelRect.rect.width - 860f) < 0.1f
+            && Mathf.Abs(panelRect.rect.height - 520f) < 0.1f)
+        {
+            panelRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, 652f);
+            trackRt.anchoredPosition = new Vector2(36f, -548f);
+            ring.rectTransform.anchoredPosition = new Vector2(660f, -523f);
+            if (_reusedUi.Contains(icon.gameObject))
+                icon.rectTransform.anchoredPosition = new Vector2(36f, -618f);
+            if (_reusedUi.Contains(lbl.gameObject))
+                lbl.rectTransform.anchoredPosition = new Vector2(74f, -618f);
+        }
 
         RefreshBrushUI();
     }
