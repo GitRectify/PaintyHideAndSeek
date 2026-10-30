@@ -13,7 +13,14 @@ using Object = UnityEngine.Object;
 // literals in Start() and the four On* logs are verified against Dumpstringliteral.json.
 public class HomeUI : MonoBehaviour
 {
+    [Header("Role Select / Home Canvas (found by name if unassigned)")]
+    [SerializeField] private string roleSelectCanvasName = "RoleSelectCanvas";
+    [SerializeField] private string mainHomeCanvasName = "MainHomeCanvas";
+    [SerializeField] private string selectPlayerCanvasName = "SelectPlayerCanvas";
+
     private GameObject homeCanvas;
+    private GameObject roleSelectCanvas;
+    private GameObject selectPlayerCanvas;
     private GameObject menuDim;
     private GameModeManager gmm;
     private MatchmakingUI matchmaking;
@@ -33,9 +40,26 @@ public class HomeUI : MonoBehaviour
         }
 
         SetGameplayUI(false);
+        SetSelectPlayer(false);
+        SetRoleSelect(false);
         SetHome(true);
 
         AudioManager.MusicMenu();
+    }
+
+    // Called when the SelectPlayerCanvas Close/Back button is pressed.
+    // The previous screen is RoleSelectCanvas, not HomeCanvas.
+    public void ShowRoleSelect()
+    {
+        SetSelectPlayer(false);
+        SetHome(false);
+        SetRoleSelect(true);
+    }
+
+    public void HideRoleSelect()
+    {
+        SetRoleSelect(false);
+        SetHome(true);
     }
 
     public void PlayAgainSeek()
@@ -58,7 +82,9 @@ public class HomeUI : MonoBehaviour
         gmm = Object.FindAnyObjectByType<GameModeManager>();
         matchmaking = Object.FindAnyObjectByType<MatchmakingUI>();
 
-        homeCanvas = FindInSceneIncludingInactive("HomeCanvas");
+        homeCanvas = FindInSceneIncludingInactive(mainHomeCanvasName) ?? FindInSceneIncludingInactive("HomeCanvas");
+        roleSelectCanvas = FindInSceneIncludingInactive(roleSelectCanvasName);
+        selectPlayerCanvas = FindInSceneIncludingInactive(selectPlayerCanvasName);
 
         GameObject uiRoot = GameObject.Find("UI");
         if (uiRoot != null)
@@ -66,7 +92,7 @@ public class HomeUI : MonoBehaviour
             foreach (Transform child in uiRoot.transform)
             {
                 GameObject childGO = child.gameObject;
-                if (childGO == homeCanvas) continue;
+                if (childGO == homeCanvas || childGO == roleSelectCanvas) continue;
                 if (IsExcludedFromGameplayUI(child.name)) continue;
 
                 gameplayUI.Add(childGO);
@@ -180,7 +206,7 @@ public class HomeUI : MonoBehaviour
         {
             "ModeSelectCanvas", "MatchmakingCanvas", "MapCanvas", "SettingsCanvas",
             "RemoveAdsCanvas", "LoadingCanvas", "ThanksCanvas", "RateCanvas",
-            "SelectPlayerCanvas", "HelpCanvas"
+            "SelectPlayerCanvas", "HelpCanvas", "ShopCanvas", "RoleSelectCanvas"
         };
 
         foreach (string name in excluded)
@@ -200,6 +226,9 @@ public class HomeUI : MonoBehaviour
     // if it's null by then - the natural NRE on popup.Show reproduces that.
     private void AfterSelectPlayer(int mode)
     {
+        // Confirmation must close the player picker before loading / map selection.
+        SetSelectPlayer(false);
+        SetRoleSelect(false);
         SetHome(false);
 
         LoadingScreen.Run(() =>
@@ -215,28 +244,31 @@ public class HomeUI : MonoBehaviour
         });
     }
 
-    // onConfirm = <BeginMatch>b__0 (DisplayClass7_0): AfterSelectPlayer(mode).
-    // onBack = GoHome, bound directly as a method group (no closure).
-    // The raw hides the Action constructors' target arguments, but the method's metadata-init block
-    // registers exactly two delegate targets - Method$HomeUI.GoHome() and <BeginMatch>b__0 - so the
-    // mode-capturing closure must be onConfirm and GoHome must be onBack.
+    // RoleSelectCanvas buttons: Hider = 2, Seeker = 1.
+    // These no-argument methods are convenient for Unity Button On Click() entries.
+    public void OnPlayNow() => BeginMatch(2);
+    public void OnSeekerMode() => BeginMatch(1);
+
+    // Optional direct-to-match actions for projects that do NOT want to display
+    // SelectPlayerCanvas when a role is chosen.
+    public void OnPlayNowSkipPlayerSelect() => AfterSelectPlayer(2);
+    public void OnSeekerModeSkipPlayerSelect() => AfterSelectPlayer(1);
+
     public void BeginMatch(int mode)
     {
-        if (SelectPlayerUI.Instance == null)
-        {
-            AfterSelectPlayer(mode);
-            return;
-        }
-
-        if (!SelectPlayerUI.Instance.Ready)
-        {
-            AfterSelectPlayer(mode);
-            return;
-        }
-
+        // Only the player picker should be visible when choosing a character.
         SetHome(false);
+        SetRoleSelect(false);
 
-        SelectPlayerUI.Instance.Show(mode, () => AfterSelectPlayer(mode), GoHome);
+        if (SelectPlayerUI.Instance == null || !SelectPlayerUI.Instance.Ready)
+        {
+            // Preserve the original fallback: continue if player selection is unavailable.
+            AfterSelectPlayer(mode);
+            return;
+        }
+
+        SetSelectPlayer(true);
+        SelectPlayerUI.Instance.Show(mode, () => AfterSelectPlayer(mode), ShowRoleSelect);
     }
 
     private void SetHome(bool v)
@@ -247,28 +279,36 @@ public class HomeUI : MonoBehaviour
         }
     }
 
-    // Same shape as BeginMatch, but falls back to GoHome() instead of AfterSelectPlayer(mode) when
-    // SelectPlayerUI isn't available/ready — this is the "go back" path, reached from the map
-    // popup's onBack (<AfterSelectPlayer>b__2).
-    // onConfirm = <BackToSelectPlayer>b__0 (DisplayClass9_0, confirmed): AfterSelectPlayer(mode).
-    // onBack = GoHome (method group) - same two-target evidence as BeginMatch.
+    private void SetRoleSelect(bool v)
+    {
+        if (roleSelectCanvas != null)
+        {
+            roleSelectCanvas.SetActive(v);
+        }
+    }
+
+    private void SetSelectPlayer(bool v)
+    {
+        if (selectPlayerCanvas != null)
+        {
+            selectPlayerCanvas.SetActive(v);
+        }
+    }
+
+    // Return from the map-selection popup to the character-selection screen.
     private void BackToSelectPlayer(int mode)
     {
-        if (SelectPlayerUI.Instance == null)
+        if (SelectPlayerUI.Instance == null || !SelectPlayerUI.Instance.Ready)
         {
-            GoHome();
-            return;
-        }
-
-        if (!SelectPlayerUI.Instance.Ready)
-        {
-            GoHome();
+            // If the character picker is unavailable, return to role selection.
+            ShowRoleSelect();
             return;
         }
 
         SetHome(false);
-
-        SelectPlayerUI.Instance.Show(mode, () => AfterSelectPlayer(mode), GoHome);
+        SetRoleSelect(false);
+        SetSelectPlayer(true);
+        SelectPlayerUI.Instance.Show(mode, () => AfterSelectPlayer(mode), ShowRoleSelect);
     }
 
     // Lambdas on HomeUI.<>c__DisplayClass10_0 (captures this + mode):
@@ -282,6 +322,8 @@ public class HomeUI : MonoBehaviour
     //        actually starts on the matchmaking path.
     private void RunMatch(int mode)
     {
+        SetSelectPlayer(false);
+        SetRoleSelect(false);
         SetHome(false);
 
         LoadingScreen.Run(() =>
@@ -309,7 +351,9 @@ public class HomeUI : MonoBehaviour
 
     public void StartMode(int mode)
     {
+        SetSelectPlayer(false);
         SetHome(false);
+        SetRoleSelect(false);
         SetGameplayUI(true);
         SetHideOnlyUI(mode == 2);
 

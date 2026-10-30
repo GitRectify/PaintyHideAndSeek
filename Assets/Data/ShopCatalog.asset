@@ -1,0 +1,345 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3e56c9c27976ef4409880e9cf6623aab, type: 3}
+  m_Name: ShopCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::ShopCatalog
+  items:
+  - id: coins_500
+    category: 0
+    displayName: 500 Coins
+    icon: {fileID: 0}
+    priceType: 1
+    coinPrice: 0
+    realPriceLabel: $0.99
+    coinAmount: 500
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: coins_1200
+    category: 0
+    displayName: 1,200 Coins
+    icon: {fileID: 0}
+    priceType: 1
+    coinPrice: 0
+    realPriceLabel: $1.99
+    coinAmount: 1200
+    unlockLevel: 0
+    badge: Popular
+    ownedByDefault: 0
+  - id: coins_2500
+    category: 0
+    displayName: 2,500 Coins
+    icon: {fileID: 0}
+    priceType: 1
+    coinPrice: 0
+    realPriceLabel: $3.99
+    coinAmount: 2500
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: coins_6000
+    category: 0
+    displayName: 6,000 Coins
+    icon: {fileID: 0}
+    priceType: 1
+    coinPrice: 0
+    realPriceLabel: $6.99
+    coinAmount: 6000
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: coins_15000
+    category: 0
+    displayName: 15,000 Coins
+    icon: {fileID: 0}
+    priceType: 1
+    coinPrice: 0
+    realPriceLabel: $14.99
+    coinAmount: 15000
+    unlockLevel: 0
+    badge: Best Value
+    ownedByDefault: 0
+  - id: coins_30000
+    category: 0
+    displayName: 30,000 Coins
+    icon: {fileID: 0}
+    priceType: 1
+    coinPrice: 0
+    realPriceLabel: $29.99
+    coinAmount: 30000
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: avatar_default
+    category: 1
+    displayName: Default
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 0
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 1
+  - id: avatar_pink_splash
+    category: 1
+    displayName: Pink Splash
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 800
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: avatar_golden_paint
+    category: 1
+    displayName: Golden Paint
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 1500
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: avatar_camo_paint
+    category: 1
+    displayName: Camo Paint
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 1200
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: avatar_galaxy_paint
+    category: 1
+    displayName: Galaxy Paint
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 2000
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: avatar_neon_drip
+    category: 1
+    displayName: Neon Drip
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 2500
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: pose_wave
+    category: 2
+    displayName: Wave
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 500
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: pose_laugh
+    category: 2
+    displayName: Laugh
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 800
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: pose_sneak
+    category: 2
+    displayName: Sneak
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 1200
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: pose_victory
+    category: 2
+    displayName: Victory
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 1500
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: pose_brush_dance
+    category: 2
+    displayName: Brush Dance
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 2000
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: pose_taunt
+    category: 2
+    displayName: Taunt
+    icon: {fileID: 0}
+    priceType: 2
+    coinPrice: 0
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 10
+    badge: 
+    ownedByDefault: 0
+  - id: weapon_paint_brush
+    category: 3
+    displayName: Paint Brush
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 500
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: weapon_roller
+    category: 3
+    displayName: Roller
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 800
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: weapon_spray_gun
+    category: 3
+    displayName: Spray Gun
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 1200
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: weapon_paint_blaster
+    category: 3
+    displayName: Paint Blaster
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 1800
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: weapon_splatter_cannon
+    category: 3
+    displayName: Splatter Cannon
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 2500
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: weapon_precision_brush
+    category: 3
+    displayName: Precision Brush
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 3000
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: bullet_basic
+    category: 4
+    displayName: Basic Paint Bullet
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 500
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: bullet_triple_splash
+    category: 4
+    displayName: Triple Splash
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 1200
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: bullet_sticky_shot
+    category: 4
+    displayName: Sticky Shot
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 2500
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: bullet_neon_burst
+    category: 4
+    displayName: Neon Burst
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 6000
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: bullet_ice_paint
+    category: 4
+    displayName: Ice Paint
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 15000
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+  - id: bullet_rainbow_ammo
+    category: 4
+    displayName: Rainbow Ammo
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 30000
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0

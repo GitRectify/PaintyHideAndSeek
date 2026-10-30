@@ -86,10 +86,10 @@ public class MapSelectUI : MonoBehaviour
     // clearer translation, not a simplification that changes behavior.
     private void Build()
     {
-        GameObject homeCanvas = FindInScene(homeCanvasName);
+        GameObject homeCanvas = FindInScene("RoleSelectCanvas") ?? FindInScene(homeCanvasName);
         if (homeCanvas == null)
         {
-            Debug.LogWarning($"[MapSelect] '{homeCanvasName}' not found \u2014 map button not built.");
+            Debug.LogWarning($"[MapSelect] Neither 'RoleSelectCanvas' nor '{homeCanvasName}' found \u2014 map button not built.");
             return;
         }
 
