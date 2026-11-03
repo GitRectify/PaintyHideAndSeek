@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.meccha.client": "https://github.com/goat0729/Meccha_Server.git?path=/unity/com.meccha.client#v1.0.0",
     "com.unity.ai.assistant": "file:D:/Program/Unity/com.unity.ai.assistant-2.18.0-pre.2.tgz",
     "com.unity.ai.navigation": "2.0.14",
     "com.unity.collab-proxy": "2.13.6",

@@ -1,5 +1,12 @@
 {
   "dependencies": {
+    "com.meccha.client": {
+      "version": "https://github.com/goat0729/Meccha_Server.git?path=/unity/com.meccha.client#v1.0.0",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "c90ced11f478cb62ba69b39cd3b238b0bdada0b9"
+    },
     "com.unity.2d.sprite": {
       "version": "1.0.0",
       "depth": 1,

@@ -1,0 +1,10 @@
+{
+  "host": "127.0.0.1",
+  "port": 7777,
+  "webSocketPort": 7778,
+  "metaPort": 7779,
+  "connectionKey": "meccha-1",
+  "region": "default",
+  "metaTls": false,
+  "metaThumbprint": ""
+}
