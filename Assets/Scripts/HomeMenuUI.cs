@@ -1,4 +1,5 @@
 using System.Collections;
+using Meccha.Shared.Protocol;
 using UnityEngine;
 
 // Main home menu: Play / Multiplayer / Shop buttons plus the coin balance.
@@ -21,7 +22,7 @@ public class HomeMenuUI : MonoBehaviour
     [Tooltip("Back button on the role selection screen; returns to this home menu.")]
     [SerializeField] private UnityEngine.UI.Button roleSelectBackButton;
 
-    [Header("Multiplayer (backend not connected yet)")]
+    [Header("Multiplayer (sign-in only; matchmaking not connected yet)")]
     [Tooltip("Object shown/hidden for the toast (e.g. its background pill). Falls back to the text object.")]
     [SerializeField] private GameObject toastRoot;
     [SerializeField] private UnityEngine.UI.Text toastText;
@@ -68,13 +69,24 @@ public class HomeMenuUI : MonoBehaviour
         if (homeCanvas != null) homeCanvas.SetActive(true);
     }
 
-    // TODO(backend): route to auth/profile -> room selection -> FindMatch once the server exists.
+    // Multiple Play: sign in (and choose a name on the first run). TODO(backend): role and room
+    // selection -> FindMatch; until then a signed-in player gets the toast.
     private void OnMultiplayer()
     {
         AudioManager.ButtonTap();
+        OnlineSignIn.Open(OnSignedIn, null);
+    }
+
+    private void OnSignedIn(MetaProfile profile)
+    {
+        ShowToast($"Signed in as {profile.UserId} ({OnlineUI.CoinsText(profile.CoinCents)}). {multiplayerMessage}");
+    }
+
+    private void ShowToast(string message)
+    {
         if (toastText == null) return;
         if (_toast != null) StopCoroutine(_toast);
-        _toast = StartCoroutine(ToastRoutine(multiplayerMessage));
+        _toast = StartCoroutine(ToastRoutine(message));
     }
 
     private void OnShop()
