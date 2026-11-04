@@ -294,6 +294,9 @@ public class Mode1FirstPersonGun : MonoBehaviour
     public void Fire()
     {
         if (gmm != null && gmm.SeekerHideCountdown) return;
+        // Online: no shot (nor its animation and sound) while out, out of bullets, or inside the
+        // server's fire interval.
+        if (!OnlineRound.TryFire()) return;
 
         if (playerAnim != null)
         {

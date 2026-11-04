@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 // An online round in the 3D scene, from MatchStart to the result popup. Adapted from the SDK
-// sample's OnlineRound; its paint, weapon and pose parts come in later phases.
+// sample's OnlineRound; its weapon-skin and pose parts come with the online shop.
 //
 // The existing gameplay scripts keep doing what they do — JoystickMover moves the player,
 // CameraController follows, MatchHUD draws the timer — and this class connects them to the server:
@@ -15,7 +15,11 @@ using UnityEngine.UI;
 //   * NetEntityRegistry.ViewFactory makes characters as snapshots name them: the local player gets
 //     NetEntityView (server corrections) and NetInputAdapter (joystick/camera/buttons -> input
 //     stream); every other player is a Bot prefab body placed by interpolation.
-//   * The gun calls Fire below instead of its local aim-assisted kill; the server judges the hit.
+//   * The gun calls TryFire/Fire below instead of its local aim-assisted kill; the server judges
+//     the hit and counts the bullets. ChameleonPaint sends its strokes, fills and resets through
+//     SendStroke/SendFill/SendPaintReset, and other painters' canvases are rebuilt here from the
+//     strokes the server relays. Metallic and roughness are not in the protocol yet: they stay
+//     local until the server adds them.
 //   * Eliminations, round end and match end come from the server; nothing here decides a hit, a
 //     catch or a winner.
 public class OnlineRound : MonoBehaviour
@@ -29,6 +33,15 @@ public class OnlineRound : MonoBehaviour
 
     [Tooltip("Resources path of the body used for other players.")]
     [SerializeField] private string remotePrefabPath = "GameObjects/Bot";
+
+    [Tooltip("Brush radius (texels) of the dabs a one-tap body fill is sent as. Max 126.")]
+    [SerializeField] private int fillBrushPx = 96;
+
+    [Tooltip("Spacing (texels) of that grid of dabs; smaller covers more evenly but sends more.")]
+    [SerializeField] private int fillSpacing = 64;
+
+    [Tooltip("Top-right offset of the seeker's bullet count, under the HUD.")]
+    [SerializeField] private Vector2 bulletsOffset = new Vector2(-40f, -250f);
 
     private OnlineLobby lobby;
     private GameModeManager gmm;
@@ -55,20 +68,81 @@ public class OnlineRound : MonoBehaviour
     private NetInputAdapter adapter;
     private NetEntityView localView;
     private float fireReleaseAt;
+    private float nextFireAt;
 
     private bool leaveArmed;
     private float leaveArmedUntil;
 
     private Text banner;
     private float bannerUntil;
+    private Text bulletsLabel;
+
+    // Each remote painter's canvas, rebuilt from the strokes the server relays.
+    private sealed class RemoteCanvas
+    {
+        public Color32[] Pixels;
+        public Texture2D Texture;
+        public bool Dirty;
+        public NetEntityView AppliedTo;
+    }
+
+    private readonly Dictionary<byte, RemoteCanvas> canvases = new Dictionary<byte, RemoteCanvas>();
 
     // ================= Entry points for the gameplay scripts =================
+
+    /// <summary>
+    /// Asked by the gun before it shoots (animation, sound, bullet effect): false while the
+    /// player is out, out of bullets, or inside the server's fire interval, whose extra shots
+    /// it would drop anyway.
+    /// </summary>
+    public static bool TryFire()
+    {
+        if (!Active) return true;
+        return _instance.CanFire();
+    }
 
     /// <summary>The gun's shot, in the direction drawn on screen this frame.</summary>
     public static void Fire(Vector3 worldDirection)
     {
         if (!Active) return;
         _instance.DoFire(worldDirection);
+    }
+
+    /// <summary>A dab on the local player's canvas (ChameleonPaint), radius in canvas texels.</summary>
+    public static void SendStroke(Vector2 uv, int brushPx, Color color, bool erase)
+    {
+        if (!Active || Net == null) return;
+        Net.QueuePaintStroke(uv, brushPx, erase ? Color.white : color, erase ? 2 : 0);
+    }
+
+    public static void SendPaintReset()
+    {
+        if (!Active || Net == null) return;
+        Net.SendPaintReset();
+    }
+
+    /// <summary>
+    /// A one-tap fill has no stroke to send, so it goes as a reset followed by a grid of large
+    /// dabs in the fill colour: the server's camouflage average and every other player's view of
+    /// this body then match the filled canvas. About 80 dabs, well inside the paint budget.
+    /// </summary>
+    public static void SendFill(Color color)
+    {
+        if (!Active || Net == null) return;
+
+        Net.SendPaintReset();
+        OnlineRound self = _instance;
+        int size = GameTuning.PaintTextureSize;
+        int step = Mathf.Max(8, self.fillSpacing);
+        int brush = Mathf.Clamp(self.fillBrushPx, 2, 126);
+
+        for (int y = step / 2; y < size; y += step)
+        {
+            for (int x = step / 2; x < size; x += step)
+            {
+                Net.QueuePaintStroke(new Vector2((float)x / size, (float)y / size), brush, color, 0);
+            }
+        }
     }
 
     /// <summary>The in-round Home (HomeUI.GoHome during an online round).</summary>
@@ -117,6 +191,8 @@ public class OnlineRound : MonoBehaviour
         leaveArmed = false;
         roster = entries;
         eliminated.Clear();
+        nextFireAt = 0f;
+        ClearCanvases();
         if (results != null) results.HideAll();
 
         if (home != null) home.EnterOnlineRound(hunter);
@@ -132,11 +208,17 @@ public class OnlineRound : MonoBehaviour
         Net.OnIdleWarning += HandleIdleWarning;
         Net.OnSpotAlert += HandleSpotAlert;
         Net.OnRosterChanged += HandleRosterChanged;
+        Net.OnRemotePaintStroke += HandleRemoteStroke;
+        Net.OnRemotePaintReset += HandleRemoteReset;
+        Net.OnLoadoutChanged += RefreshBullets;
 
         // Start from the phase the client last heard (the ready gate, normally).
         HandlePhaseChanged(Net.Phase, Net.PhaseSecondsLeft);
         RefreshCounters();
         ShowBanner(hunter ? "You are a SEEKER. Wait for the hiders to hide..." : "You are a HIDER. Paint yourself and hide!", 4f);
+
+        bulletsLabel.gameObject.SetActive(hunter);
+        RefreshBullets();
     }
 
     /// <summary>Takes the scene out of online mode. The caller decides where to go next.</summary>
@@ -154,6 +236,9 @@ public class OnlineRound : MonoBehaviour
             Net.OnIdleWarning -= HandleIdleWarning;
             Net.OnSpotAlert -= HandleSpotAlert;
             Net.OnRosterChanged -= HandleRosterChanged;
+            Net.OnRemotePaintStroke -= HandleRemoteStroke;
+            Net.OnRemotePaintReset -= HandleRemoteReset;
+            Net.OnLoadoutChanged -= RefreshBullets;
         }
 
         NetEntityRegistry.ViewFactory = null;
@@ -166,9 +251,11 @@ public class OnlineRound : MonoBehaviour
         adapter = null;
         localView = null;
 
+        ClearCanvases();
         if (results != null) results.ClearOnline();
         if (gmm != null) gmm.EndNetworkRound();
         banner.gameObject.SetActive(false);
+        bulletsLabel.gameObject.SetActive(false);
     }
 
     private void Update()
@@ -178,6 +265,7 @@ public class OnlineRound : MonoBehaviour
         UpdateTimer();
         FeedInput();
         RefreshCounters();
+        ApplyCanvases();
 
         if (leaveArmed && Time.unscaledTime > leaveArmedUntil) leaveArmed = false;
         if (banner.gameObject.activeSelf && Time.unscaledTime > bannerUntil) banner.gameObject.SetActive(false);
@@ -225,6 +313,7 @@ public class OnlineRound : MonoBehaviour
             tag.SetVisible(teammate);
         }
 
+        if (canvases.TryGetValue(slot, out RemoteCanvas canvas)) canvas.AppliedTo = null;   // re-applied next frame
         return view;
     }
 
@@ -247,6 +336,21 @@ public class OnlineRound : MonoBehaviour
         }
     }
 
+    private bool CanFire()
+    {
+        if (localOut) return false;
+        if (Time.unscaledTime < nextFireAt) return false;
+
+        if (Net.Bullets <= 0)
+        {
+            ShowBanner("Out of bullets.", 2f);
+            return false;
+        }
+
+        nextFireAt = Time.unscaledTime + GameTuning.FireIntervalSeconds;
+        return true;
+    }
+
     private void DoFire(Vector3 worldDirection)
     {
         if (localOut) return;
@@ -256,6 +360,13 @@ public class OnlineRound : MonoBehaviour
         if (adapter != null) adapter.FirePressed(worldDirection);
         else Net.Fire(worldDirection);
         fireReleaseAt = Time.unscaledTime + 0.2f;
+    }
+
+    // LoadoutState: the server's bullet count, sent when the match is found and after each
+    // accepted shot.
+    private void RefreshBullets()
+    {
+        if (bulletsLabel != null && Net != null) bulletsLabel.text = $"Bullets: {Net.Bullets}";
     }
 
     // ================= Phases, timer, counters =================
@@ -435,6 +546,111 @@ public class OnlineRound : MonoBehaviour
         lobby.GoHomeFromRound();
     }
 
+    // ================= Remote paint =================
+
+    // Each remote painter's canvas is rebuilt here from the strokes the server relays, stamped with
+    // the same soft round brush as ChameleonPaint.StampAtUV, and shown on their body
+    // (NetEntityView.PaintTexture). The server only relays a hider's strokes to a seeker who has
+    // seen that hider during the seek.
+
+    private void HandleRemoteStroke(PaintStroke stroke)
+    {
+        RemoteCanvas canvas = CanvasFor(stroke.EntityId);
+        int size = GameTuning.PaintTextureSize;
+
+        int cx = Mathf.Clamp(stroke.U << 1, 0, size - 1);
+        int cy = Mathf.Clamp(stroke.V << 1, 0, size - 1);
+        int r = Mathf.Max(1, stroke.RadiusHalf << 1);
+
+        Color col;
+        if (stroke.Mode == 2) col = Color.white;
+        else
+        {
+            Quantize.Rgb565ToColor(stroke.Color, out float cr, out float cg, out float cb);
+            col = new Color(cr, cg, cb, 1f);
+        }
+
+        int x0 = Mathf.Max(0, cx - r), x1 = Mathf.Min(size - 1, cx + r);
+        int y0 = Mathf.Max(0, cy - r), y1 = Mathf.Min(size - 1, cy + r);
+        Color32[] buf = canvas.Pixels;
+
+        for (int y = y0; y <= y1; y++)
+        {
+            for (int x = x0; x <= x1; x++)
+            {
+                float dx = x - cx, dy = y - cy;
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                if (d > r) continue;
+
+                float a = Mathf.Clamp01((1f - d / r) * 1.7f);
+                float inv = 1f - a;
+                int idx = y * size + x;
+                Color32 o = buf[idx];
+                buf[idx] = new Color32((byte)(col.r * 255f * a + o.r * inv),
+                                       (byte)(col.g * 255f * a + o.g * inv),
+                                       (byte)(col.b * 255f * a + o.b * inv), 255);
+            }
+        }
+
+        canvas.Dirty = true;
+    }
+
+    private void HandleRemoteReset(byte slot)
+    {
+        RemoteCanvas canvas = CanvasFor(slot);
+        Color32 white = Color.white;
+        for (int i = 0; i < canvas.Pixels.Length; i++) canvas.Pixels[i] = white;
+        canvas.Dirty = true;
+    }
+
+    private RemoteCanvas CanvasFor(byte slot)
+    {
+        if (canvases.TryGetValue(slot, out RemoteCanvas canvas)) return canvas;
+
+        int size = GameTuning.PaintTextureSize;
+        canvas = new RemoteCanvas
+        {
+            Pixels = new Color32[size * size],
+            Texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp },
+        };
+
+        Color32 white = Color.white;
+        for (int i = 0; i < canvas.Pixels.Length; i++) canvas.Pixels[i] = white;
+        canvas.Dirty = true;
+        canvases[slot] = canvas;
+        return canvas;
+    }
+
+    // Uploads at most once a frame per canvas, however many strokes arrived.
+    private void ApplyCanvases()
+    {
+        foreach (KeyValuePair<byte, RemoteCanvas> pair in canvases)
+        {
+            RemoteCanvas canvas = pair.Value;
+
+            if (canvas.Dirty)
+            {
+                canvas.Texture.SetPixels32(canvas.Pixels);
+                canvas.Texture.Apply(false);
+                canvas.Dirty = false;
+            }
+
+            NetEntityView view = NetEntityRegistry.Get(pair.Key);
+            if (view != null && !view.IsLocal && canvas.AppliedTo != view)
+            {
+                view.PaintTexture = canvas.Texture;
+                canvas.AppliedTo = view;
+            }
+        }
+    }
+
+    private void ClearCanvases()
+    {
+        foreach (RemoteCanvas canvas in canvases.Values)
+            if (canvas.Texture != null) Destroy(canvas.Texture);
+        canvases.Clear();
+    }
+
     // ================= Banner =================
 
     private void BuildBanner()
@@ -451,6 +667,15 @@ public class OnlineRound : MonoBehaviour
         outline.effectDistance = new Vector2(2f, -2f);
 
         banner.gameObject.SetActive(false);
+
+        // Seeker's bullet count, top right under the HUD: online, bullets are a server-counted stock.
+        bulletsLabel = OnlineUI.NewLabel(canvas.transform, "", 30, Vector2.zero, new Vector2(320f, 50f), TextAnchor.MiddleRight, true);
+        RectTransform brt = bulletsLabel.rectTransform;
+        brt.anchorMin = brt.anchorMax = brt.pivot = new Vector2(1f, 1f);
+        brt.anchoredPosition = bulletsOffset;
+        Outline bulletsOutline = bulletsLabel.gameObject.AddComponent<Outline>();
+        bulletsOutline.effectColor = new Color(0f, 0f, 0f, 0.8f);
+        bulletsLabel.gameObject.SetActive(false);
     }
 
     private void ShowBanner(string text, float seconds)

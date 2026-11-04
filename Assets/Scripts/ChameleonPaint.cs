@@ -601,6 +601,7 @@ public class ChameleonPaint : MonoBehaviour
         ApplyCanvasToBody();
         SetBrush(Color.white);
         RefreshMaterialUI();
+        OnlineRound.SendPaintReset();
     }
 
     // Soft round stamp (radius brushPx texels, full strength in the inner ~40%) at the UV.
@@ -726,6 +727,7 @@ public class ChameleonPaint : MonoBehaviour
     {
         if (!TryRaycastCharacter(screenPos, out RaycastHit hit)) return;
         StampAtUV(hit.textureCoord, mode == Mode.Erase ? Color.white : brush);
+        OnlineRound.SendStroke(hit.textureCoord, brushPx, brush, mode == Mode.Erase);
         AudioManager.PaintStroke();
         if (mode != Mode.Erase)
         {
@@ -1226,6 +1228,7 @@ public class ChameleonPaint : MonoBehaviour
         ClearCanvas(brush);
         dirty = false; // The texture was already uploaded by ClearCanvas.
         ApplyCanvasToBody();
+        OnlineRound.SendFill(brush);
         AudioManager.PaintStroke();
     }
 
