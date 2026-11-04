@@ -60,6 +60,8 @@ public class MatchmakingUI : MonoBehaviour
     private Image barFillImg;
     private Text counterText;
     private Text hintText;
+    private Text mapLabelText;
+    private Text coinLabelText;
 
     private bool playerIsHunter;
     private Action onReady;
@@ -233,6 +235,78 @@ public class MatchmakingUI : MonoBehaviour
         UpdateBarAndCounter();
     }
 
+    // ---- Online lobby (Multiple Play) --------------------------------------------------------
+    // The same screen showing the server's real roster instead of the fake fill. The lobby
+    // decides when it closes (EndOnline); there is no ready callback.
+
+    public struct OnlineSeat
+    {
+        public string Name;
+        public bool Hunter;
+        public bool IsLocal;
+    }
+
+    public void BeginOnline(bool hunter, string hint)
+    {
+        EnsureBuilt();
+        playerIsHunter = hunter;
+        onReady = null;
+        state = 0;
+        canvasGO.SetActive(true);
+        SetOnlineHint(hint);
+        SetOnlineRoster(null);
+    }
+
+    public void SetOnlineHint(string hint)
+    {
+        if (hintText != null) hintText.text = hint;
+    }
+
+    public void SetMapLabel(string text)
+    {
+        if (mapLabelText != null) mapLabelText.text = text;
+    }
+
+    public void SetCoinText(string text)
+    {
+        if (coinLabelText != null) coinLabelText.text = text;
+    }
+
+    /// <summary>Shows these seats (null or empty = nobody yet) and the joined count.</summary>
+    public void SetOnlineRoster(IList<OnlineSeat> seats)
+    {
+        foreach (Slot s in fugSlots) s.go.SetActive(false);
+        foreach (Slot s in hunSlots) s.go.SetActive(false);
+
+        int fugitives = 0, hunters = 0;
+        if (seats != null)
+        {
+            foreach (OnlineSeat seat in seats)
+            {
+                List<Slot> column = seat.Hunter ? hunSlots : fugSlots;
+                int index = seat.Hunter ? hunters++ : fugitives++;
+                if (index >= column.Count) continue;
+
+                SetSlot(column[index], seat.IsLocal ? "You" : seat.Name, seat.IsLocal);
+                column[index].go.SetActive(true);
+            }
+        }
+
+        joined = Mathf.Min(fugitives, fugSlots.Count) + Mathf.Min(hunters, hunSlots.Count);
+        UpdateBarAndCounter();
+    }
+
+    public void EndOnline()
+    {
+        state = 0;
+        onReady = null;
+        if (canvasGO != null) canvasGO.SetActive(false);
+
+        // Back to what the offline fake fill shows.
+        SetMapLabel("Map game");
+        SetCoinText(coinAmount.ToString());
+    }
+
     private void SetSlot(Slot s, string name, bool highlight)
     {
         s.label.text = name;
@@ -338,8 +412,20 @@ public class MatchmakingUI : MonoBehaviour
                 hintText = hintT.GetComponent<Text>();
             }
 
+            Transform mapLabelT = panel.Find("MapLabel");
+            if (mapLabelT != null)
+            {
+                mapLabelText = mapLabelT.GetComponent<Text>();
+            }
+
             BindColumn(panel.Find("FugitiveBox"), fugSlots);
             BindColumn(panel.Find("HunterBox"), hunSlots);
+        }
+
+        Transform coinT = canvasT.Find("CoinText");
+        if (coinT != null)
+        {
+            coinLabelText = coinT.GetComponent<Text>();
         }
 
         canvasGO.SetActive(false);
@@ -434,6 +520,7 @@ public class MatchmakingUI : MonoBehaviour
 
         Text mapLabel = NewText("MapLabel", panelT, "Map game", 30, Color.white, TextAnchor.MiddleCenter, true);
         Place(mapLabel, 470f, -268f, 360f, 40f);
+        mapLabelText = mapLabel;
 
         Image divH = NewImage("DivH", panelT, dividerH, Color.white);
         Place(divH, 0f, -300f, 1240f, 4f);
@@ -509,6 +596,7 @@ public class MatchmakingUI : MonoBehaviour
 
         Text coinText = NewText("CoinText", canvasT, coinAmount.ToString(), 34, Color.white, TextAnchor.MiddleCenter, true);
         PlaceTR(coinText, -386f, -38f, 200f, 50f, new Vector2(0f, 1f));
+        coinLabelText = coinText;
 
         Image plusBtn = NewImage("PlusBtn", canvasT, plusIcon, Color.white);
         plusBtn.preserveAspect = true;

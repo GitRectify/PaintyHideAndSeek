@@ -1,4 +1,3 @@
-using System.Collections;
 using Meccha.Shared.Protocol;
 using UnityEngine;
 
@@ -22,14 +21,10 @@ public class HomeMenuUI : MonoBehaviour
     [Tooltip("Back button on the role selection screen; returns to this home menu.")]
     [SerializeField] private UnityEngine.UI.Button roleSelectBackButton;
 
-    [Header("Multiplayer (sign-in only; matchmaking not connected yet)")]
-    [Tooltip("Object shown/hidden for the toast (e.g. its background pill). Falls back to the text object.")]
+    [Header("Old multiplayer toast")]
+    [Tooltip("The \"coming soon\" toast Multiplayer used to show; kept hidden now that it opens the online lobby. Falls back to the text object.")]
     [SerializeField] private GameObject toastRoot;
     [SerializeField] private UnityEngine.UI.Text toastText;
-    [SerializeField] private string multiplayerMessage= "Online multiplayer coming soon!";
-    [SerializeField] private float toastSeconds = 1.6f;
-
-    private Coroutine _toast;
 
     private GameObject ToastObject => toastRoot != null ? toastRoot : (toastText != null ? toastText.gameObject : null);
 
@@ -69,25 +64,15 @@ public class HomeMenuUI : MonoBehaviour
         if (homeCanvas != null) homeCanvas.SetActive(true);
     }
 
-    // Multiple Play: sign in (and choose a name on the first run). TODO(backend): role and room
-    // selection -> FindMatch; until then a signed-in player gets the toast.
+    // Multiple Play: sign in (and choose a name on the first run), then Seeker/Hider, room and
+    // matchmaking. TODO(backend): the online round once a match starts.
     private void OnMultiplayer()
     {
         AudioManager.ButtonTap();
         OnlineSignIn.Open(OnSignedIn, null);
     }
 
-    private void OnSignedIn(MetaProfile profile)
-    {
-        ShowToast($"Signed in as {profile.UserId} ({OnlineUI.CoinsText(profile.CoinCents)}). {multiplayerMessage}");
-    }
-
-    private void ShowToast(string message)
-    {
-        if (toastText == null) return;
-        if (_toast != null) StopCoroutine(_toast);
-        _toast = StartCoroutine(ToastRoutine(message));
-    }
+    private void OnSignedIn(MetaProfile profile) => OnlineLobby.Open(profile, null);
 
     private void OnShop()
     {
@@ -99,14 +84,5 @@ public class HomeMenuUI : MonoBehaviour
     private void RefreshCoins()
     {
         if (coinText != null) coinText.text = GameData.Coin.ToString();
-    }
-
-    private IEnumerator ToastRoutine(string message)
-    {
-        toastText.text = message;
-        ToastObject.SetActive(true);
-        yield return new WaitForSecondsRealtime(toastSeconds);
-        ToastObject.SetActive(false);
-        _toast = null;
     }
 }
