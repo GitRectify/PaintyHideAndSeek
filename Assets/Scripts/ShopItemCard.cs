@@ -98,7 +98,38 @@ public class ShopItemCard : MonoBehaviour
         Sprite bg = buySprite;
         string text;
 
-        if (!ShopInventory.Loaded)
+        if (_item.category == ShopCategory.Coins)
+        {
+            // A coin pack: the server's coins and real-money price. A pack with a payment still
+            // open says so; tapping it goes back to that payment's checkout.
+            string coins = ShopInventory.PackCoinsText(_item);
+            if (bottomLabel != null) bottomLabel.text = coins;
+            if (topLabel != null) topLabel.text = coins;
+
+            if (!ShopInventory.TopUpsLoaded)
+            {
+                text = "...";
+                interactable = false;
+                bg = disabledSprite;
+            }
+            else if (!ShopInventory.IsForSale(_item))
+            {
+                text = "Coming soon";
+                locked = true;
+                interactable = false;
+                bg = disabledSprite;
+            }
+            else if (PendingTopUp.IsWaiting(_item.serverId))
+            {
+                text = "Waiting...";
+                bg = equipSprite;
+            }
+            else
+            {
+                text = ShopInventory.PackPriceText(_item);
+            }
+        }
+        else if (!ShopInventory.Loaded)
         {
             text = "...";
             interactable = false;

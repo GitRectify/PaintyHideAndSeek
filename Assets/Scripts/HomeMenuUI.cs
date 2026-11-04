@@ -1,3 +1,5 @@
+using System.Collections;
+using Meccha.Shared.Game;
 using Meccha.Shared.Protocol;
 using UnityEngine;
 
@@ -22,12 +24,15 @@ public class HomeMenuUI : MonoBehaviour
     [Tooltip("Back button on the role selection screen; returns to this home menu.")]
     [SerializeField] private UnityEngine.UI.Button roleSelectBackButton;
 
-    [Header("Old multiplayer toast")]
-    [Tooltip("The \"coming soon\" toast Multiplayer used to show; kept hidden now that it opens the online lobby. Falls back to the text object.")]
+    [Header("Toast")]
+    [Tooltip("The toast Multiplayer used for \"coming soon\"; now it tells how a coin top-up ended when that happens on Home. Falls back to the text object.")]
     [SerializeField] private GameObject toastRoot;
     [SerializeField] private UnityEngine.UI.Text toastText;
 
+    [SerializeField] private float toastSeconds = 2.5f;
+
     private GameObject ToastObject => toastRoot != null ? toastRoot : (toastText != null ? toastText.gameObject : null);
+    private Coroutine toast;
 
     private void Awake()
     {
@@ -51,6 +56,7 @@ public class HomeMenuUI : MonoBehaviour
     private void OnEnable()
     {
         ShopInventory.Changed += RefreshCoins;
+        PendingTopUp.Settled += HandleTopUpSettled;
         RefreshCoins();
         if (ToastObject != null) ToastObject.SetActive(false);
     }
@@ -58,6 +64,26 @@ public class HomeMenuUI : MonoBehaviour
     private void OnDisable()
     {
         ShopInventory.Changed -= RefreshCoins;
+        PendingTopUp.Settled -= HandleTopUpSettled;
+        toast = null;
+    }
+
+    // A top-up the player paid in the browser, settled while Home is up (the shop says it itself).
+    private void HandleTopUpSettled(PendingTopUp.Entry entry, PaymentState state)
+    {
+        if (toastText == null || ToastObject == null) return;
+        if (homeCanvas != null && !homeCanvas.activeInHierarchy) return;
+        if (toast != null) StopCoroutine(toast);
+        toast = StartCoroutine(ShowToast(PendingTopUp.MessageFor(entry, state)));
+    }
+
+    private IEnumerator ShowToast(string message)
+    {
+        toastText.text = message;
+        ToastObject.SetActive(true);
+        yield return new WaitForSecondsRealtime(toastSeconds);
+        ToastObject.SetActive(false);
+        toast = null;
     }
 
     private void OnPlay()

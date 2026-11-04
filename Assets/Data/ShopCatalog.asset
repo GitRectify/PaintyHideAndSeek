@@ -24,7 +24,7 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
-    serverId: 
+    serverId: coins-500
     gameId: 0
     quantity: 1
   - id: coins_1200
@@ -38,7 +38,7 @@ MonoBehaviour:
     unlockLevel: 0
     badge: Popular
     ownedByDefault: 0
-    serverId: 
+    serverId: coins-1200
     gameId: 0
     quantity: 1
   - id: coins_2500
@@ -52,7 +52,7 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
-    serverId: 
+    serverId: coins-2500
     gameId: 0
     quantity: 1
   - id: coins_6000
@@ -66,7 +66,7 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
-    serverId: 
+    serverId: coins-6000
     gameId: 0
     quantity: 1
   - id: coins_15000
@@ -80,7 +80,7 @@ MonoBehaviour:
     unlockLevel: 0
     badge: Best Value
     ownedByDefault: 0
-    serverId: 
+    serverId: coins-15000
     gameId: 0
     quantity: 1
   - id: coins_30000
@@ -94,7 +94,7 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
-    serverId: 
+    serverId: coins-30000
     gameId: 0
     quantity: 1
   - id: avatar_default

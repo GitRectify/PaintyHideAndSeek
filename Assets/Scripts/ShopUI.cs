@@ -53,6 +53,7 @@ public class ShopUI : MonoBehaviour
     private void OnEnable()
     {
         ShopInventory.Changed += HandleChanged;
+        PendingTopUp.Settled += HandleTopUpSettled;
         RefreshCoins();
         SelectTab((int)_current);
         if (ToastObject != null) ToastObject.SetActive(false);
@@ -61,7 +62,11 @@ public class ShopUI : MonoBehaviour
     private void OnDisable()
     {
         ShopInventory.Changed -= HandleChanged;
+        PendingTopUp.Settled -= HandleTopUpSettled;
     }
+
+    private void HandleTopUpSettled(PendingTopUp.Entry entry, Meccha.Shared.Game.PaymentState state) =>
+        ShowToast(PendingTopUp.MessageFor(entry, state));
 
     public void Open()
     {
@@ -116,7 +121,20 @@ public class ShopUI : MonoBehaviour
 
         if (!ShopInventory.IsForSale(item))
         {
-            ShowToast(item.category == ShopCategory.Coins ? "Coin top-ups are coming soon" : "Coming soon");
+            ShowToast(item.category == ShopCategory.Coins ? "Coin top-ups aren't available yet" : "Coming soon");
+            return;
+        }
+
+        if (item.category == ShopCategory.Coins)
+        {
+            // Real money: the provider's checkout opens, and PendingTopUp reports the outcome.
+            _busy = true;
+            ShowToast("Opening the payment...");
+            ShopInventory.StartTopUp(item, (opened, message) =>
+            {
+                _busy = false;
+                if (this != null && isActiveAndEnabled) ShowToast(message);
+            });
             return;
         }
 

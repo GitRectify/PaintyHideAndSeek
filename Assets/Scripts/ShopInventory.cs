@@ -12,6 +12,9 @@ using UnityEngine;
 //   * avatar  = CharacterSelect's character (the server checks ownership at FindMatch);
 //   * weapon  = sent with SelectWeapon at the start of each online round (0 = the standard gun);
 //   * poses are picked in the round itself (PoseSelectorUI), bullets are spent by shooting.
+// Coin packs are the server's top-up packages (ListTopUps): coins and price come from the server,
+// paid at the wallet provider's checkout and credited by the provider's callback to the server.
+// PendingTopUp watches each one until the server says how it ended.
 public static class ShopInventory
 {
     private const string Category = "none";
@@ -24,10 +27,14 @@ public static class ShopInventory
     public static event Action Changed;
 
     private static readonly Dictionary<string, MetaItem> listing = new Dictionary<string, MetaItem>(StringComparer.Ordinal);
+    private static readonly Dictionary<string, MetaTopUpPackage> packages = new Dictionary<string, MetaTopUpPackage>(StringComparer.Ordinal);
     private static MetaClient hookedMeta;
 
     /// <summary>True once a ListItems answer arrived this session.</summary>
     public static bool Loaded { get; private set; }
+
+    /// <summary>True once ListTopUps answered this session (with packages, or without a wallet).</summary>
+    public static bool TopUpsLoaded { get; private set; }
 
     public static bool SignedIn
     {
@@ -57,6 +64,7 @@ public static class ShopInventory
         }
 
         Hook(meta);
+        RefreshTopUps(meta);
         meta.ListItems(reply =>
         {
             if (reply.TimedOut || reply.Error != MetaError.None)
@@ -75,6 +83,28 @@ public static class ShopInventory
         });
     }
 
+    // The coin packs on sale. Without a wallet provider (WalletUnavailable) or on a failed answer
+    // there are none, and the Coins cards say "Coming soon" until the next refresh.
+    private static void RefreshTopUps(MetaClient meta)
+    {
+        meta.ListTopUps(reply =>
+        {
+            packages.Clear();
+            if (!reply.TimedOut && reply.Error == MetaError.None)
+            {
+                foreach (MetaTopUpPackage package in reply.Packages ?? new MetaTopUpPackage[0])
+                    packages[package.Id] = package;
+            }
+            else if (reply.Error != MetaError.WalletUnavailable)
+            {
+                Debug.LogWarning($"[Shop] Coin packs could not be listed: {(reply.TimedOut ? "timed out" : reply.Error.ToString())}");
+            }
+
+            TopUpsLoaded = true;
+            Changed?.Invoke();
+        });
+    }
+
     private static void Hook(MetaClient meta)
     {
         if (hookedMeta == meta) return;
@@ -84,6 +114,9 @@ public static class ShopInventory
     }
 
     private static void HandleBalance(long cents, int bullets) => Changed?.Invoke();
+
+    /// <summary>Tells the shop's views that something they show changed (a top-up's state).</summary>
+    public static void NotifyChanged() => Changed?.Invoke();
 
     private static bool TryListing(ShopItem item, out MetaItem listed)
     {
@@ -98,7 +131,8 @@ public static class ShopInventory
     /// <summary>The server sells it now (a bullet pack also has to fit the per-purchase cap).</summary>
     public static bool IsForSale(ShopItem item)
     {
-        if (item == null || item.category == ShopCategory.Coins) return false;   // top-ups come with payments
+        if (item == null) return false;
+        if (item.category == ShopCategory.Coins) return TryPackage(item, out _);
         if (!TryListing(item, out MetaItem listed)) return false;
         return listed.MaxQuantity == 0 || Quantity(item) <= listed.MaxQuantity;
     }
@@ -113,6 +147,90 @@ public static class ShopInventory
     /// <summary>What the card costs on the server, in cents; 0 when it is not for sale.</summary>
     public static long PriceCents(ShopItem item) =>
         TryListing(item, out MetaItem listed) ? listed.PriceCents * Quantity(item) : 0;
+
+    // ================= Coin packs =================
+
+    private static bool TryPackage(ShopItem item, out MetaTopUpPackage package)
+    {
+        package = default;
+        return item != null && item.category == ShopCategory.Coins && !string.IsNullOrEmpty(item.serverId) &&
+               packages.TryGetValue(item.serverId, out package);
+    }
+
+    /// <summary>The coins a pack card gives: the server's amount, or the card's own before it is listed.</summary>
+    public static string PackCoinsText(ShopItem item) =>
+        TryPackage(item, out MetaTopUpPackage package) ? CoinsText(package.CoinCents) : item.coinAmount.ToString("N0");
+
+    /// <summary>A pack's real-money price as the server has it, e.g. "$4.99"; empty when it is not on sale.</summary>
+    public static string PackPriceText(ShopItem item) =>
+        TryPackage(item, out MetaTopUpPackage package) ? MoneyText(package.PriceMinor, package.Currency) : "";
+
+    // Currencies whose smallest unit is the whole unit (ISO 4217 exponent 0).
+    private static readonly HashSet<string> WholeUnitCurrencies = new HashSet<string> { "JPY", "KRW", "VND", "CLP", "ISK", "UGX", "XAF", "XOF" };
+
+    public static string MoneyText(long minor, string currency)
+    {
+        currency = (currency ?? "").ToUpperInvariant();
+        string amount = WholeUnitCurrencies.Contains(currency)
+            ? minor.ToString("N0")
+            : (minor / 100m).ToString("N2");
+
+        switch (currency)
+        {
+            case "USD": return "$" + amount;
+            case "EUR": return "€" + amount;
+            case "GBP": return "£" + amount;
+            case "JPY": return "¥" + amount;
+            default: return amount + " " + currency;
+        }
+    }
+
+    /// <summary>
+    /// Opens a payment for a coin pack and sends the player to the provider's checkout. The coins
+    /// arrive when the provider tells the server; PendingTopUp watches for that and says how it
+    /// ended. done gets (opened, text for the player).
+    /// </summary>
+    public static void StartTopUp(ShopItem item, Action<bool, string> done)
+    {
+        MetaClient meta = MetaClient.Instance;
+        if (meta == null || !SignedIn)
+        {
+            done?.Invoke(false, "Sign in to use the shop.");
+            return;
+        }
+
+        if (!TryPackage(item, out MetaTopUpPackage package))
+        {
+            done?.Invoke(false, "Coin top-ups aren't available yet");
+            return;
+        }
+
+        // A payment for this pack is still open: back to its checkout rather than a second one.
+        if (PendingTopUp.TryFor(package.Id, out PendingTopUp.Entry open))
+        {
+            PendingTopUp.OpenCheckout(open);
+            done?.Invoke(true, "Finish paying on the payment page.");
+            return;
+        }
+
+        meta.CreateTopUp(package.Id, reply =>
+        {
+            if (reply.TimedOut || reply.Error != MetaError.None)
+            {
+                // Nothing to pay yet; an unanswered payment that was opened anyway simply expires.
+                done?.Invoke(false, reply.TimedOut
+                    ? "Couldn't open the payment. Try again."
+                    : reply.Error == MetaError.WalletUnavailable
+                        ? "Payments aren't available right now."
+                        : ErrorText(reply.Error, false));
+                return;
+            }
+
+            PendingTopUp.Entry entry = PendingTopUp.Add(reply.TopUp, package);
+            PendingTopUp.OpenCheckout(entry);
+            done?.Invoke(true, "Finish paying on the payment page.");
+        });
+    }
 
     /// <summary>
     /// Whether the player may strike a pose online. Before the listing has arrived the answer is
