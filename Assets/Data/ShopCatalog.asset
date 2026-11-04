@@ -17,11 +17,7 @@ MonoBehaviour:
     category: 0
     displayName: 500 Coins
     icon: {fileID: 0}
-    priceType: 1
-    coinPrice: 0
-    realPriceLabel: $0.99
     coinAmount: 500
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: coins-500
@@ -31,11 +27,7 @@ MonoBehaviour:
     category: 0
     displayName: 1,200 Coins
     icon: {fileID: 0}
-    priceType: 1
-    coinPrice: 0
-    realPriceLabel: $1.99
     coinAmount: 1200
-    unlockLevel: 0
     badge: Popular
     ownedByDefault: 0
     serverId: coins-1200
@@ -45,11 +37,7 @@ MonoBehaviour:
     category: 0
     displayName: 2,500 Coins
     icon: {fileID: 0}
-    priceType: 1
-    coinPrice: 0
-    realPriceLabel: $3.99
     coinAmount: 2500
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: coins-2500
@@ -59,11 +47,7 @@ MonoBehaviour:
     category: 0
     displayName: 6,000 Coins
     icon: {fileID: 0}
-    priceType: 1
-    coinPrice: 0
-    realPriceLabel: $6.99
     coinAmount: 6000
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: coins-6000
@@ -73,11 +57,7 @@ MonoBehaviour:
     category: 0
     displayName: 15,000 Coins
     icon: {fileID: 0}
-    priceType: 1
-    coinPrice: 0
-    realPriceLabel: $14.99
     coinAmount: 15000
-    unlockLevel: 0
     badge: Best Value
     ownedByDefault: 0
     serverId: coins-15000
@@ -87,11 +67,7 @@ MonoBehaviour:
     category: 0
     displayName: 30,000 Coins
     icon: {fileID: 0}
-    priceType: 1
-    coinPrice: 0
-    realPriceLabel: $29.99
     coinAmount: 30000
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: coins-30000
@@ -101,11 +77,7 @@ MonoBehaviour:
     category: 1
     displayName: Player
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 0
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 1
     serverId: 
@@ -115,11 +87,7 @@ MonoBehaviour:
     category: 1
     displayName: Player 2
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1000
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: avatar-player-2
@@ -129,11 +97,7 @@ MonoBehaviour:
     category: 1
     displayName: Pink Splash
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 800
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: 
@@ -143,11 +107,7 @@ MonoBehaviour:
     category: 1
     displayName: Golden Paint
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1500
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: 
@@ -157,11 +117,7 @@ MonoBehaviour:
     category: 1
     displayName: Camo Paint
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1200
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: 
@@ -171,11 +127,7 @@ MonoBehaviour:
     category: 1
     displayName: Galaxy Paint
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 2000
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: 
@@ -185,11 +137,7 @@ MonoBehaviour:
     category: 1
     displayName: Neon Drip
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 2500
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: 
@@ -199,11 +147,7 @@ MonoBehaviour:
     category: 2
     displayName: Wave
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 500
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: pose-wave
@@ -213,11 +157,7 @@ MonoBehaviour:
     category: 2
     displayName: Laugh
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 800
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: pose-laugh
@@ -227,11 +167,7 @@ MonoBehaviour:
     category: 2
     displayName: Sneak
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1200
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: pose-sneak
@@ -241,11 +177,7 @@ MonoBehaviour:
     category: 2
     displayName: Victory
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1500
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: pose-victory
@@ -255,11 +187,7 @@ MonoBehaviour:
     category: 2
     displayName: Brush Dance
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 2000
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: pose-brush-dance
@@ -269,11 +197,7 @@ MonoBehaviour:
     category: 2
     displayName: Taunt
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 2500
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: pose-taunt
@@ -283,11 +207,7 @@ MonoBehaviour:
     category: 3
     displayName: Paint Brush
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 500
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: weapon-paint-brush
@@ -297,11 +217,7 @@ MonoBehaviour:
     category: 3
     displayName: Roller
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 800
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: weapon-roller
@@ -311,11 +227,7 @@ MonoBehaviour:
     category: 3
     displayName: Spray Gun
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1200
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: weapon-spray-gun
@@ -325,11 +237,7 @@ MonoBehaviour:
     category: 3
     displayName: Paint Blaster
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1800
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: weapon-paint-blaster
@@ -339,11 +247,7 @@ MonoBehaviour:
     category: 3
     displayName: Splatter Cannon
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 2500
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: weapon-splatter-cannon
@@ -353,11 +257,7 @@ MonoBehaviour:
     category: 3
     displayName: Precision Brush
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 3000
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: weapon-precision-brush
@@ -367,11 +267,7 @@ MonoBehaviour:
     category: 4
     displayName: 10 Bullets
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 10
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: bullets
@@ -381,11 +277,7 @@ MonoBehaviour:
     category: 4
     displayName: 50 Bullets
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 50
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: bullets
@@ -395,11 +287,7 @@ MonoBehaviour:
     category: 4
     displayName: 100 Bullets
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 100
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: bullets
@@ -409,11 +297,7 @@ MonoBehaviour:
     category: 4
     displayName: 250 Bullets
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 250
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: bullets
@@ -423,11 +307,7 @@ MonoBehaviour:
     category: 4
     displayName: 500 Bullets
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 500
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: bullets
@@ -437,11 +317,7 @@ MonoBehaviour:
     category: 4
     displayName: 1000 Bullets
     icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1000
-    realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 0
     badge: 
     ownedByDefault: 0
     serverId: bullets

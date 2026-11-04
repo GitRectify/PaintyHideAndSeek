@@ -11,35 +11,19 @@ public enum ShopCategory
     Bullets = 4
 }
 
-public enum ShopPriceType
-{
-    [Tooltip("Bought with in-game coins.")]
-    Coins = 0,
-    [Tooltip("Real-money pack (IAP / wallet top-up). Grants coinAmount.")]
-    RealMoney = 1,
-    [Tooltip("Not purchasable; unlocks at a player level.")]
-    LevelLock = 2
-}
-
+// One card in the shop. Prices, ownership and coin-pack prices are the server's (ShopInventory);
+// the card only says what it shows and which server item or package it stands for.
 [Serializable]
 public class ShopItem
 {
-    [Tooltip("Unique, stable id. Used as the save key and (later) as the backend item id.")]
+    [Tooltip("Unique, stable id for the card.")]
     public string id;
     public ShopCategory category;
     public string displayName;
     public Sprite icon;
 
-    [Header("Price")]
-    public ShopPriceType priceType = ShopPriceType.Coins;
-    [Tooltip("Coin cost when priceType = Coins.")]
-    public int coinPrice;
-    [Tooltip("Label shown on the button when priceType = RealMoney, e.g. \"$0.99\".")]
-    public string realPriceLabel;
-    [Tooltip("Coins granted when priceType = RealMoney.")]
+    [Tooltip("Coin packs: the coins shown until the server's package has loaded.")]
     public int coinAmount;
-    [Tooltip("Level required when priceType = LevelLock.")]
-    public int unlockLevel;
 
     [Header("Presentation")]
     [Tooltip("Optional ribbon text, e.g. \"Popular\" or \"Best Value\".")]
@@ -48,7 +32,7 @@ public class ShopItem
     public bool ownedByDefault;
 
     [Header("Server (online shop)")]
-    [Tooltip("The server catalog's item id (server.json Catalog). Empty = not sold online yet (\"coming soon\"). Every bullet pack names the one \"bullets\" item.")]
+    [Tooltip("The server catalog's item id (server.json Catalog), or for a coin pack its top-up package id (Wallet:TopUps). Empty = not sold online yet (\"coming soon\"). Every bullet pack names the one \"bullets\" item.")]
     public string serverId;
     [Tooltip("The game's own number for the item, the same as the server's GameId: avatar = CharacterSelect index, pose = picker slot + 1, weapon = WeaponSkins id.")]
     public int gameId;
