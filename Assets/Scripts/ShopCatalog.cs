@@ -46,6 +46,14 @@ public class ShopItem
     public string badge;
     [Tooltip("Owned (and equipped if nothing else is) from the start.")]
     public bool ownedByDefault;
+
+    [Header("Server (online shop)")]
+    [Tooltip("The server catalog's item id (server.json Catalog). Empty = not sold online yet (\"coming soon\"). Every bullet pack names the one \"bullets\" item.")]
+    public string serverId;
+    [Tooltip("The game's own number for the item, the same as the server's GameId: avatar = CharacterSelect index, pose = picker slot + 1, weapon = WeaponSkins id.")]
+    public int gameId;
+    [Tooltip("Bullets bought by this card (bullet packs only).")]
+    public int quantity = 1;
 }
 
 [CreateAssetMenu(fileName = "ShopCatalog", menuName = "HideAndSeek/Shop Catalog")]

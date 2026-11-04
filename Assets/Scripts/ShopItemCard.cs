@@ -93,36 +93,50 @@ public class ShopItemCard : MonoBehaviour
     {
         if (_item == null) return;
 
+        // Prices and ownership are the server's (ShopInventory); the card only shows them.
         bool coin = false, check = false, locked = false, interactable = true;
         Sprite bg = buySprite;
         string text;
 
-        if (_item.priceType == ShopPriceType.RealMoney)
+        if (!ShopInventory.Loaded)
         {
-            text = _item.realPriceLabel;
+            text = "...";
+            interactable = false;
+            bg = disabledSprite;
         }
-        else if (_item.priceType == ShopPriceType.LevelLock)
+        else if (ShopInventory.IsEquipped(_item))
         {
-            text = "Unlocks at Level " + _item.unlockLevel;
+            text = "Equipped";
+            check = true;
+            // A weapon other than the standard gun is tapped again to put the standard gun back.
+            interactable = _item.category == ShopCategory.Weapons && _item.gameId != 0;
+            bg = disabledSprite;
+        }
+        else if (ShopInventory.IsOwned(_item) && _item.category != ShopCategory.Bullets)
+        {
+            if (ShopInventory.CanEquip(_item))
+            {
+                text = "Equip";
+                bg = equipSprite;
+            }
+            else
+            {
+                text = "Owned";
+                check = true;
+                interactable = false;
+                bg = disabledSprite;
+            }
+        }
+        else if (!ShopInventory.IsForSale(_item))
+        {
+            text = "Coming soon";
             locked = true;
             interactable = false;
             bg = disabledSprite;
         }
-        else if (ShopInventory.IsEquipped(_item, catalog))
-        {
-            text = "Equipped";
-            check = true;
-            interactable = false;
-            bg = disabledSprite;
-        }
-        else if (ShopInventory.IsOwned(_item))
-        {
-            text = "Equip";
-            bg = equipSprite;
-        }
         else
         {
-            text = _item.coinPrice.ToString("N0");
+            text = ShopInventory.CoinsText(ShopInventory.PriceCents(_item));
             coin = true;
         }
 

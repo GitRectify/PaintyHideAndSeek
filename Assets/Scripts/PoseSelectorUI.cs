@@ -58,6 +58,17 @@ public class PoseSelectorUI : MonoBehaviour
 
     public bool HasPose => activeSlot >= 0;
 
+    /// <summary>
+    /// The Animator "Pose" value for a server pose id. Online, a pose id is the picker's slot + 1
+    /// and 0 is no pose (the server's convention); the free ids 1-2 are slots 0-1, as offline.
+    /// </summary>
+    public static int AnimatorPoseFor(int poseId) =>
+        poseId <= 0 || poseId > PoseForSlot.Length ? 0 : PoseForSlot[poseId - 1];
+
+    // Online, the lock overlays (GameController.poseReward3..9, slots 2-8) show the server's
+    // ownership instead of the ad unlocks; their offline state is kept here and put back after.
+    private bool[] offlineLocks;
+
     private void Start()
     {
         GameObject playerGo = PlayerRef.Resolve(characterRootName);
@@ -74,6 +85,67 @@ public class PoseSelectorUI : MonoBehaviour
         EnsureEventSystem();
         BindAll();
         Close();
+        ShopInventory.Changed += HandleShopChanged;
+    }
+
+    private void OnDestroy()
+    {
+        ShopInventory.Changed -= HandleShopChanged;
+    }
+
+    // Ownership can arrive after the panel opened (the round asks the server at its start).
+    private void HandleShopChanged()
+    {
+        if (panelRoot != null && panelRoot.activeSelf) RefreshLocks();
+    }
+
+    private void RefreshLocks()
+    {
+        GameController gc = SingletonMonoBehavior<GameController>.Instance;
+        if (gc == null) return;
+
+        GameObject[] locks = { gc.poseReward3, gc.poseReward4, gc.poseReward5, gc.poseReward6,
+                               gc.poseReward7, gc.poseReward8, gc.poseReward9 };
+        bool online = OnlineRound.Active;
+
+        if (online && offlineLocks == null)
+        {
+            offlineLocks = new bool[locks.Length];
+            for (int i = 0; i < locks.Length; i++) offlineLocks[i] = locks[i] != null && locks[i].activeSelf;
+        }
+
+        for (int i = 0; i < locks.Length; i++)
+        {
+            if (locks[i] == null) continue;
+            if (online) locks[i].SetActive(!ShopInventory.OwnsPose(i + 3));   // slot i + 2 = pose id i + 3
+            else if (offlineLocks != null) locks[i].SetActive(offlineLocks[i]);
+        }
+
+        if (!online) offlineLocks = null;
+    }
+
+    // An online pick: only owned poses, and the server is told (it answers in LoadoutState,
+    // which OnlineRound checks). Tapping the active slot again clears the pose, as offline.
+    private void PickSlotOnline(int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex >= PoseForSlot.Length) return;
+
+        if (!ShopInventory.OwnsPose(slotIndex + 1))
+        {
+            OnlineRound.ShowNotice("Get this pose in the Shop to use it online.");
+            return;
+        }
+
+        ApplyPick(slotIndex);
+        OnlineRound.SendPose(activeSlot + 1);
+    }
+
+    /// <summary>Shows the pose the server kept (a refused online pick), without sending anything.</summary>
+    public void ShowServerPose(int poseId)
+    {
+        activeSlot = poseId >= 1 && poseId <= PoseForSlot.Length ? poseId - 1 : -1;
+        if (anim != null) anim.SetInteger(PoseHash, AnimatorPoseFor(poseId));
+        RefreshPicks();
     }
 
     private void EnsureEventSystem()
@@ -370,6 +442,7 @@ public class PoseSelectorUI : MonoBehaviour
             gateImg.sprite = gateOnSprite;
         }
 
+        RefreshLocks();
         RefreshPicks();
     }
 
@@ -390,6 +463,12 @@ public class PoseSelectorUI : MonoBehaviour
     // to ApplyPick. Fixed to match the unsigned semantics exactly.
     public void PickSlot(int slotIndex)
     {
+        if (OnlineRound.Active)
+        {
+            PickSlotOnline(slotIndex);
+            return;
+        }
+
         RootManager root = RootManager.Instance;
         if (root == null)
         {

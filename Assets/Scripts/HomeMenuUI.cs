@@ -1,7 +1,8 @@
 using Meccha.Shared.Protocol;
 using UnityEngine;
 
-// Main home menu: Play / Multiplayer / Shop buttons plus the coin balance.
+// Main home menu: Play / Multiplayer / Shop buttons plus the coin balance. The one currency is the
+// server wallet: the balance shows once signed in ("-" before), and the Shop signs in first.
 // Play opens the role-selection screen (the original home canvas: PlayNow = Hider,
 // SeekerMode = Seeker, both still wired to HomeUI.BeginMatch).
 public class HomeMenuUI : MonoBehaviour
@@ -38,14 +39,14 @@ public class HomeMenuUI : MonoBehaviour
 
     private void OnEnable()
     {
-        ShopInventory.CoinsChanged += HandleCoinsChanged;
+        ShopInventory.Changed += RefreshCoins;
         RefreshCoins();
         if (ToastObject != null) ToastObject.SetActive(false);
     }
 
     private void OnDisable()
     {
-        ShopInventory.CoinsChanged -= HandleCoinsChanged;
+        ShopInventory.Changed -= RefreshCoins;
     }
 
     private void OnPlay()
@@ -72,17 +73,26 @@ public class HomeMenuUI : MonoBehaviour
         OnlineSignIn.Open(OnSignedIn, null);
     }
 
-    private void OnSignedIn(MetaProfile profile) => OnlineLobby.Open(profile, null);
-
-    private void OnShop()
+    private void OnSignedIn(MetaProfile profile)
     {
-        if (shopUI != null) shopUI.Open();
+        RefreshCoins();
+        OnlineLobby.Open(profile, null);
     }
 
-    private void HandleCoinsChanged(int coins) => RefreshCoins();
+    // The shop sells for server coins, so it signs in first (at once when already signed in).
+    private void OnShop()
+    {
+        if (shopUI == null) return;
+        OnlineSignIn.Open(_ =>
+        {
+            RefreshCoins();
+            shopUI.Open();
+        }, null);
+    }
 
     private void RefreshCoins()
     {
-        if (coinText != null) coinText.text = GameData.Coin.ToString();
+        if (coinText == null) return;
+        coinText.text = ShopInventory.SignedIn ? ShopInventory.CoinsText(ShopInventory.CoinCents) : "-";
     }
 }

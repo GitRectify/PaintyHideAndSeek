@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 // An online round in the 3D scene, from MatchStart to the result popup. Adapted from the SDK
-// sample's OnlineRound; its weapon-skin and pose parts come with the online shop.
+// sample's OnlineRound.
 //
 // The existing gameplay scripts keep doing what they do — JoystickMover moves the player,
 // CameraController follows, MatchHUD draws the timer — and this class connects them to the server:
@@ -20,6 +20,9 @@ using UnityEngine.UI;
 //     SendStroke/SendFill/SendPaintReset, and other painters' canvases are rebuilt here from the
 //     strokes the server relays. Metallic and roughness are not in the protocol yet: they stay
 //     local until the server adds them.
+//   * Poses and weapons are the shop's: PoseSelectorUI sends a pick through SendPose (owned poses
+//     only), the equipped weapon is selected at the start (SelectWeapon), and snapshots show every
+//     other player's pose and gun skin. There is no in-round weapon picker, as offline.
 //   * Eliminations, round end and match end come from the server; nothing here decides a hit, a
 //     catch or a winner.
 public class OnlineRound : MonoBehaviour
@@ -51,7 +54,14 @@ public class OnlineRound : MonoBehaviour
     private WallClimber climber;
     private Mode1FirstPersonGun gun;
     private ChameleonPaint paint;
+    private PoseSelectorUI poses;
+    private GunHolder gunHolder;
     private GameObject remotePrefab;
+
+    private const string RemoteGunName = "NetGun";
+    private const string HandBoneName = "mixamorig:RightHand";
+    private static readonly int PoseHash = Animator.StringToHash("Pose");
+    private int requestedPose = -1;
 
     private bool active;
     private bool hunter;
@@ -145,6 +155,20 @@ public class OnlineRound : MonoBehaviour
         }
     }
 
+    /// <summary>A pose picked in PoseSelectorUI (server id: slot + 1, 0 = none).</summary>
+    public static void SendPose(int poseId)
+    {
+        if (!Active || Net == null) return;
+        _instance.requestedPose = poseId;
+        Net.SelectPose(poseId);
+    }
+
+    /// <summary>A short message on the round's banner.</summary>
+    public static void ShowNotice(string text)
+    {
+        if (Active) _instance.ShowBanner(text, 2.5f);
+    }
+
     /// <summary>The in-round Home (HomeUI.GoHome during an online round).</summary>
     public static void RequestLeave()
     {
@@ -182,6 +206,8 @@ public class OnlineRound : MonoBehaviour
         climber = FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
         gun = FindAnyObjectByType<Mode1FirstPersonGun>(FindObjectsInactive.Include);
         paint = FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include);
+        poses = FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include);
+        gunHolder = FindAnyObjectByType<GunHolder>(FindObjectsInactive.Include);
         if (remotePrefab == null) remotePrefab = Resources.Load<GameObject>(remotePrefabPath);
 
         active = true;
@@ -192,6 +218,8 @@ public class OnlineRound : MonoBehaviour
         roster = entries;
         eliminated.Clear();
         nextFireAt = 0f;
+        requestedPose = -1;
+        if (poses != null) poses.ClearSelection();   // a new match starts with no pose
         ClearCanvases();
         if (results != null) results.HideAll();
 
@@ -210,7 +238,7 @@ public class OnlineRound : MonoBehaviour
         Net.OnRosterChanged += HandleRosterChanged;
         Net.OnRemotePaintStroke += HandleRemoteStroke;
         Net.OnRemotePaintReset += HandleRemoteReset;
-        Net.OnLoadoutChanged += RefreshBullets;
+        Net.OnLoadoutChanged += HandleLoadoutChanged;
 
         // Start from the phase the client last heard (the ready gate, normally).
         HandlePhaseChanged(Net.Phase, Net.PhaseSecondsLeft);
@@ -219,6 +247,14 @@ public class OnlineRound : MonoBehaviour
 
         bulletsLabel.gameObject.SetActive(hunter);
         RefreshBullets();
+
+        // Carry the equipped weapon, and fetch pose/weapon ownership as the server has it now.
+        SelectEquippedWeapon();
+        ApplyLocalWeapon();
+        ShopInventory.Refresh(_ =>
+        {
+            if (active) SelectEquippedWeapon();
+        });
     }
 
     /// <summary>Takes the scene out of online mode. The caller decides where to go next.</summary>
@@ -238,7 +274,7 @@ public class OnlineRound : MonoBehaviour
             Net.OnRosterChanged -= HandleRosterChanged;
             Net.OnRemotePaintStroke -= HandleRemoteStroke;
             Net.OnRemotePaintReset -= HandleRemoteReset;
-            Net.OnLoadoutChanged -= RefreshBullets;
+            Net.OnLoadoutChanged -= HandleLoadoutChanged;
         }
 
         NetEntityRegistry.ViewFactory = null;
@@ -252,6 +288,9 @@ public class OnlineRound : MonoBehaviour
         localView = null;
 
         ClearCanvases();
+        WeaponSkins.Apply(LocalGun(), 0);
+        if (poses != null) poses.ClearSelection();
+        requestedPose = -1;
         if (results != null) results.ClearOnline();
         if (gmm != null) gmm.EndNetworkRound();
         banner.gameObject.SetActive(false);
@@ -313,8 +352,72 @@ public class OnlineRound : MonoBehaviour
             tag.SetVisible(teammate);
         }
 
+        if (role == Role.Hunter) AttachRemoteGun(body);
+        view.LoadoutChanged += ApplyRemoteLoadout;
+        ApplyRemoteLoadout(view);
+
         if (canvases.TryGetValue(slot, out RemoteCanvas canvas)) canvas.AppliedTo = null;   // re-applied next frame
         return view;
+    }
+
+    // Snapshots carry each player's pose and weapon; a change shows on their body here.
+    private static void ApplyRemoteLoadout(NetEntityView view)
+    {
+        if (view == null) return;
+
+        Animator animator = view.GetComponentInChildren<Animator>();
+        if (animator != null && HasParameter(animator, PoseHash))
+            animator.SetInteger(PoseHash, PoseSelectorUI.AnimatorPoseFor(view.Pose));
+
+        WeaponSkins.Apply(FindChild(view.transform, RemoteGunName), view.WeaponId);
+    }
+
+    // Other seekers carry the same gun as the local player, as Single Play's bot seekers do
+    // (BotSeekController.AttachGunsToSeekers): a copy of the scene's gun in the body's hand bone,
+    // with the same local placement, and the animator's "Gun" layer on. The copy is only a model:
+    // colliders and scripts are stripped.
+    private void AttachRemoteGun(GameObject body)
+    {
+        Transform template = LocalGun();
+        if (template == null) return;
+
+        Transform hand = FindChild(body.transform, HandBoneName);
+        if (hand == null || hand.Find(RemoteGunName) != null) return;
+
+        GameObject copy = Instantiate(template.gameObject, hand, false);
+        copy.name = RemoteGunName;
+        copy.transform.localPosition = template.localPosition;
+        copy.transform.localRotation = template.localRotation;
+        copy.transform.localScale = template.localScale;
+        foreach (Collider c in copy.GetComponentsInChildren<Collider>(true)) Destroy(c);
+        foreach (MonoBehaviour m in copy.GetComponentsInChildren<MonoBehaviour>(true)) Destroy(m);
+        copy.SetActive(true);
+
+        Animator animator = body.GetComponentInChildren<Animator>();
+        if (animator != null)
+        {
+            for (int i = 0; i < animator.layerCount; i++)
+            {
+                if (animator.GetLayerName(i) != "Gun") continue;
+                animator.SetLayerWeight(i, 1f);
+                break;
+            }
+        }
+    }
+
+    private static Transform FindChild(Transform root, string name)
+    {
+        if (root == null) return null;
+        foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+            if (t.name == name) return t;
+        return null;
+    }
+
+    private static bool HasParameter(Animator animator, int hash)
+    {
+        foreach (AnimatorControllerParameter p in animator.parameters)
+            if (p.nameHash == hash) return true;
+        return false;
     }
 
     // ================= Input =================
@@ -362,11 +465,44 @@ public class OnlineRound : MonoBehaviour
         fireReleaseAt = Time.unscaledTime + 0.2f;
     }
 
-    // LoadoutState: the server's bullet count, sent when the match is found and after each
-    // accepted shot.
     private void RefreshBullets()
     {
         if (bulletsLabel != null && Net != null) bulletsLabel.text = $"Bullets: {Net.Bullets}";
+    }
+
+    // LoadoutState: the server's answer to every pose/weapon request, and its bullet count when
+    // the match is found and after each accepted shot. A refused change comes back unchanged.
+    private void HandleLoadoutChanged()
+    {
+        RefreshBullets();
+        ApplyLocalWeapon();
+
+        if (requestedPose < 0) return;
+        if (Net.Pose != requestedPose)
+        {
+            if (poses != null) poses.ShowServerPose(Net.Pose);
+            ShowBanner(ShopInventory.OwnsPose(requestedPose)
+                ? "Changing poses too fast. Try again in a moment."
+                : "That pose isn't unlocked online. Get it in the Shop.", 2.5f);
+        }
+        requestedPose = -1;
+    }
+
+    // ================= Weapons =================
+
+    private Transform LocalGun() => gunHolder != null ? gunHolder.Gun : null;
+
+    private void SelectEquippedWeapon()
+    {
+        if (!hunter || Net == null) return;
+        int wanted = ShopInventory.EquippedWeaponId;
+        if (wanted != Net.WeaponId) Net.SelectWeapon(wanted);   // answered with LoadoutState
+    }
+
+    private void ApplyLocalWeapon()
+    {
+        if (!active) return;
+        WeaponSkins.Apply(LocalGun(), hunter ? Net.WeaponId : 0);
     }
 
     // ================= Phases, timer, counters =================

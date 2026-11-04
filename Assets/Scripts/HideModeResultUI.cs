@@ -48,13 +48,6 @@ public class HideModeResultUI : MonoBehaviour
     public Sprite iconNext;
     public Sprite iconAds;
 
-    [Header("Coin reward (rolled at random, then added to GameData.Coin)")]
-    [Tooltip("WIN: coins awarded are a random value in [x..y] (inclusive). Tune the range here.")]
-    public Vector2Int winCoinRange = new Vector2Int(50, 100);
-    [Tooltip("LOSE: coins awarded are a random value in [x..y] (inclusive).")]
-    public Vector2Int loseCoinRange = new Vector2Int(30, 50);
-
-    private int _lastReward;
     private Font font;
     private GameObject canvasGO;
     private GameObject caughtRoot;
@@ -83,24 +76,13 @@ public class HideModeResultUI : MonoBehaviour
     private static readonly Color RowLabel = new Color(0.92f, 0.94f, 1f, 1f);
     private static readonly Color GoldYellow = new Color(1f, 0.86f, 0.3f, 1f);
 
-    // Rolls a random coin reward from winCoinRange/loseCoinRange (inclusive, order-independent),
-    // credits it to GameData.Coin, and refreshes the coin HUD via GameController if present.
-    private int RollAndCredit(bool win)
+    // Single Play earns no coins: the one currency is the server wallet, paid only by online
+    // matches. Its popups leave the Gold row out; the online result shows it with the server's
+    // payout (ShowOnlineResult).
+    private void SetGoldRowVisible(ResultUI rr, bool visible)
     {
-        Vector2Int range = win ? winCoinRange : loseCoinRange;
-        int lo = Mathf.Min(range.x, range.y);
-        int hi = Mathf.Max(range.x, range.y);
-
-        _lastReward = UnityEngine.Random.Range(lo, hi + 1);
-
-        GameData.Coin = _lastReward + GameData.Coin;
-
-        if (SingletonMonoBehavior<GameController>.Instance != null)
-        {
-            SingletonMonoBehavior<GameController>.Instance.UpdateTextCoin();
-        }
-
-        return _lastReward;
+        Transform row = rr.root != null ? rr.root.transform.Find("Row2") : null;
+        if (row != null) row.gameObject.SetActive(visible);
     }
 
     private void Start()
@@ -221,18 +203,18 @@ public class HideModeResultUI : MonoBehaviour
     // is only ever loaded into a dead register. Kept since callers pass it.
     public void ShowVictory(string rank, int survivalSecs, int paintScore)
     {
-        FillResult(victory, rank, paintScore.ToString(), RollAndCredit(true));
+        FillResult(victory, rank, paintScore.ToString());
     }
 
     // FIX (confirmed from raw): no bounds checks - rr, rr.value, and an array shorter than 3 all
-    // throw. Only a null element is skipped. The gold text is "+" + gold (StringLiteral_943).
-    private void FillResult(ResultUI rr, string rank, string score, int gold)
+    // throw. Only a null element is skipped. Single Play pays no coins, so the Gold row is hidden.
+    private void FillResult(ResultUI rr, string rank, string score)
     {
         EnsureBuilt();
 
         if (rr.value[0] != null) rr.value[0].text = rank;
         if (rr.value[1] != null) rr.value[1].text = score;
-        if (rr.value[2] != null) rr.value[2].text = "+" + gold;
+        SetGoldRowVisible(rr, false);
 
         ShowOnly(rr.root);
     }
@@ -259,6 +241,7 @@ public class HideModeResultUI : MonoBehaviour
         if (rr.value[0] != null) rr.value[0].text = rank;
         if (rr.value[1] != null) rr.value[1].text = score;
         if (rr.value[2] != null) rr.value[2].text = "+" + coins;
+        SetGoldRowVisible(rr, true);
 
         ShowOnly(rr.root);
     }
@@ -284,17 +267,17 @@ public class HideModeResultUI : MonoBehaviour
 
     public void ShowDefeat(string rank, int timeLeftSecs, int found)
     {
-        FillResult(defeat, rank, found.ToString(), RollAndCredit(false));
+        FillResult(defeat, rank, found.ToString());
     }
 
     public void ShowVictorySeek(string rank, int timeLeftSecs, int found)
     {
-        FillResult(victory, rank, found.ToString(), RollAndCredit(true));
+        FillResult(victory, rank, found.ToString());
     }
 
     public void ShowDefeatSeek(string rank, int timeLeftSecs, int found)
     {
-        FillResult(defeat, rank, found.ToString(), RollAndCredit(false));
+        FillResult(defeat, rank, found.ToString());
     }
 
     // Shows/hides the victory celebration: a secondary camera rendering into a 1920x1080 ARGB32
@@ -764,15 +747,10 @@ public class HideModeResultUI : MonoBehaviour
         });
     }
 
+    // The rewarded-ad success path (unused while ads are off). Single Play has no coins to
+    // double, so it only replays.
     private void GrantDoubleReward()
     {
-        GameData.Coin = _lastReward + GameData.Coin;
-
-        if (SingletonMonoBehavior<GameController>.Instance != null)
-        {
-            SingletonMonoBehavior<GameController>.Instance.UpdateTextCoin();
-        }
-
         ReplayCurrentMode();
     }
 

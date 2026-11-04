@@ -227,7 +227,13 @@ public class OnlineLobby : MonoBehaviour
         lobbyBar.SetActive(true);
         lobbyMessage.text = $"Searching in {RoomTitle(room.Id)}...";
 
-        Net.FindMatch(role, room.Id, ModelId());
+        // The Home character is played only when the server says it is owned; say so otherwise.
+        uint model = ModelId();
+        int picked = characters != null ? characters.CurrentIndex : 0;
+        if (picked != model)
+            lobbyMessage.text += $"\n{AvatarName(picked)} isn't unlocked online: playing as {AvatarName((int)model)}.";
+
+        Net.FindMatch(role, room.Id, model);
     }
 
     /// <summary>
@@ -239,6 +245,14 @@ public class OnlineLobby : MonoBehaviour
         int current = characters != null ? characters.CurrentIndex : 0;
         bool owned = profile.OwnedAvatars != null && Array.IndexOf(profile.OwnedAvatars, current) >= 0;
         return (uint)Mathf.Max(0, owned ? current : profile.AvatarId);
+    }
+
+    // Avatar id = CharacterSelect index (Player = 0, Player2 = 1).
+    private string AvatarName(int id)
+    {
+        if (characters != null && characters.buttonLabels != null && id >= 0 && id < characters.buttonLabels.Length)
+            return characters.buttonLabels[id];
+        return "Avatar " + (id + 1);
     }
 
     private void CancelSearch()

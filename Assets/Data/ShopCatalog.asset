@@ -24,6 +24,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: coins_1200
     category: 0
     displayName: 1,200 Coins
@@ -35,6 +38,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: Popular
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: coins_2500
     category: 0
     displayName: 2,500 Coins
@@ -46,6 +52,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: coins_6000
     category: 0
     displayName: 6,000 Coins
@@ -57,6 +66,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: coins_15000
     category: 0
     displayName: 15,000 Coins
@@ -68,6 +80,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: Best Value
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: coins_30000
     category: 0
     displayName: 30,000 Coins
@@ -79,9 +94,12 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: avatar_default
     category: 1
-    displayName: Default
+    displayName: Player
     icon: {fileID: 0}
     priceType: 0
     coinPrice: 0
@@ -90,6 +108,23 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 1
+    serverId: 
+    gameId: 0
+    quantity: 1
+  - id: avatar_player_2
+    category: 1
+    displayName: Player 2
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 1000
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+    serverId: avatar-player-2
+    gameId: 1
+    quantity: 1
   - id: avatar_pink_splash
     category: 1
     displayName: Pink Splash
@@ -101,6 +136,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: avatar_golden_paint
     category: 1
     displayName: Golden Paint
@@ -112,6 +150,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: avatar_camo_paint
     category: 1
     displayName: Camo Paint
@@ -123,6 +164,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: avatar_galaxy_paint
     category: 1
     displayName: Galaxy Paint
@@ -134,6 +178,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: avatar_neon_drip
     category: 1
     displayName: Neon Drip
@@ -145,6 +192,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: 
+    gameId: 0
+    quantity: 1
   - id: pose_wave
     category: 2
     displayName: Wave
@@ -156,6 +206,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: pose-wave
+    gameId: 3
+    quantity: 1
   - id: pose_laugh
     category: 2
     displayName: Laugh
@@ -167,6 +220,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: pose-laugh
+    gameId: 4
+    quantity: 1
   - id: pose_sneak
     category: 2
     displayName: Sneak
@@ -178,6 +234,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: pose-sneak
+    gameId: 5
+    quantity: 1
   - id: pose_victory
     category: 2
     displayName: Victory
@@ -189,6 +248,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: pose-victory
+    gameId: 6
+    quantity: 1
   - id: pose_brush_dance
     category: 2
     displayName: Brush Dance
@@ -200,17 +262,23 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: pose-brush-dance
+    gameId: 7
+    quantity: 1
   - id: pose_taunt
     category: 2
     displayName: Taunt
     icon: {fileID: 0}
-    priceType: 2
-    coinPrice: 0
+    priceType: 0
+    coinPrice: 2500
     realPriceLabel: 
     coinAmount: 0
-    unlockLevel: 10
+    unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: pose-taunt
+    gameId: 8
+    quantity: 1
   - id: weapon_paint_brush
     category: 3
     displayName: Paint Brush
@@ -222,6 +290,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: weapon-paint-brush
+    gameId: 1
+    quantity: 1
   - id: weapon_roller
     category: 3
     displayName: Roller
@@ -233,6 +304,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: weapon-roller
+    gameId: 2
+    quantity: 1
   - id: weapon_spray_gun
     category: 3
     displayName: Spray Gun
@@ -244,6 +318,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: weapon-spray-gun
+    gameId: 3
+    quantity: 1
   - id: weapon_paint_blaster
     category: 3
     displayName: Paint Blaster
@@ -255,6 +332,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: weapon-paint-blaster
+    gameId: 4
+    quantity: 1
   - id: weapon_splatter_cannon
     category: 3
     displayName: Splatter Cannon
@@ -266,6 +346,9 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: weapon-splatter-cannon
+    gameId: 5
+    quantity: 1
   - id: weapon_precision_brush
     category: 3
     displayName: Precision Brush
@@ -277,9 +360,68 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: weapon-precision-brush
+    gameId: 6
+    quantity: 1
   - id: bullet_basic
     category: 4
-    displayName: Basic Paint Bullet
+    displayName: 10 Bullets
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 10
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+    serverId: bullets
+    gameId: 0
+    quantity: 10
+  - id: bullet_triple_splash
+    category: 4
+    displayName: 50 Bullets
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 50
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+    serverId: bullets
+    gameId: 0
+    quantity: 50
+  - id: bullet_sticky_shot
+    category: 4
+    displayName: 100 Bullets
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 100
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+    serverId: bullets
+    gameId: 0
+    quantity: 100
+  - id: bullet_neon_burst
+    category: 4
+    displayName: 250 Bullets
+    icon: {fileID: 0}
+    priceType: 0
+    coinPrice: 250
+    realPriceLabel: 
+    coinAmount: 0
+    unlockLevel: 0
+    badge: 
+    ownedByDefault: 0
+    serverId: bullets
+    gameId: 0
+    quantity: 250
+  - id: bullet_ice_paint
+    category: 4
+    displayName: 500 Bullets
     icon: {fileID: 0}
     priceType: 0
     coinPrice: 500
@@ -288,58 +430,20 @@ MonoBehaviour:
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
-  - id: bullet_triple_splash
-    category: 4
-    displayName: Triple Splash
-    icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 1200
-    realPriceLabel: 
-    coinAmount: 0
-    unlockLevel: 0
-    badge: 
-    ownedByDefault: 0
-  - id: bullet_sticky_shot
-    category: 4
-    displayName: Sticky Shot
-    icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 2500
-    realPriceLabel: 
-    coinAmount: 0
-    unlockLevel: 0
-    badge: 
-    ownedByDefault: 0
-  - id: bullet_neon_burst
-    category: 4
-    displayName: Neon Burst
-    icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 6000
-    realPriceLabel: 
-    coinAmount: 0
-    unlockLevel: 0
-    badge: 
-    ownedByDefault: 0
-  - id: bullet_ice_paint
-    category: 4
-    displayName: Ice Paint
-    icon: {fileID: 0}
-    priceType: 0
-    coinPrice: 15000
-    realPriceLabel: 
-    coinAmount: 0
-    unlockLevel: 0
-    badge: 
-    ownedByDefault: 0
+    serverId: bullets
+    gameId: 0
+    quantity: 500
   - id: bullet_rainbow_ammo
     category: 4
-    displayName: Rainbow Ammo
+    displayName: 1000 Bullets
     icon: {fileID: 0}
     priceType: 0
-    coinPrice: 30000
+    coinPrice: 1000
     realPriceLabel: 
     coinAmount: 0
     unlockLevel: 0
     badge: 
     ownedByDefault: 0
+    serverId: bullets
+    gameId: 0
+    quantity: 1000

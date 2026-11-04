@@ -2,7 +2,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-// Shop screen: left category tabs, 3x2 item grid, coin balance and close button.
+// Shop screen: left category tabs, 3x2 item grid, coin balance and close button. Everything it
+// shows and sells is the server's, through ShopInventory; the Home menu signs in before opening it.
 public class ShopUI : MonoBehaviour
 {
     [Header("Data")]
@@ -37,6 +38,7 @@ public class ShopUI : MonoBehaviour
 
     private ShopCategory _current = ShopCategory.Coins;
     private Coroutine _toast;
+    private bool _busy;
 
     private void Awake()
     {
@@ -50,8 +52,7 @@ public class ShopUI : MonoBehaviour
 
     private void OnEnable()
     {
-        ShopInventory.CoinsChanged += HandleCoinsChanged;
-        ShopInventory.InventoryChanged += RefreshCards;
+        ShopInventory.Changed += HandleChanged;
         RefreshCoins();
         SelectTab((int)_current);
         if (ToastObject != null) ToastObject.SetActive(false);
@@ -59,8 +60,7 @@ public class ShopUI : MonoBehaviour
 
     private void OnDisable()
     {
-        ShopInventory.CoinsChanged -= HandleCoinsChanged;
-        ShopInventory.InventoryChanged -= RefreshCards;
+        ShopInventory.Changed -= HandleChanged;
     }
 
     public void Open()
@@ -68,6 +68,12 @@ public class ShopUI : MonoBehaviour
         AudioManager.ButtonTap();
         if (homeCanvas != null) homeCanvas.SetActive(false);
         (root != null ? root : gameObject).SetActive(true);
+
+        // Prices, ownership and the balance as the server has them now.
+        ShopInventory.Refresh(error =>
+        {
+            if (error != null && this != null && isActiveAndEnabled) ShowToast(error);
+        });
     }
 
     public void Close()
@@ -98,34 +104,34 @@ public class ShopUI : MonoBehaviour
     private void HandleCardClicked(ShopItem item)
     {
         AudioManager.ButtonTap();
+        if (_busy) return;
 
-        if (item.priceType == ShopPriceType.Coins && ShopInventory.IsOwned(item))
+        if (ShopInventory.CanEquip(item) && ShopInventory.IsOwned(item))
         {
-            ShopInventory.Equip(item);
-            ShowToast(item.displayName + " equipped");
+            bool unequip = ShopInventory.IsEquipped(item);
+            ShopInventory.Equip(item);   // an avatar reloads the scene to swap the character
+            ShowToast(unequip ? "Standard gun equipped" : item.displayName + " equipped");
             return;
         }
 
-        switch (ShopInventory.Purchase(item))
+        if (!ShopInventory.IsForSale(item))
         {
-            case ShopInventory.PurchaseResult.Success:
-                if (item.priceType == ShopPriceType.RealMoney)
-                {
-                    ShowToast("+" + item.coinAmount.ToString("N0") + " coins");
-                }
-                else
-                {
-                    ShopInventory.Equip(item);
-                    ShowToast(item.displayName + " unlocked!");
-                }
-                break;
-            case ShopInventory.PurchaseResult.NotEnoughCoins:
-                ShowToast("Not enough coins");
-                break;
-            case ShopInventory.PurchaseResult.Locked:
-                ShowToast("Unlocks at Level " + item.unlockLevel);
-                break;
+            ShowToast(item.category == ShopCategory.Coins ? "Coin top-ups are coming soon" : "Coming soon");
+            return;
         }
+
+        _busy = true;
+        ShowToast("Buying...");
+        ShopInventory.Purchase(item, (bought, message) =>
+        {
+            _busy = false;
+            if (this == null || !isActiveAndEnabled) return;
+
+            // A bought weapon is carried at once, as the local shop did; an avatar waits for
+            // Equip, which reloads the scene.
+            if (bought && item.category == ShopCategory.Weapons) ShopInventory.Equip(item);
+            ShowToast(message);
+        });
     }
 
     private void RefreshCards()
@@ -136,11 +142,15 @@ public class ShopUI : MonoBehaviour
         }
     }
 
-    private void HandleCoinsChanged(int coins) => RefreshCoins();
+    private void HandleChanged()
+    {
+        RefreshCoins();
+        RefreshCards();
+    }
 
     private void RefreshCoins()
     {
-        if (coinText != null) coinText.text = ShopInventory.Coins.ToString();
+        if (coinText != null) coinText.text = ShopInventory.CoinsText(ShopInventory.CoinCents);
     }
 
     private void ShowToast(string message)
