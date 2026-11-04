@@ -4,8 +4,9 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
-// NOTE: Runtime-built settings panel (music/SFX toggles, a graphics-quality stepper, restore
-// purchases, and a home button). Same rebuild-safe HashSet<GameObject> dedup pattern as
+// NOTE: Runtime-built settings panel (music/SFX toggles, a graphics-quality stepper and a home
+// button). The original's "Restore purchase" button is not built: the game sells nothing through
+// a store, and coin top-ups are credited on the server, so there is nothing to restore. Same rebuild-safe HashSet<GameObject> dedup pattern as
 // RemoveAdsUI. New confirmed members: AudioManager.SetMusicEnabled(bool)/SetSfxEnabled(bool)
 // (static), HomeUI.GoHome(), and a fully-qualified reference to a new, still-unreversed class
 // Dev.Scripts.UI.HomeScene.IAPPackage.CheckPurchased() (static). The tail of this paste also
@@ -116,11 +117,7 @@ public class SettingsUI : MonoBehaviour
         MakeLabel("LblGfx", parent, "Graphic Quality", -20f);
         MakeStepper(parent, -20f);
 
-        Button restoreBtn = NewButton("RestoreBtn", parent, restoreBg, new Vector2(-135f, -195f), new Vector2(244f, 88f));
-        Text restoreLabel = NewText("Label", restoreBtn.transform, "Restore\npurchase", 26, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Wrap);
-        Stretch(restoreLabel);
-
-        Button homeBtn = NewButton("HomeBtn", parent, homeBg, new Vector2(135f, -195f), new Vector2(244f, 88f));
+        Button homeBtn = NewButton("HomeBtn", parent, homeBg, new Vector2(0f, -195f), new Vector2(244f, 88f));
         if (homeIcon != null)
         {
             Image homeIconImg = NewImage("Icon", homeBtn.transform, homeIcon, Color.white, false, true);
@@ -170,12 +167,6 @@ public class SettingsUI : MonoBehaviour
         {
             canvasGO.SetActive(true);
         }
-    }
-
-    // NOTE: confirmed to just log a TODO rather than doing anything.
-    public void OnRestore()
-    {
-        Debug.Log("[Settings] Restore purchase \u2014 TODO: hook up IAP.");
     }
 
     public void OnHome()
@@ -541,10 +532,4 @@ public class SettingsUI : MonoBehaviour
         StepQuality(1);
     }
 
-    // NOTE: fully-qualified reference to a new, still-unreversed class -
-    // Dev.Scripts.UI.HomeScene.IAPPackage.CheckPurchased() (static).
-    public void Restore()
-    {
-        // Dev.Scripts.UI.HomeScene.IAPPackage.CheckPurchased();
-    }
 }
