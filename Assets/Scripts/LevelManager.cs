@@ -143,6 +143,23 @@ public class LevelManager : MonoBehaviour
         onLevelChanged?.Invoke();
     }
 
+    // Selects the level whose room is roomName (an online match's map, named by the server) for
+    // this session only: the Single Play choice saved in PlayerPrefs is left alone. False when no
+    // level uses that room.
+    public bool SelectRoomByName(string roomName)
+    {
+        if (levels == null || string.IsNullOrEmpty(roomName)) return false;
+
+        for (int i = 0; i < levels.Length; i++)
+        {
+            if (levels[i].roomName != roomName) continue;
+            current = i;
+            return true;
+        }
+
+        return false;
+    }
+
     public void Cycle()
     {
         if (levels == null || levels.Length <= 1)

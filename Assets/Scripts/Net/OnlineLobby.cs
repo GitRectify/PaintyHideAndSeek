@@ -7,15 +7,15 @@ using UnityEngine;
 using UnityEngine.UI;
 
 // Multiple Play after sign-in: Seeker/Hider -> Room Selection (a price tier, not a map) ->
-// Matchmaking with Players, shown in the game's own MatchmakingUI with the server's real roster.
-// Adapted from the role, room and lobby parts of the SDK sample's OnlineFlow.
+// Matchmaking with Players, shown in the game's own MatchmakingUI with the server's real roster ->
+// Game Start: from MatchStart the round itself belongs to OnlineRound. Adapted from the role, room
+// and lobby parts of the SDK sample's OnlineFlow.
 //
-// Until the online round exists, a match is left as soon as it locks (OnMatchStart), and only
-// free rooms can be joined: leaving a free room before the round costs nothing, while leaving a
-// paid one counts toward the server's early-leave cooldown.
+// Only free rooms can be joined until online rounds have been proven: a paid room holds a real
+// entry, and leaving one before the round counts toward the server's early-leave cooldown.
 public class OnlineLobby : MonoBehaviour
 {
-    private enum Step { Idle, Role, Room, Searching, Lobby, Result }
+    private enum Step { Idle, Role, Room, Searching, Lobby, Match }
 
     private static MecchaNetClient Net => MecchaNetClient.Instance;
     private static MetaClient Meta => MetaClient.Instance;
@@ -23,6 +23,12 @@ public class OnlineLobby : MonoBehaviour
     private MatchmakingUI matchmaking;
     private GameModeManager gmm;
     private CharacterSelect characters;
+    private HomeUI home;
+    private OnlineRound round;
+
+    // A free room puts everyone back in the queue when a match closes, so the next MatchFound can
+    // arrive while this player is still reading the result. It waits here until they tap Next.
+    private MecchaNetClient.MatchFoundInfo? pendingLobby;
 
     private Step step;
     private bool hooked;
@@ -38,8 +44,8 @@ public class OnlineLobby : MonoBehaviour
     private string mapName = "";
 
     // ---- UI ---------------------------------------------------------------------------------
-    private GameObject roleScreen, roomScreen, lobbyBar, resultScreen;
-    private Text roleSubtitle, roomBalance, roomError, lobbyMessage, resultTitle, resultMessage;
+    private GameObject roleScreen, roomScreen, lobbyBar;
+    private Text roleSubtitle, roomBalance, roomError, lobbyMessage;
     private RectTransform roomList;
 
     /// <summary>Opens the role screen for a signed-in player; <paramref name="closed"/> when they go home.</summary>
@@ -57,6 +63,8 @@ public class OnlineLobby : MonoBehaviour
         matchmaking = FindAnyObjectByType<MatchmakingUI>();
         gmm = FindAnyObjectByType<GameModeManager>();
         characters = FindAnyObjectByType<CharacterSelect>();
+        home = FindAnyObjectByType<HomeUI>();
+        round = gameObject.AddComponent<OnlineRound>();
         BuildUI();
         HideScreens();
     }
@@ -64,9 +72,11 @@ public class OnlineLobby : MonoBehaviour
     private void OnDestroy()
     {
         // The menu scene reloads when the player switches character; don't leave a seat behind.
-        if (Net != null && (step == Step.Searching || step == Step.Lobby)) Net.LeaveMatch();
+        if (Net != null && InQueueOrMatch) Net.LeaveMatch();
         Unhook();
     }
+
+    private bool InQueueOrMatch => step == Step.Searching || step == Step.Lobby || step == Step.Match || pendingLobby != null;
 
     private void Begin(MetaProfile signedIn, Action closed)
     {
@@ -104,11 +114,16 @@ public class OnlineLobby : MonoBehaviour
         AudioManager.ButtonTap();
         flowVersion++;
 
-        if (Net != null && (step == Step.Searching || step == Step.Lobby)) Net.LeaveMatch();
+        // Leaves the queue or match, which also cancels the automatic re-queue a free room makes
+        // when a match ends.
+        if (Net != null && InQueueOrMatch) Net.LeaveMatch();
 
+        bool fromRound = step == Step.Match;
+        pendingLobby = null;
         step = Step.Idle;
         HideScreens();
         if (matchmaking != null) matchmaking.EndOnline();
+        if (fromRound && home != null) home.GoHome();
         onClosed?.Invoke();
     }
 
@@ -178,7 +193,7 @@ public class OnlineLobby : MonoBehaviour
 
             string detail = free
                 ? "Free - bots fill empty seats"
-                : $"Entry {OnlineUI.CoinsText(r.EntryCents)} - opens with online rounds";
+                : $"Entry {OnlineUI.CoinsText(r.EntryCents)} - coming soon";
 
             Button b = OnlineUI.NewButton(roomList, $"{RoomTitle(r.Id)}\n<size=26>{detail}</size>",
                                           new Vector2(0f, 140f - i * 130f), new Vector2(820f, 112f),
@@ -247,12 +262,36 @@ public class OnlineLobby : MonoBehaviour
 
     private void HandleMatchFound(MecchaNetClient.MatchFoundInfo info)
     {
+        // The next free-room match, found while the result of the last one is still up.
+        if (OnlineRound.Active)
+        {
+            pendingLobby = info;
+            return;
+        }
+
         // A held seat restored on reconnect while the player is elsewhere (Single Play, or back
-        // home): there is no online round to take them into yet, so give the seat up.
+        // home): they did not ask for it, so give the seat up. (Rejoining a running round after a
+        // drop comes later.)
         if ((step != Step.Searching && step != Step.Lobby) || (gmm != null && gmm.RoundActive))
         {
             Net.LeaveMatch();
             return;
+        }
+
+        ShowLobby(info);
+    }
+
+    private void ShowLobby(MecchaNetClient.MatchFoundInfo info)
+    {
+        if (step != Step.Searching && step != Step.Lobby)
+        {
+            HideScreens();
+            if (matchmaking != null)
+            {
+                matchmaking.BeginOnline(info.YourRole == Role.Hunter, "");
+                matchmaking.SetCoinText((Net.CoinCents / 100).ToString());
+            }
+            lobbyBar.SetActive(true);
         }
 
         step = Step.Lobby;
@@ -272,6 +311,13 @@ public class OnlineLobby : MonoBehaviour
 
     private void HandleRosterChanged(MecchaNetClient.RosterEntry[] entries)
     {
+        if (pendingLobby is { } pending)
+        {
+            pending.Roster = entries;
+            pendingLobby = pending;
+            return;
+        }
+
         if (step == Step.Lobby || step == Step.Searching) ShowRoster(entries);
     }
 
@@ -293,22 +339,55 @@ public class OnlineLobby : MonoBehaviour
         matchmaking.SetOnlineRoster(seats);
     }
 
-    // The lobby locked and the server is waiting for the map to load. With no online round to
-    // play yet, leave now: free rooms charge nothing for leaving before the round starts.
+    // ================= The round =================
+
+    // The lobby locked: load the map the server named and tell it this player is ready.
     private void HandleMatchStart(MecchaNetClient.MatchStartInfo info)
     {
-        if (step != Step.Searching && step != Step.Lobby) return;
+        if (gmm != null && gmm.RoundActive && !OnlineRound.Active) return;   // Single Play
+        if (step == Step.Idle) return;
 
-        Net.LeaveMatch();
-        if (matchmaking != null) matchmaking.EndOnline();
+        if (pendingLobby is { } pending)
+        {
+            // The re-queued match locked while the result was still up: go straight into it.
+            mapName = pending.RoomName ?? "";
+            pendingLobby = null;
+        }
 
-        int players = info.Roster != null ? info.Roster.Length : 0;
-        step = Step.Result;
+        step = Step.Match;
         HideScreens();
-        resultScreen.SetActive(true);
-        resultTitle.text = "Match ready";
-        resultMessage.text = $"{players} players are in, on {MapTitle(mapName)}.\n" +
-                             "Online rounds arrive in the next update, so you have left this match. Nothing was charged.";
+        if (matchmaking != null) matchmaking.EndOnline();
+        round.Begin(this, mapName, info.Roster);
+
+        // Sent on every MatchStart: a reconnect during the ready gate gets MatchStart again and
+        // must answer again. The room is loaded synchronously by Begin, so it is ready by now.
+        Net.SendPlayerReady();
+    }
+
+    /// <summary>The result popup's Home, or leaving mid-round (OnlineRound confirms first).</summary>
+    public void GoHomeFromRound()
+    {
+        round.End();
+        GoHome();
+    }
+
+    /// <summary>The result popup's Next: the next match in the same room.</summary>
+    public void PlayAgainFromRound()
+    {
+        AudioManager.ButtonTap();
+        round.End();
+        if (home != null) home.GoHome();   // back to the menu scene state; the lobby covers it next
+
+        if (pendingLobby is { } pending)
+        {
+            // A free room already queued us and found the next lobby.
+            pendingLobby = null;
+            step = Step.Idle;
+            ShowLobby(pending);
+            return;
+        }
+
+        StartSearch();
     }
 
     // ================= UI =================
@@ -347,13 +426,6 @@ public class OnlineLobby : MonoBehaviour
         lobbyBar = bar.gameObject;
         lobbyMessage = OnlineUI.NewLabel(bar.transform, "", 30, new Vector2(-170f, 0f), new Vector2(940f, 100f), TextAnchor.MiddleLeft);
         OnlineUI.NewButton(bar.transform, "CANCEL", new Vector2(500f, 0f), new Vector2(260f, 84f), OnlineUI.Red, CancelSearch);
-
-        // Match found (until the online round exists).
-        p = OnlineUI.Modal(canvas, "ResultScreen", new Vector2(980f, 520f));
-        resultScreen = p.parent.gameObject;
-        resultTitle = OnlineUI.NewLabel(p, "", 52, new Vector2(0f, 170f), new Vector2(900f, 80f), TextAnchor.MiddleCenter, true);
-        resultMessage = OnlineUI.NewLabel(p, "", 34, new Vector2(0f, 20f), new Vector2(880f, 200f));
-        OnlineUI.NewButton(p, "OK", new Vector2(0f, -180f), new Vector2(300f, 100f), OnlineUI.Green, GoHome);
     }
 
     private void HideScreens()
@@ -361,7 +433,6 @@ public class OnlineLobby : MonoBehaviour
         roleScreen.SetActive(false);
         roomScreen.SetActive(false);
         lobbyBar.SetActive(false);
-        resultScreen.SetActive(false);
     }
 
     // ================= Text =================

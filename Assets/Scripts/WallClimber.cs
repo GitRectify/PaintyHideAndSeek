@@ -45,6 +45,10 @@ public class WallClimber : MonoBehaviour
     // int, not bool: SetClimb stores (uint)held, and Update computes up - down as -1/0/1.
     private int up;
     private int down;
+
+    // Read by the online input stream: the server reproduces climbing from these two buttons.
+    public bool ClimbUpHeld => up > 0;
+    public bool ClimbDownHeld => down > 0;
     private Font font;
     private CharacterController cc;
     private Joystick joystick;

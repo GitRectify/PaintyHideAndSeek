@@ -29,6 +29,14 @@ public class HomeUI : MonoBehaviour
 
     public void GoHome()
     {
+        // In an online round, Home (settings panel, modes button) is a quit: let the round confirm
+        // it and end itself first, which then comes back here.
+        if (OnlineRound.Active)
+        {
+            OnlineRound.RequestLeave();
+            return;
+        }
+
         if (gmm != null)
         {
             gmm.ShowMenu();
@@ -361,6 +369,19 @@ public class HomeUI : MonoBehaviour
         {
             gmm.BeginRound(mode == 1);
         }
+
+        AudioManager.MusicGame();
+    }
+
+    // An online round (Multiple Play): the same screens as StartMode, but the round itself is
+    // started by OnlineRound through GameModeManager.BeginNetworkRound, with no bots.
+    public void EnterOnlineRound(bool seeker)
+    {
+        SetSelectPlayer(false);
+        SetHome(false);
+        SetRoleSelect(false);
+        SetGameplayUI(true);
+        SetHideOnlyUI(!seeker);
 
         AudioManager.MusicGame();
     }

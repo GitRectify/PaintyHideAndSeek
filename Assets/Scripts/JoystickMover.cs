@@ -301,7 +301,11 @@ public class JoystickMover : MonoBehaviour
         if (camCtrl != null && camCtrl.FreeLook) return;
         if (gmm != null && (gmm.PlayerFrozen || gmm.SeekerHideCountdown)) return;
         _vy = Mathf.Sqrt(2f * gravity * Mathf.Max(0f, jumpHeight));
+        LastJumpTime = Time.unscaledTime;
     }
+
+    /// <summary>When Jump last took off (unscaled time); the online input stream sends it as a press.</summary>
+    public float LastJumpTime { get; private set; } = -1f;
 
     private void SetSpeed(float v)
     {

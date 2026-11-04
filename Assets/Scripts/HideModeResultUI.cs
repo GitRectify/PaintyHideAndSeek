@@ -237,6 +237,51 @@ public class HideModeResultUI : MonoBehaviour
         ShowOnly(rr.root);
     }
 
+    // ---- Online result (Multiple Play) -------------------------------------------------------
+    // The same Victory/Defeat popup with the server's rank, score and coins: nothing is rolled or
+    // credited here, the ad-based X2 Gold is hidden, and Home/Next go back to the online round.
+
+    private bool _online;
+    private Action _onlineHome;
+    private Action _onlineNext;
+
+    public void ShowOnlineResult(bool won, string rank, string score, long coinCents, Action onHome, Action onNext)
+    {
+        EnsureBuilt();
+        _online = true;
+        _onlineHome = onHome;
+        _onlineNext = onNext;
+
+        ResultUI rr = won ? victory : defeat;
+        SetGoldButtonVisible(false);
+
+        string coins = coinCents % 100 == 0 ? (coinCents / 100).ToString() : (coinCents / 100.0).ToString("0.00");
+        if (rr.value[0] != null) rr.value[0].text = rank;
+        if (rr.value[1] != null) rr.value[1].text = score;
+        if (rr.value[2] != null) rr.value[2].text = "+" + coins;
+
+        ShowOnly(rr.root);
+    }
+
+    /// <summary>Back to the Single Play popup: hides it and restores X2 Gold.</summary>
+    public void ClearOnline()
+    {
+        _online = false;
+        _onlineHome = null;
+        _onlineNext = null;
+        SetGoldButtonVisible(true);
+        HideAll();
+    }
+
+    private void SetGoldButtonVisible(bool visible)
+    {
+        foreach (ResultUI rr in new[] { victory, defeat })
+        {
+            Transform gold = rr.root != null ? rr.root.transform.Find("GoldBtn") : null;
+            if (gold != null) gold.gameObject.SetActive(visible);
+        }
+    }
+
     public void ShowDefeat(string rank, int timeLeftSecs, int found)
     {
         FillResult(defeat, rank, found.ToString(), RollAndCredit(false));
@@ -742,6 +787,13 @@ public class HideModeResultUI : MonoBehaviour
     public void OnHomeClicked()
     {
         // Singleton<RootManager>.Instance.ShowInterAds_Native();
+        if (_online)
+        {
+            HideAll();
+            _onlineHome?.Invoke();
+            return;
+        }
+
         ExitToHomeWithLoading();
     }
 
@@ -770,6 +822,13 @@ public class HideModeResultUI : MonoBehaviour
     public void OnNextClicked()
     {
         // Singleton<RootManager>.Instance.ShowInterAds_Native();
+        if (_online)
+        {
+            HideAll();
+            _onlineNext?.Invoke();
+            return;
+        }
+
         ReplayCurrentMode();
     }
 

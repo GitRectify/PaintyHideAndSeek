@@ -258,6 +258,8 @@ public class Mode1FirstPersonGun : MonoBehaviour
         playerAnim.SetLayerWeight(gunLayer, (gunModeOn && !prone) ? 1f : 0f);
     }
 
+    public bool IsProne => prone;
+
     public void ToggleProne()
     {
         if (gunModeOn)
@@ -315,6 +317,8 @@ public class Mode1FirstPersonGun : MonoBehaviour
         {
             Vector3 shot = ShotDir();
             SpawnBullet(origin, shot);
+            // Online the server judges the hit (rewound to this tick); nothing is decided here.
+            if (OnlineRound.Active) { OnlineRound.Fire(shot); return; }
             hide.TryShootAim(origin, shot, 1000f, aimAssist);
             return;
         }
@@ -330,6 +334,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
             dir = cam.transform.forward;
         }
         SpawnBullet(origin, dir);
+        if (OnlineRound.Active) { OnlineRound.Fire(cam.transform.forward); return; }
         hide.TryShootAim(cam.transform.position, cam.transform.forward, 1000f, aimAssist);
     }
 

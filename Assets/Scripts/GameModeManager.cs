@@ -26,10 +26,21 @@ public class GameModeManager : MonoBehaviour
         get
         {
             if (!RoundActive || !PlayerIsSeeker) return false;
+            if (NetworkRound) return NetSeekerFrozen;
             if (hide == null) return false;
             return hide.hideCountdown;
         }
     }
+
+    // Online round (Multiple Play): the server runs it. OnlineRound writes these from the server's
+    // messages, and while NetworkRound is true the HUD getters at the bottom read them instead of
+    // the bot controllers.
+    public bool NetworkRound { get; private set; }
+    public bool NetSeekerFrozen { get; set; }
+    public int NetTimerSeconds { get; set; }
+    public float NetTimerFraction { get; set; }
+    public int NetFugitivesLeft { get; set; }
+    public int NetHuntersLeft { get; set; }
 
     public string homeDecorName = "ObjectHome";
     public string homeEnvName = "home";
@@ -169,6 +180,7 @@ public class GameModeManager : MonoBehaviour
         }
 
         PlayerFrozen = false;
+        EndNetworkRound();
 
         if (levelMgr != null)
         {
@@ -351,6 +363,67 @@ public class GameModeManager : MonoBehaviour
                    " (of " + allBotNames.Length + " spawned)");
     }
 
+    // An online round on the map the server picked: the scene is set up as BeginRound does, but no
+    // bot is spawned or started — the other players come from the server. Returns false when the
+    // map is not one of LevelManager's rooms (the current room is used instead).
+    public bool BeginNetworkRound(bool playerSeeker, string mapName)
+    {
+        PlayerIsSeeker = playerSeeker;
+        PlayerFrozen = false;
+        NetworkRound = true;
+        NetSeekerFrozen = playerSeeker;
+        NetTimerSeconds = 0;
+        NetTimerFraction = 0f;
+
+        SetPlayerVisible(true);
+
+        if (homeDecor != null) homeDecor.gameObject.SetActive(false);
+        if (homeEnv != null) homeEnv.gameObject.SetActive(false);
+
+        bool mapFound = levelMgr != null && levelMgr.SelectRoomByName(mapName);
+        if (levelMgr != null) levelMgr.ApplyActiveRoom();
+        RoomShadows.DisableCasting(levelMgr != null ? levelMgr.CurrentRoomName : "Room");
+
+        NavMesh.RemoveAllNavMeshData();
+
+        if (hide != null) hide.StopMode();
+        if (seek != null) seek.StopMode();
+
+        if (botMgr != null && botMgr.Bots != null)
+        {
+            foreach (Transform bot in botMgr.Bots)
+            {
+                if (bot != null) bot.gameObject.SetActive(false);
+            }
+        }
+
+        RestoreAllRagdolls();
+
+        if (paint != null)
+        {
+            paint.CloseDrawing();
+            paint.ResetPaint();
+        }
+
+        // The server places the player on its first snapshot; this only avoids a frame at the
+        // menu position.
+        ResetPlayerHome();
+
+        RoundActive = true;
+        RootManager.Instance?.SetNumber(1);
+
+        Debug.Log($"[GameMode] Online round start: playerSeeker={playerSeeker}, map={mapName}" +
+                  (mapFound ? "" : " (not a known room; using " + (levelMgr != null ? levelMgr.CurrentRoomName : "none") + ")"));
+        return mapFound;
+    }
+
+    /// <summary>Back to the bot-driven HUD values. ShowMenu does the rest of the cleanup.</summary>
+    public void EndNetworkRound()
+    {
+        NetworkRound = false;
+        NetSeekerFrozen = false;
+    }
+
     // FIX (confirmed): raw throws if playerTf != null but GetComponentsInChildren<Renderer>()
     // returns null - a prior draft's `if (renderers == null) return;` silently skipped that case.
     private void SetPlayerVisible(bool v)
@@ -446,6 +519,7 @@ public class GameModeManager : MonoBehaviour
     {
         get
         {
+            if (NetworkRound) return NetFugitivesLeft;
             int botCount = hide != null ? hide.BotCount : 0;
             return botCount + (PlayerIsSeeker ? 0 : 1);
         }
@@ -455,6 +529,7 @@ public class GameModeManager : MonoBehaviour
     {
         get
         {
+            if (NetworkRound) return NetHuntersLeft;
             int botCount = seek != null ? seek.BotCount : 0;
             return botCount + (PlayerIsSeeker ? 1 : 0);
         }
@@ -464,6 +539,7 @@ public class GameModeManager : MonoBehaviour
     {
         get
         {
+            if (NetworkRound) return NetTimerSeconds;
             if (PlayerIsSeeker)
             {
                 return hide != null ? hide.TimerSeconds : 0;
@@ -476,6 +552,7 @@ public class GameModeManager : MonoBehaviour
     {
         get
         {
+            if (NetworkRound) return NetTimerFraction;
             if (PlayerIsSeeker)
             {
                 return hide != null ? hide.TimerFraction : 0f;
