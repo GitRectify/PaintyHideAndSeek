@@ -81,7 +81,7 @@ public class HideModeResultUI : MonoBehaviour
     // payout (ShowOnlineResult).
     private void SetGoldRowVisible(ResultUI rr, bool visible)
     {
-        Transform row = rr.root != null ? rr.root.transform.Find("Row2") : null;
+        Transform row = rr.root != null ? UiFind.Require(rr.root.transform, "Row2") : null;
         if (row != null) row.gameObject.SetActive(visible);
     }
 
@@ -260,7 +260,7 @@ public class HideModeResultUI : MonoBehaviour
     {
         foreach (ResultUI rr in new[] { victory, defeat })
         {
-            Transform gold = rr.root != null ? rr.root.transform.Find("GoldBtn") : null;
+            Transform gold = rr.root != null ? UiFind.Require(rr.root.transform, "GoldBtn") : null;
             if (gold != null) gold.gameObject.SetActive(visible);
         }
     }
@@ -462,15 +462,15 @@ public class HideModeResultUI : MonoBehaviour
         BindResultRows(rr);
     }
 
-    // FIX (confirmed from raw): a missing root, "Panel", "ActionBtn" or "GiveUpBtn", or a missing
-    // Button on either, all throw - there are no silent returns in this method.
+    // A missing "Panel", "ActionBtn" or "GiveUpBtn" (or a Button on either) is logged by UiFind
+    // and leaves that button unwired; the original threw instead.
     private void BuildCaught()
     {
         caughtRoot = BuildModalPopup("CaughtPopup", titleCaught, "Watch an ad to get one more chance.", "Revive");
 
-        Transform panel = caughtRoot.transform.Find("Panel");
-        reviveBtn = panel.Find("ActionBtn").GetComponent<Button>();
-        giveUpBtn = panel.Find("GiveUpBtn").GetComponent<Button>();
+        Transform panel = UiFind.Require(caughtRoot.transform, "Panel");
+        reviveBtn = UiFind.Require<Button>(panel, "ActionBtn");
+        giveUpBtn = UiFind.Require<Button>(panel, "GiveUpBtn");
 
         if (reviveBtn != null) reviveBtn.onClick.AddListener(OnReviveClicked);
         if (giveUpBtn != null) giveUpBtn.onClick.AddListener(OnGiveUpClicked);
@@ -481,32 +481,32 @@ public class HideModeResultUI : MonoBehaviour
     {
         timeUpRoot = BuildModalPopup("TimeUpPopup", titleTimeUp, "Watch an ad to get 30 extra seconds.", "+30s");
 
-        Transform panel = timeUpRoot.transform.Find("Panel");
-        extraBtn = panel.Find("ActionBtn").GetComponent<Button>();
-        giveUp2Btn = panel.Find("GiveUpBtn").GetComponent<Button>();
+        Transform panel = UiFind.Require(timeUpRoot.transform, "Panel");
+        extraBtn = UiFind.Require<Button>(panel, "ActionBtn");
+        giveUp2Btn = UiFind.Require<Button>(panel, "GiveUpBtn");
 
         if (extraBtn != null) extraBtn.onClick.AddListener(OnExtraClicked);
         if (giveUp2Btn != null) giveUp2Btn.onClick.AddListener(OnGiveUp2Clicked);
     }
 
     // Binds each of the 3 stat rows ("Row0".."Row2", direct children of rr.root) to
-    // rr.icon[i]/label[i]/value[i]. A missing "RowN" or missing child is skipped.
+    // rr.icon[i]/label[i]/value[i]. A missing "RowN" or missing child is skipped (and logged by UiFind).
     // FIX (confirmed from raw): a null rr or rr.root throws rather than returning.
     private void BindResultRows(ResultUI rr)
     {
         for (int i = 0; i < 3; i++)
         {
-            Transform rowTf = rr.root.transform.Find("Row" + i);
+            Transform rowTf = UiFind.Require(rr.root.transform, "Row" + i);
             if (rowTf == null) continue;
 
-            Transform iconTf = rowTf.Find("Icon");
-            if (iconTf != null) rr.icon[i] = iconTf.GetComponent<Image>();
+            Image icon = UiFind.Require<Image>(rowTf, "Icon");
+            if (icon != null) rr.icon[i] = icon;
 
-            Transform labelTf = rowTf.Find("Label");
-            if (labelTf != null) rr.label[i] = labelTf.GetComponent<Text>();
+            Text label = UiFind.Require<Text>(rowTf, "Label");
+            if (label != null) rr.label[i] = label;
 
-            Transform valueTf = rowTf.Find("Value");
-            if (valueTf != null) rr.value[i] = valueTf.GetComponent<Text>();
+            Text value = UiFind.Require<Text>(rowTf, "Value");
+            if (value != null) rr.value[i] = value;
         }
     }
 

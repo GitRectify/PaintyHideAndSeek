@@ -391,42 +391,19 @@ public class MatchmakingUI : MonoBehaviour
         canvasGO = canvas;
         Transform canvasT = canvas.transform;
 
-        Transform panel = canvasT.Find("Panel");
+        Transform panel = UiFind.Require(canvasT, "Panel");
         if (panel != null)
         {
-            Transform barFillT = panel.Find("BarTrack/BarFill");
-            if (barFillT != null)
-            {
-                barFillImg = barFillT.GetComponent<Image>();
-            }
+            barFillImg = UiFind.Require<Image>(panel, "BarTrack/BarFill");
+            counterText = UiFind.Require<Text>(panel, "Counter");
+            hintText = UiFind.Require<Text>(panel, "Hint");
+            mapLabelText = UiFind.Require<Text>(panel, "MapLabel");
 
-            Transform counterT = panel.Find("Counter");
-            if (counterT != null)
-            {
-                counterText = counterT.GetComponent<Text>();
-            }
-
-            Transform hintT = panel.Find("Hint");
-            if (hintT != null)
-            {
-                hintText = hintT.GetComponent<Text>();
-            }
-
-            Transform mapLabelT = panel.Find("MapLabel");
-            if (mapLabelT != null)
-            {
-                mapLabelText = mapLabelT.GetComponent<Text>();
-            }
-
-            BindColumn(panel.Find("FugitiveBox"), fugSlots);
-            BindColumn(panel.Find("HunterBox"), hunSlots);
+            BindColumn(UiFind.Require(panel, "FugitiveBox"), fugSlots);
+            BindColumn(UiFind.Require(panel, "HunterBox"), hunSlots);
         }
 
-        Transform coinT = canvasT.Find("CoinText");
-        if (coinT != null)
-        {
-            coinLabelText = coinT.GetComponent<Text>();
-        }
+        coinLabelText = UiFind.Require<Text>(canvasT, "CoinText");
 
         canvasGO.SetActive(false);
     }

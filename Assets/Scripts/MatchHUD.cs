@@ -178,22 +178,12 @@ public class MatchHUD : MonoBehaviour
         canvasGO = canvas;
         Transform canvasT = canvas.transform;
 
-        Transform ringTrackT = canvasT.Find("RingTrack");
+        Transform ringTrackT = UiFind.Require(canvasT, "RingTrack");
         if (ringTrackT != null)
         {
             ringRootRT = ringTrackT as RectTransform;
-
-            Transform ringFillT = ringTrackT.Find("RingFill");
-            if (ringFillT != null)
-            {
-                ringFillImg = ringFillT.GetComponent<Image>();
-            }
-
-            Transform timerT = ringTrackT.Find("TimerText");
-            if (timerT != null)
-            {
-                timerText = timerT.GetComponent<Text>();
-            }
+            ringFillImg = UiFind.Require<Image>(ringTrackT, "RingFill");
+            timerText = UiFind.Require<Text>(ringTrackT, "TimerText");
         }
 
         fugIcons.Clear();
