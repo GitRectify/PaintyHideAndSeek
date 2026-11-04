@@ -37,6 +37,17 @@ public class HomeMenuUI : MonoBehaviour
         if (roleSelectBackButton != null) roleSelectBackButton.onClick.AddListener(ShowHome);
     }
 
+    // Once per launch (the menu scene also reloads on a character switch): an online round that
+    // was running when the app closed can still be rejoined while the server holds the seat.
+    private static bool rejoinOffered;
+
+    private void Start()
+    {
+        if (rejoinOffered) return;
+        rejoinOffered = true;
+        OnlineLobby.OfferRejoin();
+    }
+
     private void OnEnable()
     {
         ShopInventory.Changed += RefreshCoins;

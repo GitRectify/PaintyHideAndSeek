@@ -13,9 +13,17 @@ using UnityEngine.UI;
 //
 // Only free rooms can be joined until online rounds have been proven: a paid room holds a real
 // entry, and leaving one before the round counts toward the server's early-leave cooldown.
+//
+// Drops: a MatchFound for the round on screen is the server giving a held seat back (the round
+// resumes); a search lost with the connection is sent again once signed in; "signed in on another
+// device" ends whatever was going on with a notice. After an app restart, Home offers to rejoin a
+// round that was running (OfferRejoin): signing in then lands straight back in the held seat.
 public class OnlineLobby : MonoBehaviour
 {
-    private enum Step { Idle, Role, Room, Searching, Lobby, Match }
+    private enum Step { Idle, Role, Room, Searching, Lobby, Match, Rejoin }
+
+    [Tooltip("Rejoining after a restart: how long after signing in to wait for the held seat.")]
+    [SerializeField] private float rejoinWaitSeconds = 3f;
 
     private static MecchaNetClient Net => MecchaNetClient.Instance;
     private static MetaClient Meta => MetaClient.Instance;
@@ -44,9 +52,12 @@ public class OnlineLobby : MonoBehaviour
     private string mapName = "";
 
     // ---- UI ---------------------------------------------------------------------------------
-    private GameObject roleScreen, roomScreen, lobbyBar;
-    private Text roleSubtitle, roomBalance, roomError, lobbyMessage;
+    private GameObject roleScreen, roomScreen, lobbyBar, noticeScreen, rejoinScreen;
+    private Text roleSubtitle, roomBalance, roomError, lobbyMessage, noticeText;
     private RectTransform roomList;
+
+    private string lobbyText = "";   // the lobby bar's message while connected
+    private float rejoinDeadline;
 
     /// <summary>Opens the role screen for a signed-in player; <paramref name="closed"/> when they go home.</summary>
     public static void Open(MetaProfile profile, Action closed)
@@ -54,6 +65,19 @@ public class OnlineLobby : MonoBehaviour
         OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
         if (lobby == null) lobby = new GameObject("OnlineLobby").AddComponent<OnlineLobby>();
         lobby.Begin(profile, closed);
+    }
+
+    /// <summary>
+    /// Called once when Home first shows: if an online round was running moments ago (the app was
+    /// closed or crashed), asks whether to rejoin it while the server still holds the seat.
+    /// </summary>
+    public static void OfferRejoin()
+    {
+        if (!OnlineRejoin.Pending) return;
+
+        OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
+        if (lobby == null) lobby = new GameObject("OnlineLobby").AddComponent<OnlineLobby>();
+        lobby.ShowRejoinPrompt();
     }
 
     // ================= Lifecycle =================
@@ -76,7 +100,7 @@ public class OnlineLobby : MonoBehaviour
         Unhook();
     }
 
-    private bool InQueueOrMatch => step == Step.Searching || step == Step.Lobby || step == Step.Match || pendingLobby != null;
+    private bool InQueueOrMatch => step == Step.Searching || step == Step.Lobby || step == Step.Match || step == Step.Rejoin || pendingLobby != null;
 
     private void Begin(MetaProfile signedIn, Action closed)
     {
@@ -96,6 +120,8 @@ public class OnlineLobby : MonoBehaviour
         Net.OnMatchFound += HandleMatchFound;
         Net.OnRosterChanged += HandleRosterChanged;
         Net.OnMatchStart += HandleMatchStart;
+        Net.OnAuthenticated += HandleAuthenticated;
+        Net.OnRejected += HandleRejected;
     }
 
     private void Unhook()
@@ -107,6 +133,117 @@ public class OnlineLobby : MonoBehaviour
         Net.OnMatchFound -= HandleMatchFound;
         Net.OnRosterChanged -= HandleRosterChanged;
         Net.OnMatchStart -= HandleMatchStart;
+        Net.OnAuthenticated -= HandleAuthenticated;
+        Net.OnRejected -= HandleRejected;
+    }
+
+    private void Update()
+    {
+        // The lobby bar says when the connection is gone; the SDK is already reconnecting.
+        if (lobbyBar.activeSelf && Net != null)
+            lobbyMessage.text = Net.IsConnected ? lobbyText : "Connection lost. Reconnecting...";
+
+        if (step == Step.Rejoin && rejoinDeadline > 0f && Time.unscaledTime > rejoinDeadline)
+        {
+            // Signed in, but no seat came back: the match ended, or the seat ran out.
+            rejoinDeadline = 0f;
+            OnlineRejoin.Clear();
+            EndWithNotice("That match has already ended.");
+        }
+    }
+
+    private void SetLobbyMessage(string text)
+    {
+        lobbyText = text;
+        lobbyMessage.text = text;
+    }
+
+    // Every handshake, reconnects included. The server forgets a queued search when the
+    // connection drops (a held seat only exists once a match was found), so ask again.
+    private void HandleAuthenticated()
+    {
+        if (step == Step.Searching && room.Id != null) Net.FindMatch(role, room.Id, ModelId());
+    }
+
+    // The SDK does not reconnect after this one: another device has the account now.
+    private void HandleRejected(string reason)
+    {
+        if (reason != NetTuning.SignedInElsewhereReason) return;
+        if (step == Step.Idle && !OnlineRound.Active) return;
+
+        OnlineRejoin.Clear();
+        EndWithNotice("You signed in on another device, so you left the match here.");
+    }
+
+    /// <summary>Ends the round (when one is on screen), goes home and says why.</summary>
+    public void EndRoundWithNotice(string message) => EndWithNotice(message);
+
+    private void EndWithNotice(string message)
+    {
+        if (OnlineRound.Active) round.End();
+        GoHome();
+        ShowNotice(message);
+    }
+
+    private void ShowNotice(string message)
+    {
+        noticeText.text = message;
+        noticeScreen.SetActive(true);
+    }
+
+    // ================= Rejoin after a restart =================
+
+    private void ShowRejoinPrompt()
+    {
+        HideScreens();
+        rejoinScreen.SetActive(true);
+    }
+
+    private void DeclineRejoin()
+    {
+        AudioManager.ButtonTap();
+        OnlineRejoin.Clear();
+        rejoinScreen.SetActive(false);   // the held seat simply runs out
+    }
+
+    // Hooked before signing in: the server sends the held seat's MatchFound straight after the
+    // handshake, before the profile has even loaded.
+    private void StartRejoin()
+    {
+        AudioManager.ButtonTap();
+        flowVersion++;
+        onClosed = null;
+        pendingLobby = null;
+
+        NetBootstrap.Ensure();
+        Hook();
+        step = Step.Rejoin;
+        rejoinDeadline = 0f;
+        HideScreens();
+
+        int version = flowVersion;
+        OnlineSignIn.Open(signedIn =>
+        {
+            profile = signedIn;
+            if (version == flowVersion && step == Step.Rejoin) rejoinDeadline = Time.unscaledTime + rejoinWaitSeconds;
+        }, () =>
+        {
+            if (version != flowVersion || step != Step.Rejoin) return;
+            OnlineRejoin.Clear();
+            GoHome();
+        });
+    }
+
+    // The held seat, back: into the round at whatever point it has reached. A match still in its
+    // lobby shows the map frozen until MatchStart, which begins the round again as usual.
+    private void EnterRejoinedMatch(MecchaNetClient.MatchFoundInfo info)
+    {
+        rejoinDeadline = 0f;
+        step = Step.Match;
+        mapName = info.RoomName ?? "";
+        HideScreens();
+        if (matchmaking != null) matchmaking.EndOnline();
+        round.Begin(this, mapName, info.Roster, info.MatchId);
     }
 
     private void GoHome()
@@ -225,13 +362,14 @@ public class OnlineLobby : MonoBehaviour
         }
 
         lobbyBar.SetActive(true);
-        lobbyMessage.text = $"Searching in {RoomTitle(room.Id)}...";
+        string message = $"Searching in {RoomTitle(room.Id)}...";
 
         // The Home character is played only when the server says it is owned; say so otherwise.
         uint model = ModelId();
         int picked = characters != null ? characters.CurrentIndex : 0;
         if (picked != model)
-            lobbyMessage.text += $"\n{AvatarName(picked)} isn't unlocked online: playing as {AvatarName((int)model)}.";
+            message += $"\n{AvatarName(picked)} isn't unlocked online: playing as {AvatarName((int)model)}.";
+        SetLobbyMessage(message);
 
         Net.FindMatch(role, room.Id, model);
     }
@@ -276,6 +414,21 @@ public class OnlineLobby : MonoBehaviour
 
     private void HandleMatchFound(MecchaNetClient.MatchFoundInfo info)
     {
+        // The seat of the round on screen, given back after a dropped connection.
+        if (OnlineRound.IsCurrentMatch(info.MatchId))
+        {
+            round.HandleResumed();
+            return;
+        }
+
+        // Rejoining after a restart: this is the held seat.
+        if (step == Step.Rejoin)
+        {
+            OnlineRejoin.Clear();
+            EnterRejoinedMatch(info);
+            return;
+        }
+
         // The next free-room match, found while the result of the last one is still up.
         if (OnlineRound.Active)
         {
@@ -284,8 +437,7 @@ public class OnlineLobby : MonoBehaviour
         }
 
         // A held seat restored on reconnect while the player is elsewhere (Single Play, or back
-        // home): they did not ask for it, so give the seat up. (Rejoining a running round after a
-        // drop comes later.)
+        // home after leaving): they did not ask for it, so give the seat up.
         if ((step != Step.Searching && step != Step.Lobby) || (gmm != null && gmm.RoundActive))
         {
             Net.LeaveMatch();
@@ -319,7 +471,7 @@ public class OnlineLobby : MonoBehaviour
                 : "You are a Hider. Hide carefully. Don't let the Seekers find you!");
         }
 
-        lobbyMessage.text = "Waiting for players... bots take the empty seats after a few seconds.";
+        SetLobbyMessage("Waiting for players... bots take the empty seats after a few seconds.");
         ShowRoster(info.Roster);
     }
 
@@ -371,7 +523,7 @@ public class OnlineLobby : MonoBehaviour
         step = Step.Match;
         HideScreens();
         if (matchmaking != null) matchmaking.EndOnline();
-        round.Begin(this, mapName, info.Roster);
+        round.Begin(this, mapName, info.Roster, info.MatchId);
 
         // Sent on every MatchStart: a reconnect during the ready gate gets MatchStart again and
         // must answer again. The room is loaded synchronously by Begin, so it is ready by now.
@@ -440,6 +592,24 @@ public class OnlineLobby : MonoBehaviour
         lobbyBar = bar.gameObject;
         lobbyMessage = OnlineUI.NewLabel(bar.transform, "", 30, new Vector2(-170f, 0f), new Vector2(940f, 100f), TextAnchor.MiddleLeft);
         OnlineUI.NewButton(bar.transform, "CANCEL", new Vector2(500f, 0f), new Vector2(260f, 84f), OnlineUI.Red, CancelSearch);
+
+        // A notice after a round ended on its own (seat ran out, another device).
+        p = OnlineUI.Modal(canvas, "NoticeScreen", new Vector2(900f, 440f));
+        noticeScreen = p.parent.gameObject;
+        noticeText = OnlineUI.NewLabel(p, "", 36, new Vector2(0f, 60f), new Vector2(820f, 220f));
+        OnlineUI.NewButton(p, "OK", new Vector2(0f, -140f), new Vector2(280f, 90f), OnlineUI.Green, () =>
+        {
+            AudioManager.ButtonTap();
+            noticeScreen.SetActive(false);
+        });
+
+        // Rejoin after a restart.
+        p = OnlineUI.Modal(canvas, "RejoinScreen", new Vector2(900f, 480f));
+        rejoinScreen = p.parent.gameObject;
+        OnlineUI.NewLabel(p, "Rejoin your match?", 50, new Vector2(0f, 150f), new Vector2(820f, 80f), TextAnchor.MiddleCenter, true);
+        OnlineUI.NewLabel(p, "Your online round is still going.", 34, new Vector2(0f, 50f), new Vector2(820f, 90f));
+        OnlineUI.NewButton(p, "REJOIN", new Vector2(-170f, -130f), new Vector2(280f, 90f), OnlineUI.Green, StartRejoin);
+        OnlineUI.NewButton(p, "NO", new Vector2(170f, -130f), new Vector2(280f, 90f), OnlineUI.Gray, DeclineRejoin);
     }
 
     private void HideScreens()
@@ -447,6 +617,8 @@ public class OnlineLobby : MonoBehaviour
         roleScreen.SetActive(false);
         roomScreen.SetActive(false);
         lobbyBar.SetActive(false);
+        noticeScreen.SetActive(false);
+        rejoinScreen.SetActive(false);
     }
 
     // ================= Text =================

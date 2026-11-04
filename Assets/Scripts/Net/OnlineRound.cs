@@ -25,6 +25,11 @@ using UnityEngine.UI;
 //     other player's pose and gun skin. There is no in-round weapon picker, as offline.
 //   * Eliminations, round end and match end come from the server; nothing here decides a hit, a
 //     catch or a winner.
+//   * A dropped connection is ridden out: the SDK reconnects by itself and the server holds the
+//     seat (30 s once it notices), then sends MatchFound again for the same match (Resume). A
+//     banner says what is happening, shots wait, and the player's own recent paint is sent again,
+//     since strokes made around the drop never reached the server. A seat that ran out ends the
+//     round with a notice. OnlineRejoin remembers the round so a restarted app can rejoin it.
 public class OnlineRound : MonoBehaviour
 {
     private static OnlineRound _instance;
@@ -62,6 +67,36 @@ public class OnlineRound : MonoBehaviour
     private const string HandBoneName = "mixamorig:RightHand";
     private static readonly int PoseHash = Animator.StringToHash("Pose");
     private int requestedPose = -1;
+
+    [Tooltip("After signing in again, how long to wait for the server to give the seat back.")]
+    [SerializeField] private float resumeWaitSeconds = 3f;
+
+    [Tooltip("How long offline before the banner points at Home (the SDK keeps retrying).")]
+    [SerializeField] private float offerLeaveAfterSeconds = 60f;
+
+    private int matchId;
+    private bool matchEndShown;
+    private float offlineSince = -1f;   // when the drop was noticed; -1 while connected
+    private float resumeDeadline;       // signed in again: the seat's MatchFound is due by this
+    private float rejoinMarkAt;
+
+    // The player's own paint of the last moments, so what never reached the server can be sent
+    // again after a resume, paced to the server's paint budget and ahead of anything newer.
+    private struct PaintOp
+    {
+        public float At;
+        public bool Reset;
+        public Vector2 Uv;
+        public int Brush;
+        public Color Color;
+        public int Mode;
+    }
+
+    private const float PaintLogSeconds = 20f;
+    private const int PaintLogCap = 4000;
+    private readonly List<PaintOp> paintLog = new List<PaintOp>();
+    private readonly Queue<PaintOp> paintReplay = new Queue<PaintOp>();
+    private float replayAllowance;
 
     private bool active;
     private bool hunter;
@@ -122,13 +157,13 @@ public class OnlineRound : MonoBehaviour
     public static void SendStroke(Vector2 uv, int brushPx, Color color, bool erase)
     {
         if (!Active || Net == null) return;
-        Net.QueuePaintStroke(uv, brushPx, erase ? Color.white : color, erase ? 2 : 0);
+        _instance.SendPaint(new PaintOp { Uv = uv, Brush = brushPx, Color = erase ? Color.white : color, Mode = erase ? 2 : 0 });
     }
 
     public static void SendPaintReset()
     {
         if (!Active || Net == null) return;
-        Net.SendPaintReset();
+        _instance.SendPaint(new PaintOp { Reset = true });
     }
 
     /// <summary>
@@ -140,8 +175,8 @@ public class OnlineRound : MonoBehaviour
     {
         if (!Active || Net == null) return;
 
-        Net.SendPaintReset();
         OnlineRound self = _instance;
+        self.SendPaint(new PaintOp { Reset = true });
         int size = GameTuning.PaintTextureSize;
         int step = Mathf.Max(8, self.fillSpacing);
         int brush = Mathf.Clamp(self.fillBrushPx, 2, 126);
@@ -150,10 +185,13 @@ public class OnlineRound : MonoBehaviour
         {
             for (int x = step / 2; x < size; x += step)
             {
-                Net.QueuePaintStroke(new Vector2((float)x / size, (float)y / size), brush, color, 0);
+                self.SendPaint(new PaintOp { Uv = new Vector2((float)x / size, (float)y / size), Brush = brush, Color = color });
             }
         }
     }
+
+    /// <summary>This round is the server's match <paramref name="id"/> (a MatchFound for it is a resume).</summary>
+    public static bool IsCurrentMatch(int id) => Active && _instance.matchId == id;
 
     /// <summary>A pose picked in PoseSelectorUI (server id: slot + 1, 0 = none).</summary>
     public static void SendPose(int poseId)
@@ -194,7 +232,7 @@ public class OnlineRound : MonoBehaviour
     /// Sets the scene up for the match the server just started. Safe to call again for the next
     /// match (a free room re-queues).
     /// </summary>
-    public void Begin(OnlineLobby owner, string mapName, MecchaNetClient.RosterEntry[] entries)
+    public void Begin(OnlineLobby owner, string mapName, MecchaNetClient.RosterEntry[] entries, int id)
     {
         if (active) End();
 
@@ -219,6 +257,12 @@ public class OnlineRound : MonoBehaviour
         eliminated.Clear();
         nextFireAt = 0f;
         requestedPose = -1;
+        matchId = id;
+        matchEndShown = false;
+        offlineSince = -1f;
+        resumeDeadline = 0f;
+        paintLog.Clear();
+        paintReplay.Clear();
         if (poses != null) poses.ClearSelection();   // a new match starts with no pose
         ClearCanvases();
         if (results != null) results.HideAll();
@@ -239,6 +283,7 @@ public class OnlineRound : MonoBehaviour
         Net.OnRemotePaintStroke += HandleRemoteStroke;
         Net.OnRemotePaintReset += HandleRemoteReset;
         Net.OnLoadoutChanged += HandleLoadoutChanged;
+        Net.OnAuthenticated += HandleReauthenticated;
 
         // Start from the phase the client last heard (the ready gate, normally).
         HandlePhaseChanged(Net.Phase, Net.PhaseSecondsLeft);
@@ -255,6 +300,9 @@ public class OnlineRound : MonoBehaviour
         {
             if (active) SelectEquippedWeapon();
         });
+
+        OnlineRejoin.Mark();
+        rejoinMarkAt = Time.unscaledTime + 5f;
     }
 
     /// <summary>Takes the scene out of online mode. The caller decides where to go next.</summary>
@@ -275,7 +323,14 @@ public class OnlineRound : MonoBehaviour
             Net.OnRemotePaintStroke -= HandleRemoteStroke;
             Net.OnRemotePaintReset -= HandleRemoteReset;
             Net.OnLoadoutChanged -= HandleLoadoutChanged;
+            Net.OnAuthenticated -= HandleReauthenticated;
         }
+
+        OnlineRejoin.Clear();
+        paintLog.Clear();
+        paintReplay.Clear();
+        offlineSince = -1f;
+        resumeDeadline = 0f;
 
         NetEntityRegistry.ViewFactory = null;
         NetEntityRegistry.Clear();   // destroys the remote bodies
@@ -305,6 +360,16 @@ public class OnlineRound : MonoBehaviour
         FeedInput();
         RefreshCounters();
         ApplyCanvases();
+        WatchConnection();
+        if (!active) return;   // a seat that ran out ends the round right there
+        PumpPaintReplay();
+        PrunePaintLog();
+
+        if (!resultShown && Time.unscaledTime > rejoinMarkAt)
+        {
+            OnlineRejoin.Mark();
+            rejoinMarkAt = Time.unscaledTime + 5f;
+        }
 
         if (leaveArmed && Time.unscaledTime > leaveArmedUntil) leaveArmed = false;
         if (banner.gameObject.activeSelf && Time.unscaledTime > bannerUntil) banner.gameObject.SetActive(false);
@@ -442,6 +507,7 @@ public class OnlineRound : MonoBehaviour
     private bool CanFire()
     {
         if (localOut) return false;
+        if (!Net.IsConnected) return false;   // the shot would go nowhere; the banner says why
         if (Time.unscaledTime < nextFireAt) return false;
 
         if (Net.Bullets <= 0)
@@ -551,7 +617,16 @@ public class OnlineRound : MonoBehaviour
             // was missed.
             NetEntityView view = NetEntityRegistry.Get(e.Slot);
             if (view != null && view.Eliminated) eliminated.Add(e.Slot);
-            if (eliminated.Contains(e.Slot)) continue;
+            if (eliminated.Contains(e.Slot))
+            {
+                // Out while this client was offline: the Eliminated event never came.
+                if (e.Slot == Net.LocalSlot && !localOut)
+                {
+                    localOut = true;
+                    gmm.PlayerFrozen = true;
+                }
+                continue;
+            }
 
             if (e.Role == Role.Hunter) hunters++;
             else if (e.Role == Role.Fugitive) fugitives++;
@@ -620,6 +695,10 @@ public class OnlineRound : MonoBehaviour
 
     private void HandleMatchEnd(MecchaNetClient.MatchEndInfo info)
     {
+        // The result is sent again to a player who reconnects on the result screen.
+        if (matchEndShown) return;
+        matchEndShown = true;
+
         phaseRunning = false;
         if (gmm != null) gmm.PlayerFrozen = true;
 
@@ -635,6 +714,7 @@ public class OnlineRound : MonoBehaviour
     private void ShowResult(bool won, int rank, string score, long coinCents)
     {
         resultShown = true;
+        OnlineRejoin.Clear();   // the match is decided: nothing left to rejoin
         string rankText = rank > 0 ? $"#{rank}/8" : "-";
 
         if (results != null)
@@ -680,6 +760,160 @@ public class OnlineRound : MonoBehaviour
         }
 
         lobby.GoHomeFromRound();
+    }
+
+    // ================= Connection =================
+
+    private void WatchConnection()
+    {
+        float now = Time.unscaledTime;
+
+        if (!Net.IsConnected)
+        {
+            if (offlineSince < 0f) offlineSince = now;
+            resumeDeadline = 0f;
+            ShowBanner(now - offlineSince > offerLeaveAfterSeconds
+                ? "Still reconnecting... Tap Home to leave."
+                : "Connection lost. Reconnecting...", 0.5f);
+            return;
+        }
+
+        if (resumeDeadline > 0f && now > resumeDeadline)
+        {
+            // Signed in again, but the seat was not given back: it ran out, or the server restarted.
+            resumeDeadline = 0f;
+            offlineSince = -1f;
+            if (resultShown)
+            {
+                ShowBanner("Reconnected.", 2f);   // the match was over anyway
+                return;
+            }
+
+            lobby.EndRoundWithNotice("The match went on without you: you were away too long.");
+        }
+    }
+
+    // Every handshake, reconnects included. After a drop the seat's MatchFound follows at once.
+    private void HandleReauthenticated()
+    {
+        if (offlineSince >= 0f) resumeDeadline = Time.unscaledTime + resumeWaitSeconds;
+    }
+
+    /// <summary>
+    /// The server gave the seat back (MatchFound for this match, from OnlineLobby). The SDK has
+    /// cleared every remote body; the next snapshot builds them again, and the server re-sends the
+    /// phase, the loadout and everyone's paint, so the remote canvases start over. The player's own
+    /// strokes from around the drop are sent again.
+    /// </summary>
+    public void HandleResumed()
+    {
+        if (!active) return;
+
+        float noticedAt = offlineSince >= 0f ? offlineSince : Time.unscaledTime;
+        float since = noticedAt - (NetTuning.DisconnectTimeoutMs / 1000f + 2f);
+
+        resumeDeadline = 0f;
+        offlineSince = -1f;
+        ClearCanvases();
+        QueuePaintReplay(since);
+        ShowBanner("Reconnected.", 2f);
+    }
+
+    private void OnApplicationPause(bool paused)
+    {
+        if (paused && active && !resultShown) OnlineRejoin.Mark();
+    }
+
+#if UNITY_EDITOR
+    // Editor-only drop tests, from this component's menu in the Inspector (Play mode, on the
+    // OnlineLobby object). The link is closed as a lost connection would be — the server holds
+    // the seat — and the SDK is told to connect again after the given time, like its own retry.
+    [ContextMenu("Test: drop the connection for 20 s (resumes)")]
+    private void TestShortDrop() => StartCoroutine(SimulateDrop(20f));
+
+    [ContextMenu("Test: drop the connection for 60 s (seat runs out)")]
+    private void TestLongDrop() => StartCoroutine(SimulateDrop(60f));
+
+    private System.Collections.IEnumerator SimulateDrop(float seconds)
+    {
+        if (Net == null) yield break;
+        Debug.Log($"[Online] Test: dropping the connection for {seconds:0} s");
+        Net.Disconnect();
+        yield return new WaitForSecondsRealtime(seconds);
+        if (Net != null) Net.Connect();
+    }
+#endif
+
+    // ---- The player's own paint ----
+
+    private void SendPaint(PaintOp op)
+    {
+        op.At = Time.unscaledTime;
+        paintLog.Add(op);
+        if (paintLog.Count > PaintLogCap) paintLog.RemoveRange(0, paintLog.Count - PaintLogCap);
+
+        if (op.Reset)
+        {
+            paintReplay.Clear();   // nothing painted before a reset matters any more
+            Net.SendPaintReset();
+            return;
+        }
+
+        // Behind a replay still going out, so the server stamps in the order the player painted.
+        if (paintReplay.Count > 0)
+        {
+            paintReplay.Enqueue(op);
+            return;
+        }
+
+        Net.QueuePaintStroke(op.Uv, op.Brush, op.Color, op.Mode);
+    }
+
+    // What was painted from shortly before the drop was noticed (the link was already dead for up
+    // to DisconnectTimeoutMs) until now. A dab that did arrive is stamped twice, which with this
+    // brush looks the same.
+    private void QueuePaintReplay(float since)
+    {
+        paintReplay.Clear();
+
+        int start = paintLog.FindIndex(op => op.At >= since);
+        if (start < 0) return;
+
+        int lastReset = paintLog.FindLastIndex(op => op.Reset);
+        if (lastReset >= start)
+        {
+            Net.SendPaintReset();
+            start = lastReset + 1;
+        }
+
+        for (int i = start; i < paintLog.Count; i++) paintReplay.Enqueue(paintLog[i]);
+        replayAllowance = GameTuning.PaintStrokeBurst / 2f;
+    }
+
+    // Fed to the SDK at the server's paint rate: queued all at once, a long replay would overflow
+    // the SDK's backlog, which drops the oldest strokes.
+    private void PumpPaintReplay()
+    {
+        if (paintReplay.Count == 0 || !Net.IsConnected || !Net.InMatch) return;
+
+        replayAllowance = Mathf.Min(GameTuning.PaintStrokeBurst / 2f,
+                                    replayAllowance + Time.unscaledDeltaTime * GameTuning.MaxPaintStrokesPerSecond);
+
+        while (paintReplay.Count > 0 && replayAllowance >= 1f)
+        {
+            PaintOp op = paintReplay.Dequeue();
+            Net.QueuePaintStroke(op.Uv, op.Brush, op.Color, op.Mode);
+            replayAllowance -= 1f;
+        }
+    }
+
+    // Keeps the last PaintLogSeconds; while offline, everything since shortly before the drop.
+    private void PrunePaintLog()
+    {
+        float cutoff = (offlineSince >= 0f ? offlineSince : Time.unscaledTime) - PaintLogSeconds;
+        int drop = 0;
+        while (drop < paintLog.Count && paintLog[drop].At < cutoff) drop++;
+        if (drop > 0) paintLog.RemoveRange(0, drop);
     }
 
     // ================= Remote paint =================
