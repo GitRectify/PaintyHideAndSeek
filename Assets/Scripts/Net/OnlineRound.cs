@@ -30,7 +30,11 @@ using UnityEngine.UI;
 //     banner says what is happening, shots wait, and the player's own recent paint is sent again,
 //     since strokes made around the drop never reached the server. A seat that ran out ends the
 //     round with a notice. OnlineRejoin remembers the round so a restarted app can rejoin it.
-public class OnlineRound : MonoBehaviour
+//
+// The class is split by concern: OnlineRound.Paint.cs (own paint sent, logged and replayed;
+// other painters' canvases), OnlineRound.Connection.cs (drops, resume, the rejoin mark) and
+// OnlineRound.Loadout.cs (poses, weapons, remote guns). It is still one component.
+public partial class OnlineRound : MonoBehaviour
 {
     private static OnlineRound _instance;
 
@@ -63,41 +67,6 @@ public class OnlineRound : MonoBehaviour
     private GunHolder gunHolder;
     private GameObject remotePrefab;
 
-    private const string RemoteGunName = "NetGun";
-    private const string HandBoneName = "mixamorig:RightHand";
-    private static readonly int PoseHash = Animator.StringToHash("Pose");
-    private int requestedPose = -1;
-
-    [Tooltip("After signing in again, how long to wait for the server to give the seat back.")]
-    [SerializeField] private float resumeWaitSeconds = 3f;
-
-    [Tooltip("How long offline before the banner points at Home (the SDK keeps retrying).")]
-    [SerializeField] private float offerLeaveAfterSeconds = 60f;
-
-    private int matchId;
-    private bool matchEndShown;
-    private float offlineSince = -1f;   // when the drop was noticed; -1 while connected
-    private float resumeDeadline;       // signed in again: the seat's MatchFound is due by this
-    private float rejoinMarkAt;
-
-    // The player's own paint of the last moments, so what never reached the server can be sent
-    // again after a resume, paced to the server's paint budget and ahead of anything newer.
-    private struct PaintOp
-    {
-        public float At;
-        public bool Reset;
-        public Vector2 Uv;
-        public int Brush;
-        public Color Color;
-        public int Mode;
-    }
-
-    private const float PaintLogSeconds = 20f;
-    private const int PaintLogCap = 4000;
-    private readonly List<PaintOp> paintLog = new List<PaintOp>();
-    private readonly Queue<PaintOp> paintReplay = new Queue<PaintOp>();
-    private float replayAllowance;
-
     private bool active;
     private bool hunter;
     private bool resultShown;
@@ -122,17 +91,6 @@ public class OnlineRound : MonoBehaviour
     private float bannerUntil;
     private Text bulletsLabel;
 
-    // Each remote painter's canvas, rebuilt from the strokes the server relays.
-    private sealed class RemoteCanvas
-    {
-        public Color32[] Pixels;
-        public Texture2D Texture;
-        public bool Dirty;
-        public NetEntityView AppliedTo;
-    }
-
-    private readonly Dictionary<byte, RemoteCanvas> canvases = new Dictionary<byte, RemoteCanvas>();
-
     // ================= Entry points for the gameplay scripts =================
 
     /// <summary>
@@ -153,53 +111,8 @@ public class OnlineRound : MonoBehaviour
         _instance.DoFire(worldDirection);
     }
 
-    /// <summary>A dab on the local player's canvas (ChameleonPaint), radius in canvas texels.</summary>
-    public static void SendStroke(Vector2 uv, int brushPx, Color color, bool erase)
-    {
-        if (!Active || Net == null) return;
-        _instance.SendPaint(new PaintOp { Uv = uv, Brush = brushPx, Color = erase ? Color.white : color, Mode = erase ? 2 : 0 });
-    }
-
-    public static void SendPaintReset()
-    {
-        if (!Active || Net == null) return;
-        _instance.SendPaint(new PaintOp { Reset = true });
-    }
-
-    /// <summary>
-    /// A one-tap fill has no stroke to send, so it goes as a reset followed by a grid of large
-    /// dabs in the fill colour: the server's camouflage average and every other player's view of
-    /// this body then match the filled canvas. About 80 dabs, well inside the paint budget.
-    /// </summary>
-    public static void SendFill(Color color)
-    {
-        if (!Active || Net == null) return;
-
-        OnlineRound self = _instance;
-        self.SendPaint(new PaintOp { Reset = true });
-        int size = GameTuning.PaintTextureSize;
-        int step = Mathf.Max(8, self.fillSpacing);
-        int brush = Mathf.Clamp(self.fillBrushPx, 2, 126);
-
-        for (int y = step / 2; y < size; y += step)
-        {
-            for (int x = step / 2; x < size; x += step)
-            {
-                self.SendPaint(new PaintOp { Uv = new Vector2((float)x / size, (float)y / size), Brush = brush, Color = color });
-            }
-        }
-    }
-
     /// <summary>This round is the server's match <paramref name="id"/> (a MatchFound for it is a resume).</summary>
     public static bool IsCurrentMatch(int id) => Active && _instance.matchId == id;
-
-    /// <summary>A pose picked in PoseSelectorUI (server id: slot + 1, 0 = none).</summary>
-    public static void SendPose(int poseId)
-    {
-        if (!Active || Net == null) return;
-        _instance.requestedPose = poseId;
-        Net.SelectPose(poseId);
-    }
 
     /// <summary>A short message on the round's banner.</summary>
     public static void ShowNotice(string text)
@@ -425,66 +338,6 @@ public class OnlineRound : MonoBehaviour
         return view;
     }
 
-    // Snapshots carry each player's pose and weapon; a change shows on their body here.
-    private static void ApplyRemoteLoadout(NetEntityView view)
-    {
-        if (view == null) return;
-
-        Animator animator = view.GetComponentInChildren<Animator>();
-        if (animator != null && HasParameter(animator, PoseHash))
-            animator.SetInteger(PoseHash, PoseSelectorUI.AnimatorPoseFor(view.Pose));
-
-        WeaponSkins.Apply(FindChild(view.transform, RemoteGunName), view.WeaponId);
-    }
-
-    // Other seekers carry the same gun as the local player, as Single Play's bot seekers do
-    // (BotSeekController.AttachGunsToSeekers): a copy of the scene's gun in the body's hand bone,
-    // with the same local placement, and the animator's "Gun" layer on. The copy is only a model:
-    // colliders and scripts are stripped.
-    private void AttachRemoteGun(GameObject body)
-    {
-        Transform template = LocalGun();
-        if (template == null) return;
-
-        Transform hand = FindChild(body.transform, HandBoneName);
-        if (hand == null || hand.Find(RemoteGunName) != null) return;
-
-        GameObject copy = Instantiate(template.gameObject, hand, false);
-        copy.name = RemoteGunName;
-        copy.transform.localPosition = template.localPosition;
-        copy.transform.localRotation = template.localRotation;
-        copy.transform.localScale = template.localScale;
-        foreach (Collider c in copy.GetComponentsInChildren<Collider>(true)) Destroy(c);
-        foreach (MonoBehaviour m in copy.GetComponentsInChildren<MonoBehaviour>(true)) Destroy(m);
-        copy.SetActive(true);
-
-        Animator animator = body.GetComponentInChildren<Animator>();
-        if (animator != null)
-        {
-            for (int i = 0; i < animator.layerCount; i++)
-            {
-                if (animator.GetLayerName(i) != "Gun") continue;
-                animator.SetLayerWeight(i, 1f);
-                break;
-            }
-        }
-    }
-
-    private static Transform FindChild(Transform root, string name)
-    {
-        if (root == null) return null;
-        foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
-            if (t.name == name) return t;
-        return null;
-    }
-
-    private static bool HasParameter(Animator animator, int hash)
-    {
-        foreach (AnimatorControllerParameter p in animator.parameters)
-            if (p.nameHash == hash) return true;
-        return false;
-    }
-
     // ================= Input =================
 
     private void FeedInput()
@@ -534,41 +387,6 @@ public class OnlineRound : MonoBehaviour
     private void RefreshBullets()
     {
         if (bulletsLabel != null && Net != null) bulletsLabel.text = $"Bullets: {Net.Bullets}";
-    }
-
-    // LoadoutState: the server's answer to every pose/weapon request, and its bullet count when
-    // the match is found and after each accepted shot. A refused change comes back unchanged.
-    private void HandleLoadoutChanged()
-    {
-        RefreshBullets();
-        ApplyLocalWeapon();
-
-        if (requestedPose < 0) return;
-        if (Net.Pose != requestedPose)
-        {
-            if (poses != null) poses.ShowServerPose(Net.Pose);
-            ShowBanner(ShopInventory.OwnsPose(requestedPose)
-                ? "Changing poses too fast. Try again in a moment."
-                : "That pose isn't unlocked online. Get it in the Shop.", 2.5f);
-        }
-        requestedPose = -1;
-    }
-
-    // ================= Weapons =================
-
-    private Transform LocalGun() => gunHolder != null ? gunHolder.Gun : null;
-
-    private void SelectEquippedWeapon()
-    {
-        if (!hunter || Net == null) return;
-        int wanted = ShopInventory.EquippedWeaponId;
-        if (wanted != Net.WeaponId) Net.SelectWeapon(wanted);   // answered with LoadoutState
-    }
-
-    private void ApplyLocalWeapon()
-    {
-        if (!active) return;
-        WeaponSkins.Apply(LocalGun(), hunter ? Net.WeaponId : 0);
     }
 
     // ================= Phases, timer, counters =================
@@ -760,265 +578,6 @@ public class OnlineRound : MonoBehaviour
         }
 
         lobby.GoHomeFromRound();
-    }
-
-    // ================= Connection =================
-
-    private void WatchConnection()
-    {
-        float now = Time.unscaledTime;
-
-        if (!Net.IsConnected)
-        {
-            if (offlineSince < 0f) offlineSince = now;
-            resumeDeadline = 0f;
-            ShowBanner(now - offlineSince > offerLeaveAfterSeconds
-                ? "Still reconnecting... Tap Home to leave."
-                : "Connection lost. Reconnecting...", 0.5f);
-            return;
-        }
-
-        if (resumeDeadline > 0f && now > resumeDeadline)
-        {
-            // Signed in again, but the seat was not given back: it ran out, or the server restarted.
-            resumeDeadline = 0f;
-            offlineSince = -1f;
-            if (resultShown)
-            {
-                ShowBanner("Reconnected.", 2f);   // the match was over anyway
-                return;
-            }
-
-            lobby.EndRoundWithNotice("The match went on without you: you were away too long.");
-        }
-    }
-
-    // Every handshake, reconnects included. After a drop the seat's MatchFound follows at once.
-    private void HandleReauthenticated()
-    {
-        if (offlineSince >= 0f) resumeDeadline = Time.unscaledTime + resumeWaitSeconds;
-    }
-
-    /// <summary>
-    /// The server gave the seat back (MatchFound for this match, from OnlineLobby). The SDK has
-    /// cleared every remote body; the next snapshot builds them again, and the server re-sends the
-    /// phase, the loadout and everyone's paint, so the remote canvases start over. The player's own
-    /// strokes from around the drop are sent again.
-    /// </summary>
-    public void HandleResumed()
-    {
-        if (!active) return;
-
-        float noticedAt = offlineSince >= 0f ? offlineSince : Time.unscaledTime;
-        float since = noticedAt - (NetTuning.DisconnectTimeoutMs / 1000f + 2f);
-
-        resumeDeadline = 0f;
-        offlineSince = -1f;
-        ClearCanvases();
-        QueuePaintReplay(since);
-        ShowBanner("Reconnected.", 2f);
-    }
-
-    private void OnApplicationPause(bool paused)
-    {
-        if (paused && active && !resultShown) OnlineRejoin.Mark();
-    }
-
-#if UNITY_EDITOR
-    // Editor-only drop tests, from this component's menu in the Inspector (Play mode, on the
-    // OnlineLobby object). The link is closed as a lost connection would be — the server holds
-    // the seat — and the SDK is told to connect again after the given time, like its own retry.
-    [ContextMenu("Test: drop the connection for 20 s (resumes)")]
-    private void TestShortDrop() => StartCoroutine(SimulateDrop(20f));
-
-    [ContextMenu("Test: drop the connection for 60 s (seat runs out)")]
-    private void TestLongDrop() => StartCoroutine(SimulateDrop(60f));
-
-    private System.Collections.IEnumerator SimulateDrop(float seconds)
-    {
-        if (Net == null) yield break;
-        Debug.Log($"[Online] Test: dropping the connection for {seconds:0} s");
-        Net.Disconnect();
-        yield return new WaitForSecondsRealtime(seconds);
-        if (Net != null) Net.Connect();
-    }
-#endif
-
-    // ---- The player's own paint ----
-
-    private void SendPaint(PaintOp op)
-    {
-        op.At = Time.unscaledTime;
-        paintLog.Add(op);
-        if (paintLog.Count > PaintLogCap) paintLog.RemoveRange(0, paintLog.Count - PaintLogCap);
-
-        if (op.Reset)
-        {
-            paintReplay.Clear();   // nothing painted before a reset matters any more
-            Net.SendPaintReset();
-            return;
-        }
-
-        // Behind a replay still going out, so the server stamps in the order the player painted.
-        if (paintReplay.Count > 0)
-        {
-            paintReplay.Enqueue(op);
-            return;
-        }
-
-        Net.QueuePaintStroke(op.Uv, op.Brush, op.Color, op.Mode);
-    }
-
-    // What was painted from shortly before the drop was noticed (the link was already dead for up
-    // to DisconnectTimeoutMs) until now. A dab that did arrive is stamped twice, which with this
-    // brush looks the same.
-    private void QueuePaintReplay(float since)
-    {
-        paintReplay.Clear();
-
-        int start = paintLog.FindIndex(op => op.At >= since);
-        if (start < 0) return;
-
-        int lastReset = paintLog.FindLastIndex(op => op.Reset);
-        if (lastReset >= start)
-        {
-            Net.SendPaintReset();
-            start = lastReset + 1;
-        }
-
-        for (int i = start; i < paintLog.Count; i++) paintReplay.Enqueue(paintLog[i]);
-        replayAllowance = GameTuning.PaintStrokeBurst / 2f;
-    }
-
-    // Fed to the SDK at the server's paint rate: queued all at once, a long replay would overflow
-    // the SDK's backlog, which drops the oldest strokes.
-    private void PumpPaintReplay()
-    {
-        if (paintReplay.Count == 0 || !Net.IsConnected || !Net.InMatch) return;
-
-        replayAllowance = Mathf.Min(GameTuning.PaintStrokeBurst / 2f,
-                                    replayAllowance + Time.unscaledDeltaTime * GameTuning.MaxPaintStrokesPerSecond);
-
-        while (paintReplay.Count > 0 && replayAllowance >= 1f)
-        {
-            PaintOp op = paintReplay.Dequeue();
-            Net.QueuePaintStroke(op.Uv, op.Brush, op.Color, op.Mode);
-            replayAllowance -= 1f;
-        }
-    }
-
-    // Keeps the last PaintLogSeconds; while offline, everything since shortly before the drop.
-    private void PrunePaintLog()
-    {
-        float cutoff = (offlineSince >= 0f ? offlineSince : Time.unscaledTime) - PaintLogSeconds;
-        int drop = 0;
-        while (drop < paintLog.Count && paintLog[drop].At < cutoff) drop++;
-        if (drop > 0) paintLog.RemoveRange(0, drop);
-    }
-
-    // ================= Remote paint =================
-
-    // Each remote painter's canvas is rebuilt here from the strokes the server relays, stamped with
-    // the same soft round brush as ChameleonPaint.StampAtUV, and shown on their body
-    // (NetEntityView.PaintTexture). The server only relays a hider's strokes to a seeker who has
-    // seen that hider during the seek.
-
-    private void HandleRemoteStroke(PaintStroke stroke)
-    {
-        RemoteCanvas canvas = CanvasFor(stroke.EntityId);
-        int size = GameTuning.PaintTextureSize;
-
-        int cx = Mathf.Clamp(stroke.U << 1, 0, size - 1);
-        int cy = Mathf.Clamp(stroke.V << 1, 0, size - 1);
-        int r = Mathf.Max(1, stroke.RadiusHalf << 1);
-
-        Color col;
-        if (stroke.Mode == 2) col = Color.white;
-        else
-        {
-            Quantize.Rgb565ToColor(stroke.Color, out float cr, out float cg, out float cb);
-            col = new Color(cr, cg, cb, 1f);
-        }
-
-        int x0 = Mathf.Max(0, cx - r), x1 = Mathf.Min(size - 1, cx + r);
-        int y0 = Mathf.Max(0, cy - r), y1 = Mathf.Min(size - 1, cy + r);
-        Color32[] buf = canvas.Pixels;
-
-        for (int y = y0; y <= y1; y++)
-        {
-            for (int x = x0; x <= x1; x++)
-            {
-                float dx = x - cx, dy = y - cy;
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
-                if (d > r) continue;
-
-                float a = Mathf.Clamp01((1f - d / r) * 1.7f);
-                float inv = 1f - a;
-                int idx = y * size + x;
-                Color32 o = buf[idx];
-                buf[idx] = new Color32((byte)(col.r * 255f * a + o.r * inv),
-                                       (byte)(col.g * 255f * a + o.g * inv),
-                                       (byte)(col.b * 255f * a + o.b * inv), 255);
-            }
-        }
-
-        canvas.Dirty = true;
-    }
-
-    private void HandleRemoteReset(byte slot)
-    {
-        RemoteCanvas canvas = CanvasFor(slot);
-        Color32 white = Color.white;
-        for (int i = 0; i < canvas.Pixels.Length; i++) canvas.Pixels[i] = white;
-        canvas.Dirty = true;
-    }
-
-    private RemoteCanvas CanvasFor(byte slot)
-    {
-        if (canvases.TryGetValue(slot, out RemoteCanvas canvas)) return canvas;
-
-        int size = GameTuning.PaintTextureSize;
-        canvas = new RemoteCanvas
-        {
-            Pixels = new Color32[size * size],
-            Texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp },
-        };
-
-        Color32 white = Color.white;
-        for (int i = 0; i < canvas.Pixels.Length; i++) canvas.Pixels[i] = white;
-        canvas.Dirty = true;
-        canvases[slot] = canvas;
-        return canvas;
-    }
-
-    // Uploads at most once a frame per canvas, however many strokes arrived.
-    private void ApplyCanvases()
-    {
-        foreach (KeyValuePair<byte, RemoteCanvas> pair in canvases)
-        {
-            RemoteCanvas canvas = pair.Value;
-
-            if (canvas.Dirty)
-            {
-                canvas.Texture.SetPixels32(canvas.Pixels);
-                canvas.Texture.Apply(false);
-                canvas.Dirty = false;
-            }
-
-            NetEntityView view = NetEntityRegistry.Get(pair.Key);
-            if (view != null && !view.IsLocal && canvas.AppliedTo != view)
-            {
-                view.PaintTexture = canvas.Texture;
-                canvas.AppliedTo = view;
-            }
-        }
-    }
-
-    private void ClearCanvases()
-    {
-        foreach (RemoteCanvas canvas in canvases.Values)
-            if (canvas.Texture != null) Destroy(canvas.Texture);
-        canvases.Clear();
     }
 
     // ================= Banner =================
