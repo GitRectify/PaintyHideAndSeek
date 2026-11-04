@@ -349,14 +349,6 @@ public class HomeUI : MonoBehaviour
         });
     }
 
-    // Confirmed from raw: each is a single Debug.Log of one string literal and nothing else. Text
-    // confirmed against Dumpstringliteral.json (StringLiteral_11481 / 11483 / 11482 / 11480) - these
-    // really are placeholder logs in the shipped game.
-    public void OnLeaderboard() => Debug.Log("[Home] Leaderboard — TODO");
-    public void OnSettings() => Debug.Log("[Home] Settings — TODO");
-    public void OnAd() => Debug.Log("[Home] Rewarded ad — TODO");
-    public void OnAddCoins() => Debug.Log("[Home] Add coins — TODO");
-
     public void StartMode(int mode)
     {
         SetSelectPlayer(false);

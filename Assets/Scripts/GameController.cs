@@ -7,7 +7,8 @@ using UnityEngine.UI;
 // against Dumpstringliteral.json. Fully reversed, including the TimerCapInter coroutine.
 public class GameController : SingletonMonoBehavior<GameController>
 {
-    public Text[] txtCoin;          // 0x20
+    // The local coin labels (txtCoin) are gone: the one currency is the server wallet, shown by
+    // HomeMenuUI and the shop.
     public bool seeker;             // 0x28 - not read or written by any GameController method
     public GameObject head;         // 0x30
 
@@ -55,7 +56,6 @@ public class GameController : SingletonMonoBehavior<GameController>
         }
 
         CheckRemoveAds();
-        UpdateTextCoin();
 
         if (GameData.IsSession1 == 1)
         {
@@ -103,18 +103,6 @@ public class GameController : SingletonMonoBehavior<GameController>
     {
         // HandleFireBase.Instance.LogEventWithString("SeekerMode");
         head.SetActive(false);
-    }
-
-    // A null txtCoin or a null element throws. The "" fallback (StringLiteral_1) for a null
-    // ToString() result is unreachable for Int32 but is in raw.
-    public void UpdateTextCoin()
-    {
-        for (int i = 0; i < txtCoin.Length; i++)
-        {
-            Text t = txtCoin[i];
-            string coinText = GameData.Coin.ToString();
-            t.text = coinText ?? "";
-        }
     }
 
     public void CappingInter()

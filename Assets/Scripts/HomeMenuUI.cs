@@ -102,8 +102,8 @@ public class HomeMenuUI : MonoBehaviour
         if (homeCanvas != null) homeCanvas.SetActive(true);
     }
 
-    // Multiple Play: sign in (and choose a name on the first run), then Seeker/Hider, room and
-    // matchmaking. TODO(backend): the online round once a match starts.
+    // Multiple Play: sign in (and choose a name on the first run), then Seeker/Hider, room,
+    // matchmaking and the online round (OnlineLobby, OnlineRound).
     private void OnMultiplayer()
     {
         AudioManager.ButtonTap();
