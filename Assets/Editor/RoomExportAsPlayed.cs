@@ -135,7 +135,7 @@ public static class RoomExportAsPlayed
 
     // Same as BotHideController.EnsureRoomColliders / BotSeekController: readable room meshes
     // without a collider get a MeshCollider, then the stair ramps.
-    private static void PrepareLikeBots(GameObject room)
+    internal static void PrepareLikeBots(GameObject room)
     {
         foreach (MeshRenderer mr in room.GetComponentsInChildren<MeshRenderer>())
         {
@@ -153,7 +153,7 @@ public static class RoomExportAsPlayed
 
     // Same as BotHideController.BakeNavMesh / BotSeekController (agent r 2.5, h 12, climb 4,
     // slope 45; colliders only; renderer bounds expanded by 12).
-    private static NavMeshData BakeLikeBots(GameObject room)
+    internal static NavMeshData BakeLikeBots(GameObject room)
     {
         Bounds bb = new Bounds(room.transform.position, Vector3.one);
         Renderer[] rends = room.GetComponentsInChildren<Renderer>();
