@@ -32,11 +32,11 @@ public class ShopItem
     public bool ownedByDefault;
 
     [Header("Server (online shop)")]
-    [Tooltip("The server catalog's item id (server.json Catalog), or for a coin pack its top-up package id (Wallet:TopUps). Empty = not sold online yet (\"coming soon\"). Every bullet pack names the one \"bullets\" item.")]
+    [Tooltip("The server catalog's item id (server.json Catalog), or for a coin pack its top-up package id (Wallet:TopUps). Empty = not sold online yet (\"coming soon\"). A bullet pack names its special bullet type's item (bullets, bullets-2, bullets-3).")]
     public string serverId;
-    [Tooltip("The game's own number for the item, the same as the server's GameId: avatar = CharacterSelect index, pose = picker slot + 1, weapon = WeaponSkins id.")]
+    [Tooltip("The game's own number for the item, the same as the server's GameId: avatar = CharacterSelect index, pose = picker slot + 1, weapon = WeaponSkins id, bullets = special bullet type 1-3 (BulletSpecs).")]
     public int gameId;
-    [Tooltip("Bullets bought by this card (bullet packs only).")]
+    [Tooltip("Special bullets bought by this card (bullet packs only).")]
     public int quantity = 1;
 }
 

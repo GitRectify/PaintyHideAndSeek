@@ -294,8 +294,9 @@ public class Mode1FirstPersonGun : MonoBehaviour
     public void Fire()
     {
         if (gmm != null && gmm.SeekerHideCountdown) return;
-        // Online: no shot (nor its animation and sound) while out or inside the server's fire
-        // interval. A seeker is never out of bullets: default bullets are unlimited.
+        // Online: no shot (nor its animation and sound) while out or inside the cooldown of the
+        // last bullet fired (3 s after a default bullet, less after the special ones). A seeker is
+        // never out of bullets: default bullets are unlimited.
         if (!OnlineRound.TryFire()) return;
 
         if (playerAnim != null)
@@ -319,7 +320,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
         if (aimAlongBarrel && muzzlePoint != null)
         {
             Vector3 shot = ShotDir();
-            SpawnBullet(origin, shot);
+            SpawnBullet(origin, shot, OnlineRound.ShotRadiusScale);
             // Online the server judges the hit (rewound to this tick) from this muzzle; nothing
             // is decided here.
             if (OnlineRound.Active) { OnlineRound.Fire(origin, shot); return; }
@@ -337,7 +338,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
         {
             dir = cam.transform.forward;
         }
-        SpawnBullet(origin, dir);
+        SpawnBullet(origin, dir, OnlineRound.ShotRadiusScale);
         if (OnlineRound.Active)
         {
             // The hit test runs along the camera ray, as offline, but from beside the muzzle: the
@@ -350,7 +351,9 @@ public class Mode1FirstPersonGun : MonoBehaviour
         hide.TryShootAim(cam.transform.position, cam.transform.forward, 1000f, aimAssist);
     }
 
-    private void SpawnBullet(Vector3 origin, Vector3 dir)
+    // sizeScale: the bullet type's radius against the default one (online special bullets are
+    // drawn 0.8x / 1.5x; offline it is always 1).
+    private void SpawnBullet(Vector3 origin, Vector3 dir, float sizeScale = 1f)
     {
         Quaternion rot = Quaternion.LookRotation(dir);
         Bullet bullet;
@@ -408,6 +411,12 @@ public class Mode1FirstPersonGun : MonoBehaviour
             bullet.speed = bulletSpeed;
             bullet.maxLife = bulletLife;
             bullet.radius = bulletSize * 0.5f;
+        }
+        if (!Mathf.Approximately(sizeScale, 1f))
+        {
+            bullet.transform.localScale *= sizeScale;
+            TrailRenderer tr = bullet.GetComponent<TrailRenderer>();
+            if (tr != null) tr.widthMultiplier *= sizeScale;
         }
         bullet.passThroughProps = true;
         bullet.Init(hide, playerTf);

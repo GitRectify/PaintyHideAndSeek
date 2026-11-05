@@ -17,8 +17,10 @@ using UnityEngine.UI;
 //     NetEntityView (server corrections) and NetInputAdapter (joystick/camera/buttons -> input
 //     stream); every other player is a Bot prefab body placed by interpolation.
 //   * The gun calls TryFire/Fire below, with its muzzle, instead of its local aim-assisted kill; the
-//     server judges the hit. A seeker always has bullets: special bullets (bought) are counted and
-//     spent first, then default bullets, which never run out. ChameleonPaint sends its strokes,
+//     server judges the hit. A seeker always has bullets: the chosen special bullet type (bought,
+//     counted per type) while any is left, then default bullets, which never run out. Each type
+//     has its own cooldown and radius (BulletSpecs, shared with the server); tapping the bullet
+//     label switches type, and the choice is remembered (ShopInventory.PreferredBullet). ChameleonPaint sends its strokes,
 //     fills, resets and metallic / roughness sliders through SendStroke/SendFill/SendPaintReset/
 //     SendPaintMaterial, and other painters' canvases and sliders are rebuilt here from what the
 //     server relays.
@@ -100,7 +102,8 @@ public partial class OnlineRound : MonoBehaviour
     private Text banner;
     private float bannerUntil;
     private Text bulletsLabel;
-    private int lastBullets = -1;
+    private BulletType lastChosen = BulletType.Default;
+    private BulletType firedBullet = BulletType.Default;   // the bullet the last shot used, for its size
 
     private CameraController camCtrl;
     private bool startPressed;         // this hider pressed Start in this match's hide phase
@@ -113,14 +116,17 @@ public partial class OnlineRound : MonoBehaviour
 
     /// <summary>
     /// Asked by the gun before it shoots (animation, sound, bullet effect): false while the
-    /// player is out or inside the server's fire interval, whose extra shots it would drop
-    /// anyway. Never for want of bullets: default bullets are unlimited.
+    /// player is out or inside the cooldown of the bullet fired last, whose extra shots the
+    /// server would drop anyway. Never for want of bullets: default bullets are unlimited.
     /// </summary>
     public static bool TryFire()
     {
         if (!Active) return true;
         return _instance.CanFire();
     }
+
+    /// <summary>The drawn bullet's size against the default one: the type the last shot used (1 offline).</summary>
+    public static float ShotRadiusScale => Active ? BulletSpecs.Of(_instance.firedBullet).RadiusScale : 1f;
 
     /// <summary>The gun's shot from its muzzle, in the direction drawn on screen this frame.</summary>
     public static void Fire(Vector3 worldOrigin, Vector3 worldDirection)
@@ -197,7 +203,8 @@ public partial class OnlineRound : MonoBehaviour
         roster = entries;
         eliminated.Clear();
         nextFireAt = 0f;
-        lastBullets = -1;
+        lastChosen = BulletType.Default;
+        firedBullet = BulletType.Default;
         startPressed = false;
         spotter = null;
         spectateAt = -1f;
@@ -240,8 +247,10 @@ public partial class OnlineRound : MonoBehaviour
         bulletsLabel.gameObject.SetActive(hunter);
         RefreshBullets();
 
-        // Carry the equipped weapon, and fetch pose/weapon ownership as the server has it now.
+        // Carry the equipped weapon and the preferred bullet, and fetch pose/weapon ownership as
+        // the server has it now.
         SelectEquippedWeapon();
+        SelectPreferredBullet();
         ApplyLocalWeapon();
         ShopInventory.Refresh(_ =>
         {
@@ -403,8 +412,10 @@ public partial class OnlineRound : MonoBehaviour
         if (!Net.IsConnected) return false;   // the shot would go nowhere; the banner says why
         if (Time.unscaledTime < nextFireAt) return false;
 
-        // No bullet check: with no special bullets left the seeker shoots default bullets.
-        nextFireAt = Time.unscaledTime + GameTuning.FireIntervalSeconds;
+        // No bullet check: with none of the chosen special type left the seeker shoots default
+        // bullets. The wait that follows is this bullet's cooldown, as the server counts it.
+        firedBullet = Net.NextBullet;
+        nextFireAt = Time.unscaledTime + MecchaNetClient.CooldownAfter(firedBullet);
         return true;
     }
 
@@ -419,15 +430,53 @@ public partial class OnlineRound : MonoBehaviour
         fireReleaseAt = Time.unscaledTime + 0.2f;
     }
 
-    // Special bullets are counted (and spent first); default bullets never run out.
+    // The bullet the next shot uses and, for a special type, how many are left. When the chosen
+    // special type runs out the server goes back to default bullets, which never run out.
     private void RefreshBullets()
     {
         if (bulletsLabel == null || Net == null) return;
 
-        int bullets = Net.Bullets;
-        bulletsLabel.text = bullets > 0 ? $"Special bullets: {bullets}" : "Bullets: unlimited";
-        if (hunter && lastBullets > 0 && bullets == 0) ShowBanner("Out of special bullets: back to default bullets.", 2.5f);
-        lastBullets = bullets;
+        BulletType next = Net.NextBullet;
+        bulletsLabel.text = next == BulletType.Default
+            ? "Default bullets: unlimited"
+            : $"{BulletName(next)}: {Net.SpecialBullets[next]}";
+
+        BulletType chosen = Net.ChosenBullet;
+        if (hunter && BulletSpecs.IsSpecial(lastChosen) && chosen == BulletType.Default && Net.SpecialBullets[lastChosen] == 0)
+            ShowBanner($"Out of {BulletName(lastChosen)}: back to default bullets.", 2.5f);
+        lastChosen = chosen;
+    }
+
+    private static string BulletName(BulletType type) =>
+        type == BulletType.Default ? "Default bullets" : $"Special bullet {(int)type}";
+
+    // Tapping the bullet label: the next type the player has (default bullets always), as the
+    // server decides; the choice is kept for the next match.
+    private void CycleBullet()
+    {
+        if (!active || !hunter || localOut || Net == null) return;
+        AudioManager.ButtonTap();
+
+        BulletType current = Net.ChosenBullet;
+        for (int step = 1; step <= BulletSpecs.SpecialCount + 1; step++)
+        {
+            var candidate = (BulletType)(((int)current + step) % (BulletSpecs.SpecialCount + 1));
+            if (candidate != BulletType.Default && Net.SpecialBullets[candidate] <= 0) continue;
+            ShopInventory.PreferredBullet = candidate;
+            Net.SelectBullet(candidate);   // answered with LoadoutState
+            if (candidate == BulletType.Default && current != BulletType.Default) ShowBanner("Default bullets", 1.5f);
+            return;
+        }
+    }
+
+    // At the start: the type picked last time, while some of it is left.
+    private void SelectPreferredBullet()
+    {
+        if (!hunter || Net == null) return;
+        BulletType wanted = ShopInventory.PreferredBullet;
+        if (wanted == Net.ChosenBullet) return;
+        if (wanted != BulletType.Default && Net.SpecialBullets[wanted] <= 0) return;
+        Net.SelectBullet(wanted);
     }
 
     // ================= The hiders' Start button =================
@@ -736,8 +785,11 @@ public partial class OnlineRound : MonoBehaviour
 
         banner.gameObject.SetActive(false);
 
-        // Seeker's bullet count, top right under the HUD: online, bullets are a server-counted stock.
-        bulletsLabel = OnlineUI.NewLabel(canvas.transform, "", 30, Vector2.zero, new Vector2(320f, 50f), TextAnchor.MiddleRight, true);
+        // Seeker's bullet, top right under the HUD: online, special bullets are a server-counted
+        // stock. Tapping it switches bullet type.
+        bulletsLabel = OnlineUI.NewLabel(canvas.transform, "", 30, Vector2.zero, new Vector2(420f, 50f), TextAnchor.MiddleRight, true);
+        bulletsLabel.raycastTarget = true;
+        bulletsLabel.gameObject.AddComponent<Button>().onClick.AddListener(CycleBullet);
         RectTransform brt = bulletsLabel.rectTransform;
         brt.anchorMin = brt.anchorMax = brt.pivot = new Vector2(1f, 1f);
         brt.anchoredPosition = bulletsOffset;

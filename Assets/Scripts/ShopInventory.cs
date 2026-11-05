@@ -11,7 +11,11 @@ using UnityEngine;
 // charges and grants in one step. Equipping is a local preference, limited to what is owned:
 //   * avatar  = CharacterSelect's character (the server checks ownership at FindMatch);
 //   * weapon  = sent with SelectWeapon at the start of each online round (0 = the standard gun);
-//   * poses are picked in the round itself (PoseSelectorUI), bullets are spent by shooting.
+//   * poses are picked in the round itself (PoseSelectorUI);
+//   * bullets: default bullets are free and unlimited; special bullets 1-3 are bought per type
+//     (a bullet card's gameId is the type, as the server's GameId) and spent by shooting. The type
+//     to shoot is switched in the round (tapping the bullet label) and remembered here
+//     (PreferredBullet), then sent with SelectBullet at the start of the next round.
 // Coin packs are the server's top-up packages (ListTopUps): coins and price come from the server,
 // paid at the wallet provider's checkout and credited by the provider's callback to the server.
 // PendingTopUp watches each one until the server says how it ended.
@@ -19,6 +23,7 @@ public static class ShopInventory
 {
     private const string Category = "none";
     private const string EquippedWeaponKey = "ShopEquippedWeapon";
+    private const string PreferredBulletKey = "OnlinePreferredBullet";
 
     /// <summary>Poses every profile owns (server: 0 = no pose, 1-2 = the picker's two free slots).</summary>
     public const int FreePoseMax = 2;
@@ -113,7 +118,7 @@ public static class ShopInventory
         meta.OnBalanceChanged += HandleBalance;
     }
 
-    private static void HandleBalance(long cents, int bullets) => Changed?.Invoke();
+    private static void HandleBalance(long cents, BulletStock bullets) => Changed?.Invoke();
 
     /// <summary>Tells the shop's views that something they show changed (a top-up's state).</summary>
     public static void NotifyChanged() => Changed?.Invoke();
@@ -254,6 +259,25 @@ public static class ShopInventory
         return false;
     }
 
+    // ================= Bullets =================
+
+    /// <summary>Special bullets of one type owned, as the server last said (0 before signing in).</summary>
+    public static int SpecialBullets(BulletType type) => MetaClient.Instance != null ? MetaClient.Instance.Bullets[type] : 0;
+
+    /// <summary>
+    /// The bullet type to shoot online, kept between rounds. The server only takes a special type
+    /// while some of it is left, and falls back to default bullets when it runs out.
+    /// </summary>
+    public static BulletType PreferredBullet
+    {
+        get
+        {
+            int v = UtilGame.GetDataInt(PreferredBulletKey, 0, Category);
+            return v >= 0 && BulletSpecs.IsKnown((uint)v) ? (BulletType)v : BulletType.Default;
+        }
+        set => UtilGame.SetDataInt(PreferredBulletKey, (int)value, Category);
+    }
+
     // ================= Equipping =================
 
     public static bool CanEquip(ShopItem item) =>
@@ -352,7 +376,10 @@ public static class ShopInventory
         {
             case PurchaseStatus.Completed:
             case PurchaseStatus.AlreadyCompleted:
-                return item.category == ShopCategory.Bullets ? "+" + item.quantity + " bullets" : item.displayName + " unlocked!";
+                return item.category == ShopCategory.Bullets
+                    ? $"+{item.quantity} special bullet {item.gameId}" + (item.gameId >= 1 && item.gameId <= BulletSpecs.SpecialCount
+                        ? $" (you have {SpecialBullets((BulletType)item.gameId)})" : "")
+                    : item.displayName + " unlocked!";
             case PurchaseStatus.NotEnoughCoins: return "Not enough coins";
             case PurchaseStatus.AlreadyOwned: return "You already own that";
             case PurchaseStatus.UnknownItem: return "That item is no longer for sale";

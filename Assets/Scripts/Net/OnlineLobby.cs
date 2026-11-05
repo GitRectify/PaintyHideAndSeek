@@ -6,8 +6,9 @@ using Meccha.Shared.Protocol;
 using UnityEngine;
 using UnityEngine.UI;
 
-// Multiple Play after sign-in: Seeker/Hider -> Room Selection (a price tier) -> the map, in Single
-// Play's own map picker (MapSelectPopup; the server matches players only with others on the same
+// Multiple Play after sign-in: Seeker/Hider, on Single Play's own role screen (RoleSelectCanvas:
+// its Hider/Seeker buttons reach HomeUI.BeginMatch, which hands the choice here while this flow
+// is on that step) -> Room Selection (a price tier) -> the map, in Single Play's own map picker (MapSelectPopup; the server matches players only with others on the same
 // map) -> Matchmaking with Players, shown in the game's own MatchmakingUI with the server's real
 // roster -> Game Start: from MatchStart the round itself belongs to OnlineRound. Adapted from the
 // role, room and lobby parts of the SDK sample's OnlineFlow.
@@ -55,8 +56,8 @@ public class OnlineLobby : MonoBehaviour
     private string[] serverMaps;          // the maps the server has baked (ListRooms)
 
     // ---- UI ---------------------------------------------------------------------------------
-    private GameObject roleScreen, roomScreen, lobbyBar, noticeScreen, rejoinScreen;
-    private Text roleSubtitle, roomBalance, roomError, lobbyMessage, noticeText;
+    private GameObject roomScreen, lobbyBar, noticeScreen, rejoinScreen;
+    private Text roomBalance, roomError, lobbyMessage, noticeText;
     private RectTransform roomList;
 
     private string lobbyText = "";   // the lobby bar's message while connected
@@ -269,19 +270,52 @@ public class OnlineLobby : MonoBehaviour
 
     // ================= Seeker / Hider =================
 
+    // Single Play's role screen. Its buttons go to HomeUI.BeginMatch (TryPickRole below) and its
+    // Back to HomeMenuUI.ShowHome (RoleSelectClosed). Strict roles: the player always gets the
+    // side they pick, as in Single Play.
     private void ShowRoleScreen()
     {
         step = Step.Role;
         HideScreens();
-        roleScreen.SetActive(true);
-        roleSubtitle.text = $"Playing as <b>{SafeName(profile.UserId)}</b>";
+        if (home == null)
+        {
+            // No role screen in this scene: let the server pick the side.
+            PickRole(RolePreference.Any);
+            return;
+        }
+        home.ShowRoleSelect();
     }
 
     private void PickRole(RolePreference preference)
     {
-        AudioManager.ButtonTap();
         role = preference;
+        if (home != null) home.HideRoleSelect();   // back to Home, under the room screen
         ShowRoomScreen(null);
+    }
+
+    private static OnlineLobby ChoosingRole()
+    {
+        OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
+        return lobby != null && lobby.step == Step.Role ? lobby : null;
+    }
+
+    /// <summary>
+    /// RoleSelectCanvas's Hider (2) / Seeker (1) button, from HomeUI.BeginMatch: true when it
+    /// picked the side of an online match, false when it is Single Play's own choice.
+    /// </summary>
+    public static bool TryPickRole(int mode)
+    {
+        OnlineLobby lobby = ChoosingRole();
+        if (lobby == null) return false;
+        lobby.PickRole(mode == 1 ? RolePreference.Seeker : RolePreference.Hider);
+        return true;
+    }
+
+    /// <summary>RoleSelectCanvas's Back (HomeMenuUI.ShowHome): leaves the online flow when it was choosing a side.</summary>
+    public static void RoleSelectClosed()
+    {
+        OnlineLobby lobby = ChoosingRole();
+        if (lobby != null) lobby.GoHome();
     }
 
     // ================= Room (price tier) =================
@@ -630,19 +664,10 @@ public class OnlineLobby : MonoBehaviour
     {
         Transform canvas = OnlineUI.CreateCanvas("OnlineLobbyCanvas", transform, 50).transform;
 
-        // Seeker / Hider.
-        RectTransform p = OnlineUI.Modal(canvas, "RoleScreen", new Vector2(960f, 680f));
-        roleScreen = p.parent.gameObject;
-        OnlineUI.NewLabel(p, "Choose your side", 52, new Vector2(0f, 260f), new Vector2(900f, 80f), TextAnchor.MiddleCenter, true);
-        roleSubtitle = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, 195f), new Vector2(900f, 50f));
-        roleSubtitle.color = OnlineUI.Muted;
-        OnlineUI.NewButton(p, "HIDER\n<size=26>paint yourself and hide</size>", new Vector2(0f, 85f), new Vector2(640f, 110f), OnlineUI.Blue, () => PickRole(RolePreference.Hider));
-        OnlineUI.NewButton(p, "SEEKER\n<size=26>hunt the hiders down</size>", new Vector2(0f, -40f), new Vector2(640f, 110f), OnlineUI.Red, () => PickRole(RolePreference.Seeker));
-        OnlineUI.NewButton(p, "EITHER\n<size=26>fastest match</size>", new Vector2(0f, -165f), new Vector2(640f, 110f), OnlineUI.Gray, () => PickRole(RolePreference.Any));
-        OnlineUI.NewButton(p, "BACK", new Vector2(0f, -275f), new Vector2(280f, 76f), OnlineUI.Gray, GoHome);
+        // Seeker / Hider is Single Play's RoleSelectCanvas (ShowRoleScreen).
 
         // Room (price tier).
-        p = OnlineUI.Modal(canvas, "RoomScreen", new Vector2(1060f, 820f));
+        RectTransform p = OnlineUI.Modal(canvas, "RoomScreen", new Vector2(1060f, 820f));
         roomScreen = p.parent.gameObject;
         OnlineUI.NewLabel(p, "Choose a room", 52, new Vector2(0f, 340f), new Vector2(980f, 80f), TextAnchor.MiddleCenter, true);
         roomBalance = OnlineUI.NewLabel(p, "", 32, new Vector2(0f, 275f), new Vector2(980f, 50f));
@@ -682,7 +707,6 @@ public class OnlineLobby : MonoBehaviour
 
     private void HideScreens()
     {
-        roleScreen.SetActive(false);
         roomScreen.SetActive(false);
         lobbyBar.SetActive(false);
         noticeScreen.SetActive(false);

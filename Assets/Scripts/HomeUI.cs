@@ -264,6 +264,10 @@ public class HomeUI : MonoBehaviour
 
     public void BeginMatch(int mode)
     {
+        // Multiple Play uses this same role screen: while it is choosing a side, the button
+        // picks the online match's side instead of starting Single Play.
+        if (OnlineLobby.TryPickRole(mode)) return;
+
         // Only the player picker should be visible when choosing a character.
         SetHome(false);
         SetRoleSelect(false);

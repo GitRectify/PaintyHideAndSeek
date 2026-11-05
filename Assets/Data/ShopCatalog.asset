@@ -265,61 +265,61 @@ MonoBehaviour:
     quantity: 1
   - id: bullet_basic
     category: 4
-    displayName: 10 Bullets
+    displayName: Special Bullet 1 x10
     icon: {fileID: 0}
     coinAmount: 0
     badge: 
     ownedByDefault: 0
     serverId: bullets
-    gameId: 0
+    gameId: 1
     quantity: 10
   - id: bullet_triple_splash
     category: 4
-    displayName: 50 Bullets
+    displayName: Special Bullet 1 x50
     icon: {fileID: 0}
     coinAmount: 0
     badge: 
     ownedByDefault: 0
     serverId: bullets
-    gameId: 0
+    gameId: 1
     quantity: 50
   - id: bullet_sticky_shot
     category: 4
-    displayName: 100 Bullets
+    displayName: Special Bullet 2 x10
     icon: {fileID: 0}
     coinAmount: 0
     badge: 
     ownedByDefault: 0
-    serverId: bullets
-    gameId: 0
-    quantity: 100
+    serverId: bullets-2
+    gameId: 2
+    quantity: 10
   - id: bullet_neon_burst
     category: 4
-    displayName: 250 Bullets
+    displayName: Special Bullet 2 x50
     icon: {fileID: 0}
     coinAmount: 0
     badge: 
     ownedByDefault: 0
-    serverId: bullets
-    gameId: 0
-    quantity: 250
+    serverId: bullets-2
+    gameId: 2
+    quantity: 50
   - id: bullet_ice_paint
     category: 4
-    displayName: 500 Bullets
+    displayName: Special Bullet 3 x10
     icon: {fileID: 0}
     coinAmount: 0
     badge: 
     ownedByDefault: 0
-    serverId: bullets
-    gameId: 0
-    quantity: 500
+    serverId: bullets-3
+    gameId: 3
+    quantity: 10
   - id: bullet_rainbow_ammo
     category: 4
-    displayName: 1000 Bullets
+    displayName: Special Bullet 3 x50
     icon: {fileID: 0}
     coinAmount: 0
     badge: 
     ownedByDefault: 0
-    serverId: bullets
-    gameId: 0
-    quantity: 1000
+    serverId: bullets-3
+    gameId: 3
+    quantity: 50

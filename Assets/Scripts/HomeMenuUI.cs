@@ -6,7 +6,8 @@ using UnityEngine;
 // Main home menu: Play / Multiplayer / Shop buttons plus the coin balance. The one currency is the
 // server wallet: the balance shows once signed in ("-" before), and the Shop signs in first.
 // Play opens the role-selection screen (the original home canvas: PlayNow = Hider,
-// SeekerMode = Seeker, both still wired to HomeUI.BeginMatch).
+// SeekerMode = Seeker, both still wired to HomeUI.BeginMatch). Multiplayer signs in and opens the
+// same role screen for the online match (OnlineLobby).
 public class HomeMenuUI : MonoBehaviour
 {
     [Header("References")]
@@ -94,12 +95,13 @@ public class HomeMenuUI : MonoBehaviour
         roleSelectCanvas.SetActive(true);
     }
 
-    // Role selection -> back to the main home menu.
+    // Role selection -> back to the main home menu (and out of Multiple Play, when it was choosing a side).
     public void ShowHome()
     {
         AudioManager.ButtonTap();
         if (roleSelectCanvas != null) roleSelectCanvas.SetActive(false);
         if (homeCanvas != null) homeCanvas.SetActive(true);
+        OnlineLobby.RoleSelectClosed();
     }
 
     // Multiple Play: sign in (and choose a name on the first run), then Seeker/Hider, room,
