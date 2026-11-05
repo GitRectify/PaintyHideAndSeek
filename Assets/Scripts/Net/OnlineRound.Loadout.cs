@@ -32,8 +32,10 @@ public partial class OnlineRound
     {
         if (view == null) return;
 
+        // On a wall "Pose" is the climb (NetBodyAnimator); the struck pose comes back after it.
+        NetBodyAnimator body = view.GetComponent<NetBodyAnimator>();
         Animator animator = view.GetComponentInChildren<Animator>();
-        if (animator != null && HasParameter(animator, PoseHash))
+        if (animator != null && HasParameter(animator, PoseHash) && (body == null || !body.Climbing))
             animator.SetInteger(PoseHash, PoseSelectorUI.AnimatorPoseFor(view.Pose));
 
         WeaponSkins.Apply(FindChild(view.transform, RemoteGunName), view.WeaponId);

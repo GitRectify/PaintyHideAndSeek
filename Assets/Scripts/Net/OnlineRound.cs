@@ -16,6 +16,8 @@ using UnityEngine.UI;
 //   * NetEntityRegistry.ViewFactory makes characters as snapshots name them: the local player gets
 //     NetEntityView (server corrections) and NetInputAdapter (joystick/camera/buttons -> input
 //     stream); every other player is a Bot prefab body placed by interpolation.
+//     NetBodyAnimator plays their prone, climbing and gunfire from the replicated flags, and a
+//     remote shot (NetEntityView.Fired) gets the gun's sound and a visual-only tracer.
 //   * The gun calls TryFire/Fire below, with its muzzle, instead of its local aim-assisted kill; the
 //     server judges the hit. A seeker always has bullets: the chosen special bullet type (bought,
 //     counted per type) while any is left, then default bullets, which never run out. Each type
@@ -267,6 +269,10 @@ public partial class OnlineRound : MonoBehaviour
         if (!active) return;
         active = false;
 
+        // The round may have spent special bullets and paid coins: fetch the wallet as the
+        // server has it now, so Home and the shop do not show the counts from before it.
+        ShopInventory.Refresh(null);
+
         if (Net != null)
         {
             Net.OnPhaseChanged -= HandlePhaseChanged;
@@ -380,11 +386,38 @@ public partial class OnlineRound : MonoBehaviour
         }
 
         if (role == Role.Hunter) AttachRemoteGun(body);
+
+        // Their prone, climbing and gunfire, from the replicated flags (walking speed is the
+        // view's own); and a shot's sound and tracer, as Single Play's seeker bots fire.
+        NetBodyAnimator animator = body.GetComponent<NetBodyAnimator>();
+        if (animator == null) animator = body.AddComponent<NetBodyAnimator>();
+        animator.Bind(view);
+        view.Fired += HandleRemoteFired;
+
         view.LoadoutChanged += ApplyRemoteLoadout;
         ApplyRemoteLoadout(view);
 
         if (canvases.TryGetValue(slot, out RemoteCanvas canvas)) canvas.AppliedTo = null;   // re-applied next frame
         return view;
+    }
+
+    // Another player's (or a server bot's) shot, when its body is drawn firing. The server has
+    // already judged it; this is the gun animation, the sound and a tracer along their facing.
+    private void HandleRemoteFired(NetEntityView view)
+    {
+        if (!active || view == null || view.Eliminated || view.Role != Role.Hunter) return;
+
+        NetBodyAnimator animator = view.GetComponent<NetBodyAnimator>();
+        if (animator != null) animator.PlayShot();
+        AudioManager.WaterGunShot();
+
+        if (gun == null) return;
+        Transform remoteGun = FindChild(view.transform, RemoteGunName);
+        Transform muzzle = remoteGun != null ? FindChild(remoteGun, "MuzzlePoint") : null;
+        Vector3 origin = muzzle != null ? muzzle.position
+                       : remoteGun != null ? remoteGun.position
+                       : view.transform.position + Vector3.up * GameTuning.PlayerHeight * 0.8f;
+        gun.SpawnRemoteBullet(origin, view.transform.forward, view.transform);
     }
 
     // ================= Input =================

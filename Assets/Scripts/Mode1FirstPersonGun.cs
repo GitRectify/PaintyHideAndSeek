@@ -351,9 +351,20 @@ public class Mode1FirstPersonGun : MonoBehaviour
         hide.TryShootAim(cam.transform.position, cam.transform.forward, 1000f, aimAssist);
     }
 
+    /// <summary>
+    /// Another player's shot online, drawn like this gun's own: a tracer that hits nothing (the
+    /// server judged the shot), ignoring the shooter's body.
+    /// </summary>
+    public void SpawnRemoteBullet(Vector3 origin, Vector3 dir, Transform shooter)
+    {
+        if (dir.sqrMagnitude < 1E-06f) return;
+        SpawnBullet(origin, dir.normalized, 1f, shooter);
+    }
+
     // sizeScale: the bullet type's radius against the default one (online special bullets are
-    // drawn 0.8x / 1.5x; offline it is always 1).
-    private void SpawnBullet(Vector3 origin, Vector3 dir, float sizeScale = 1f)
+    // drawn 0.8x / 1.5x; offline it is always 1). remoteShooter: a visual-only bullet from
+    // another player's gun, which must not reach Single Play's hit handling.
+    private void SpawnBullet(Vector3 origin, Vector3 dir, float sizeScale = 1f, Transform remoteShooter = null)
     {
         Quaternion rot = Quaternion.LookRotation(dir);
         Bullet bullet;
@@ -419,7 +430,8 @@ public class Mode1FirstPersonGun : MonoBehaviour
             if (tr != null) tr.widthMultiplier *= sizeScale;
         }
         bullet.passThroughProps = true;
-        bullet.Init(hide, playerTf);
+        if (remoteShooter != null) bullet.InitShot(remoteShooter, null);
+        else bullet.Init(hide, playerTf);
     }
 
     private void AddTracer(GameObject go)
