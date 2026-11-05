@@ -16,8 +16,9 @@ using UnityEngine.UI;
 //   * NetEntityRegistry.ViewFactory makes characters as snapshots name them: the local player gets
 //     NetEntityView (server corrections) and NetInputAdapter (joystick/camera/buttons -> input
 //     stream); every other player is a Bot prefab body placed by interpolation.
-//     NetBodyAnimator plays their prone, climbing and gunfire from the replicated flags, and a
-//     remote shot (NetEntityView.Fired) gets the gun's sound and a visual-only tracer.
+//     NetBodyAnimator plays their prone and climbing from the replicated flags, and each remote
+//     shot (OnRemoteShot: real aim and bullet type) its gun animation, sound and a visual-only
+//     tracer.
 //   * The gun calls TryFire/Fire below, with its muzzle, instead of its local aim-assisted kill; the
 //     server judges the hit. A seeker always has bullets: the chosen special bullet type (bought,
 //     counted per type) while any is left, then default bullets, which never run out. Each type
@@ -238,6 +239,7 @@ public partial class OnlineRound : MonoBehaviour
         Net.OnRemotePaintStroke += HandleRemoteStroke;
         Net.OnRemotePaintReset += HandleRemoteReset;
         Net.OnRemotePaintMaterial += HandleRemoteMaterial;
+        Net.OnRemoteShot += HandleRemoteShot;
         Net.OnLoadoutChanged += HandleLoadoutChanged;
         Net.OnAuthenticated += HandleReauthenticated;
 
@@ -285,6 +287,7 @@ public partial class OnlineRound : MonoBehaviour
             Net.OnRemotePaintStroke -= HandleRemoteStroke;
             Net.OnRemotePaintReset -= HandleRemoteReset;
             Net.OnRemotePaintMaterial -= HandleRemoteMaterial;
+            Net.OnRemoteShot -= HandleRemoteShot;
             Net.OnLoadoutChanged -= HandleLoadoutChanged;
             Net.OnAuthenticated -= HandleReauthenticated;
         }
@@ -392,7 +395,6 @@ public partial class OnlineRound : MonoBehaviour
         NetBodyAnimator animator = body.GetComponent<NetBodyAnimator>();
         if (animator == null) animator = body.AddComponent<NetBodyAnimator>();
         animator.Bind(view);
-        view.Fired += HandleRemoteFired;
 
         view.LoadoutChanged += ApplyRemoteLoadout;
         ApplyRemoteLoadout(view);
@@ -401,23 +403,22 @@ public partial class OnlineRound : MonoBehaviour
         return view;
     }
 
-    // Another player's (or a server bot's) shot, when its body is drawn firing. The server has
-    // already judged it; this is the gun animation, the sound and a tracer along their facing.
-    private void HandleRemoteFired(NetEntityView view)
+    // Another player's (or a server bot's) shot, when its body is drawn firing (OnRemoteShot
+    // waits for the render time). The server has already judged it; this is the gun animation,
+    // the sound and a tracer along the shot's real aim, sized by its bullet type.
+    private void HandleRemoteShot(MecchaNetClient.RemoteShot shot)
     {
-        if (!active || view == null || view.Eliminated || view.Role != Role.Hunter) return;
+        if (!active) return;
 
-        NetBodyAnimator animator = view.GetComponent<NetBodyAnimator>();
+        NetEntityView view = NetEntityRegistry.Get(shot.Slot);
+        NetBodyAnimator animator = view != null ? view.GetComponent<NetBodyAnimator>() : null;
         if (animator != null) animator.PlayShot();
         AudioManager.WaterGunShot();
 
         if (gun == null) return;
-        Transform remoteGun = FindChild(view.transform, RemoteGunName);
-        Transform muzzle = remoteGun != null ? FindChild(remoteGun, "MuzzlePoint") : null;
-        Vector3 origin = muzzle != null ? muzzle.position
-                       : remoteGun != null ? remoteGun.position
-                       : view.transform.position + Vector3.up * GameTuning.PlayerHeight * 0.8f;
-        gun.SpawnRemoteBullet(origin, view.transform.forward, view.transform);
+        gun.SpawnRemoteBullet(shot.Origin, shot.Impact - shot.Origin,
+                              view != null ? view.transform : null,
+                              BulletSpecs.Of(shot.Bullet).RadiusScale);
     }
 
     // ================= Input =================

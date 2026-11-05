@@ -353,12 +353,12 @@ public class Mode1FirstPersonGun : MonoBehaviour
 
     /// <summary>
     /// Another player's shot online, drawn like this gun's own: a tracer that hits nothing (the
-    /// server judged the shot), ignoring the shooter's body.
+    /// server judged the shot), ignoring the shooter's body. sizeScale is its bullet type's.
     /// </summary>
-    public void SpawnRemoteBullet(Vector3 origin, Vector3 dir, Transform shooter)
+    public void SpawnRemoteBullet(Vector3 origin, Vector3 dir, Transform shooter, float sizeScale = 1f)
     {
         if (dir.sqrMagnitude < 1E-06f) return;
-        SpawnBullet(origin, dir.normalized, 1f, shooter);
+        SpawnBullet(origin, dir.normalized, sizeScale, shooter != null ? shooter : transform);
     }
 
     // sizeScale: the bullet type's radius against the default one (online special bullets are

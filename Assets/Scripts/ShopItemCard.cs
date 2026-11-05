@@ -1,4 +1,5 @@
 using System;
+using Meccha.Shared.Game;
 using UnityEngine;
 
 // One card in the shop grid. Pure view: ShopUI binds an item and receives button clicks.
@@ -92,6 +93,15 @@ public class ShopItemCard : MonoBehaviour
     public void RefreshState(ShopCatalog catalog)
     {
         if (_item == null) return;
+
+        // A special bullet pack's ribbon says how many of that type the player has (the server's
+        // count, ShopInventory.SpecialBullets); with none it shows the card's own badge, if any.
+        if (_item.category == ShopCategory.Bullets && _item.gameId >= 1 && _item.gameId <= BulletSpecs.SpecialCount)
+        {
+            int owned = ShopInventory.SpecialBullets((BulletType)_item.gameId);
+            if (badgeRoot != null) badgeRoot.SetActive(owned > 0 || !string.IsNullOrEmpty(_item.badge));
+            if (badgeLabel != null) badgeLabel.text = owned > 0 ? $"Own {owned}" : _item.badge;
+        }
 
         // Prices and ownership are the server's (ShopInventory); the card only shows them.
         bool coin = false, check = false, locked = false, interactable = true;

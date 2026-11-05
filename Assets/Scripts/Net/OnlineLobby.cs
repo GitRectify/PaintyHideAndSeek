@@ -658,6 +658,20 @@ public class OnlineLobby : MonoBehaviour
         StartSearch();
     }
 
+    // ================= Match history =================
+
+    // The room screen's HISTORY: the player's own records (OnlineHistory), then back to the rooms.
+    private void ShowHistory()
+    {
+        AudioManager.ButtonTap();
+        int version = flowVersion;
+        roomScreen.SetActive(false);
+        OnlineHistory.Show(transform, () =>
+        {
+            if (version == flowVersion && step == Step.Room) roomScreen.SetActive(true);
+        });
+    }
+
     // ================= UI =================
 
     private void BuildUI()
@@ -677,7 +691,8 @@ public class OnlineLobby : MonoBehaviour
         OnlineUI.Place(roomList, Vector2.zero, new Vector2(1000f, 600f));
         roomError = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -260f), new Vector2(980f, 70f));
         roomError.color = OnlineUI.Warning;
-        OnlineUI.NewButton(p, "BACK", new Vector2(0f, -345f), new Vector2(280f, 80f), OnlineUI.Gray, ShowRoleScreen);
+        OnlineUI.NewButton(p, "BACK", new Vector2(-170f, -345f), new Vector2(280f, 80f), OnlineUI.Gray, ShowRoleScreen);
+        OnlineUI.NewButton(p, "HISTORY", new Vector2(170f, -345f), new Vector2(280f, 80f), OnlineUI.Blue, ShowHistory);
 
         // Lobby: a bar under MatchmakingUI's panel (this canvas sorts above it).
         Image bar = OnlineUI.NewImage("LobbyBar", canvas, OnlineUI.PanelColor);
