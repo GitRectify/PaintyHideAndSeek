@@ -579,8 +579,13 @@ public class ChameleonPaint : MonoBehaviour
         }
     }
 
+    // Online, the sliders are sent too (OnlineRound.SendPaintMaterial), so others see this body.
+    public float Metallic => metallic;
+    public float Roughness => roughness;
+
     private void ApplyMaterialParams()
     {
+        OnlineRound.SendPaintMaterial(metallic, roughness);
         if (bodyRenderers == null) return;
         for (int i = 0; i < bodyRenderers.Length; i++)
         {

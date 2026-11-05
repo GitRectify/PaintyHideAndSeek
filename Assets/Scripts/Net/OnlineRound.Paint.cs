@@ -5,7 +5,7 @@ using Meccha.Shared.Protocol;
 using UnityEngine;
 using UnityEngine.UI;
 
-// Part of OnlineRound (OnlineRound.cs has the overview). Paint: the player's own strokes (sent, logged, replayed after a resume) and every other painter's canvas, rebuilt from the strokes the server relays.
+// Part of OnlineRound (OnlineRound.cs has the overview). Paint: the player's own strokes (sent, logged, replayed after a resume) and every other painter's canvas, rebuilt from the strokes the server relays, with their metallic / roughness sliders.
 public partial class OnlineRound
 {
     // ================= Fields: paint =================
@@ -28,13 +28,17 @@ public partial class OnlineRound
     private readonly Queue<PaintOp> paintReplay = new Queue<PaintOp>();
     private float replayAllowance;
 
-    // Each remote painter's canvas, rebuilt from the strokes the server relays.
+    // Each remote painter's canvas, rebuilt from the strokes the server relays, and their
+    // metallic / roughness (ChameleonPaint's defaults until the server says otherwise).
     private sealed class RemoteCanvas
     {
         public Color32[] Pixels;
         public Texture2D Texture;
         public bool Dirty;
         public NetEntityView AppliedTo;
+        public float Metallic;
+        public float Roughness = 1f;
+        public bool MaterialDirty;
     }
 
     private readonly Dictionary<byte, RemoteCanvas> canvases = new Dictionary<byte, RemoteCanvas>();
@@ -52,6 +56,22 @@ public partial class OnlineRound
     {
         if (!Active || Net == null) return;
         _instance.SendPaint(new PaintOp { Reset = true });
+    }
+
+    /// <summary>
+    /// ChameleonPaint's body-wide metallic / roughness sliders, so everyone else sees the same
+    /// body. The SDK sends the latest value at most a few times a second while a slider moves.
+    /// </summary>
+    public static void SendPaintMaterial(float metallic, float roughness)
+    {
+        if (!Active || Net == null) return;
+        Net.SendPaintMaterial(metallic, roughness);
+    }
+
+    // After a resume: the sliders as they are now (a reset in the replayed paint puts them back).
+    private void ResendPaintMaterial()
+    {
+        if (paint != null) Net.SendPaintMaterial(paint.Metallic, paint.Roughness);
     }
 
     /// <summary>
@@ -205,6 +225,19 @@ public partial class OnlineRound
         Color32 white = Color.white;
         for (int i = 0; i < canvas.Pixels.Length; i++) canvas.Pixels[i] = white;
         canvas.Dirty = true;
+
+        // ChameleonPaint.ResetPaint puts the sliders back as well.
+        canvas.Metallic = 0f;
+        canvas.Roughness = 1f;
+        canvas.MaterialDirty = true;
+    }
+
+    private void HandleRemoteMaterial(byte slot, float metallic, float roughness)
+    {
+        RemoteCanvas canvas = CanvasFor(slot);
+        canvas.Metallic = metallic;
+        canvas.Roughness = roughness;
+        canvas.MaterialDirty = true;
     }
 
     private RemoteCanvas CanvasFor(byte slot)
@@ -240,10 +273,19 @@ public partial class OnlineRound
             }
 
             NetEntityView view = NetEntityRegistry.Get(pair.Key);
-            if (view != null && !view.IsLocal && canvas.AppliedTo != view)
+            if (view == null || view.IsLocal) continue;
+
+            if (canvas.AppliedTo != view)
             {
                 view.PaintTexture = canvas.Texture;
                 canvas.AppliedTo = view;
+                canvas.MaterialDirty = true;   // a new body: the sliders too
+            }
+
+            if (canvas.MaterialDirty)
+            {
+                view.SetPaintMaterial(canvas.Metallic, canvas.Roughness);
+                canvas.MaterialDirty = false;
             }
         }
     }

@@ -143,6 +143,10 @@ public class LevelManager : MonoBehaviour
         onLevelChanged?.Invoke();
     }
 
+    // The room (prefab name, as the server names maps) of level i, or null.
+    public string RoomNameAt(int i) =>
+        levels != null && i >= 0 && i < levels.Length ? levels[i].roomName : null;
+
     // Selects the level whose room is roomName (an online match's map, named by the server) for
     // this session only: the Single Play choice saved in PlayerPrefs is left alone. False when no
     // level uses that room.

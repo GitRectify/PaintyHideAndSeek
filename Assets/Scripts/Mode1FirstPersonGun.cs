@@ -294,8 +294,8 @@ public class Mode1FirstPersonGun : MonoBehaviour
     public void Fire()
     {
         if (gmm != null && gmm.SeekerHideCountdown) return;
-        // Online: no shot (nor its animation and sound) while out, out of bullets, or inside the
-        // server's fire interval.
+        // Online: no shot (nor its animation and sound) while out or inside the server's fire
+        // interval. A seeker is never out of bullets: default bullets are unlimited.
         if (!OnlineRound.TryFire()) return;
 
         if (playerAnim != null)
@@ -320,8 +320,9 @@ public class Mode1FirstPersonGun : MonoBehaviour
         {
             Vector3 shot = ShotDir();
             SpawnBullet(origin, shot);
-            // Online the server judges the hit (rewound to this tick); nothing is decided here.
-            if (OnlineRound.Active) { OnlineRound.Fire(shot); return; }
+            // Online the server judges the hit (rewound to this tick) from this muzzle; nothing
+            // is decided here.
+            if (OnlineRound.Active) { OnlineRound.Fire(origin, shot); return; }
             hide.TryShootAim(origin, shot, 1000f, aimAssist);
             return;
         }
@@ -337,7 +338,15 @@ public class Mode1FirstPersonGun : MonoBehaviour
             dir = cam.transform.forward;
         }
         SpawnBullet(origin, dir);
-        if (OnlineRound.Active) { OnlineRound.Fire(cam.transform.forward); return; }
+        if (OnlineRound.Active)
+        {
+            // The hit test runs along the camera ray, as offline, but from beside the muzzle: the
+            // camera itself sits behind the player, where the server does not accept a muzzle.
+            Vector3 c = cam.transform.position;
+            Vector3 f = cam.transform.forward;
+            OnlineRound.Fire(c + f * Mathf.Max(0f, Vector3.Dot(origin - c, f)), f);
+            return;
+        }
         hide.TryShootAim(cam.transform.position, cam.transform.forward, 1000f, aimAssist);
     }
 

@@ -11,15 +11,22 @@ using UnityEngine.UI;
 // The existing gameplay scripts keep doing what they do — JoystickMover moves the player,
 // CameraController follows, MatchHUD draws the timer — and this class connects them to the server:
 //   * GameModeManager is switched into its network mode (BeginNetworkRound): the map is the one the
-//     server picked, no bot is started, and the timer, counters and seeker freeze come from here.
+//     player picked in the map picker (the server matched them with others on it), no bot is
+//     started, and the timer, counters and seeker freeze come from here.
 //   * NetEntityRegistry.ViewFactory makes characters as snapshots name them: the local player gets
 //     NetEntityView (server corrections) and NetInputAdapter (joystick/camera/buttons -> input
 //     stream); every other player is a Bot prefab body placed by interpolation.
-//   * The gun calls TryFire/Fire below instead of its local aim-assisted kill; the server judges
-//     the hit and counts the bullets. ChameleonPaint sends its strokes, fills and resets through
-//     SendStroke/SendFill/SendPaintReset, and other painters' canvases are rebuilt here from the
-//     strokes the server relays. Metallic and roughness are not in the protocol yet: they stay
-//     local until the server adds them.
+//   * The gun calls TryFire/Fire below, with its muzzle, instead of its local aim-assisted kill; the
+//     server judges the hit. A seeker always has bullets: special bullets (bought) are counted and
+//     spent first, then default bullets, which never run out. ChameleonPaint sends its strokes,
+//     fills, resets and metallic / roughness sliders through SendStroke/SendFill/SendPaintReset/
+//     SendPaintMaterial, and other painters' canvases and sliders are rebuilt here from what the
+//     server relays.
+//   * As in Single Play: the hider's Start button (BotSeekController.SkipGrace) sends SkipHide, and
+//     the seek starts once every hider has pressed it; a seeker bot that spots the player freezes
+//     them and the camera turns to it (SpotAlert names the bot) until its shot.
+//   * Out of the round, the player spectates: the server sends everyone, and the camera follows the
+//     players still in (Next switches) until the result.
 //   * Poses and weapons are the shop's: PoseSelectorUI sends a pick through SendPose (owned poses
 //     only), the equipped weapon is selected at the start (SelectWeapon), and snapshots show every
 //     other player's pose and gun skin. There is no in-round weapon picker, as offline.
@@ -54,6 +61,9 @@ public partial class OnlineRound : MonoBehaviour
 
     [Tooltip("Top-right offset of the seeker's bullet count, under the HUD.")]
     [SerializeField] private Vector2 bulletsOffset = new Vector2(-40f, -250f);
+
+    [Tooltip("Seconds after being caught before the camera starts following the players still in (BotSeekController.caughtPopupDelay offline).")]
+    [SerializeField] private float spectateDelaySeconds = 3f;
 
     private OnlineLobby lobby;
     private GameModeManager gmm;
@@ -90,13 +100,21 @@ public partial class OnlineRound : MonoBehaviour
     private Text banner;
     private float bannerUntil;
     private Text bulletsLabel;
+    private int lastBullets = -1;
+
+    private CameraController camCtrl;
+    private bool startPressed;         // this hider pressed Start in this match's hide phase
+    private NetEntityView spotter;     // the seeker bot whose spot sequence froze this player
+    private float spectateAt = -1f;    // out: when the camera starts following someone else
+    private byte watching = 0xFF;
+    private Button nextButton;
 
     // ================= Entry points for the gameplay scripts =================
 
     /// <summary>
     /// Asked by the gun before it shoots (animation, sound, bullet effect): false while the
-    /// player is out, out of bullets, or inside the server's fire interval, whose extra shots
-    /// it would drop anyway.
+    /// player is out or inside the server's fire interval, whose extra shots it would drop
+    /// anyway. Never for want of bullets: default bullets are unlimited.
     /// </summary>
     public static bool TryFire()
     {
@@ -104,11 +122,20 @@ public partial class OnlineRound : MonoBehaviour
         return _instance.CanFire();
     }
 
-    /// <summary>The gun's shot, in the direction drawn on screen this frame.</summary>
-    public static void Fire(Vector3 worldDirection)
+    /// <summary>The gun's shot from its muzzle, in the direction drawn on screen this frame.</summary>
+    public static void Fire(Vector3 worldOrigin, Vector3 worldDirection)
     {
         if (!Active) return;
-        _instance.DoFire(worldDirection);
+        _instance.DoFire(worldOrigin, worldDirection);
+    }
+
+    /// <summary>Whether the hiders' Start button shows: a hider in the hide phase who has not pressed it.</summary>
+    public static bool WantsStartButton => Active && _instance.StartButtonWanted();
+
+    /// <summary>The hider's Start button (BotSeekController.SkipGrace during an online round).</summary>
+    public static void SkipHide()
+    {
+        if (Active) _instance.PressStart();
     }
 
     /// <summary>This round is the server's match <paramref name="id"/> (a MatchFound for it is a resume).</summary>
@@ -159,6 +186,7 @@ public partial class OnlineRound : MonoBehaviour
         paint = FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include);
         poses = FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include);
         gunHolder = FindAnyObjectByType<GunHolder>(FindObjectsInactive.Include);
+        camCtrl = FindAnyObjectByType<CameraController>();
         if (remotePrefab == null) remotePrefab = Resources.Load<GameObject>(remotePrefabPath);
 
         active = true;
@@ -169,6 +197,11 @@ public partial class OnlineRound : MonoBehaviour
         roster = entries;
         eliminated.Clear();
         nextFireAt = 0f;
+        lastBullets = -1;
+        startPressed = false;
+        spotter = null;
+        spectateAt = -1f;
+        watching = 0xFF;
         requestedPose = -1;
         matchId = id;
         matchEndShown = false;
@@ -195,6 +228,7 @@ public partial class OnlineRound : MonoBehaviour
         Net.OnRosterChanged += HandleRosterChanged;
         Net.OnRemotePaintStroke += HandleRemoteStroke;
         Net.OnRemotePaintReset += HandleRemoteReset;
+        Net.OnRemotePaintMaterial += HandleRemoteMaterial;
         Net.OnLoadoutChanged += HandleLoadoutChanged;
         Net.OnAuthenticated += HandleReauthenticated;
 
@@ -235,9 +269,13 @@ public partial class OnlineRound : MonoBehaviour
             Net.OnRosterChanged -= HandleRosterChanged;
             Net.OnRemotePaintStroke -= HandleRemoteStroke;
             Net.OnRemotePaintReset -= HandleRemoteReset;
+            Net.OnRemotePaintMaterial -= HandleRemoteMaterial;
             Net.OnLoadoutChanged -= HandleLoadoutChanged;
             Net.OnAuthenticated -= HandleReauthenticated;
         }
+
+        ClearSpot();
+        StopSpectating();
 
         OnlineRejoin.Clear();
         paintLog.Clear();
@@ -273,6 +311,8 @@ public partial class OnlineRound : MonoBehaviour
         FeedInput();
         RefreshCounters();
         ApplyCanvases();
+        UpdateSpotView();
+        UpdateSpectating();
         WatchConnection();
         if (!active) return;   // a seat that ran out ends the round right there
         PumpPaintReplay();
@@ -363,30 +403,45 @@ public partial class OnlineRound : MonoBehaviour
         if (!Net.IsConnected) return false;   // the shot would go nowhere; the banner says why
         if (Time.unscaledTime < nextFireAt) return false;
 
-        if (Net.Bullets <= 0)
-        {
-            ShowBanner("Out of bullets.", 2f);
-            return false;
-        }
-
+        // No bullet check: with no special bullets left the seeker shoots default bullets.
         nextFireAt = Time.unscaledTime + GameTuning.FireIntervalSeconds;
         return true;
     }
 
-    private void DoFire(Vector3 worldDirection)
+    private void DoFire(Vector3 worldOrigin, Vector3 worldDirection)
     {
         if (localOut) return;
 
-        // The shot itself is the Fire message (direction + the tick on screen); the held flag only
-        // animates the shooter for others, so it is released a moment later.
-        if (adapter != null) adapter.FirePressed(worldDirection);
-        else Net.Fire(worldDirection);
+        // The shot itself is the Fire message (muzzle, direction and the tick on screen); the held
+        // flag only animates the shooter for others, so it is released a moment later.
+        if (adapter != null) adapter.FirePressed(worldOrigin, worldDirection);
+        else Net.Fire(worldOrigin, worldDirection);
         fireReleaseAt = Time.unscaledTime + 0.2f;
     }
 
+    // Special bullets are counted (and spent first); default bullets never run out.
     private void RefreshBullets()
     {
-        if (bulletsLabel != null && Net != null) bulletsLabel.text = $"Bullets: {Net.Bullets}";
+        if (bulletsLabel == null || Net == null) return;
+
+        int bullets = Net.Bullets;
+        bulletsLabel.text = bullets > 0 ? $"Special bullets: {bullets}" : "Bullets: unlimited";
+        if (hunter && lastBullets > 0 && bullets == 0) ShowBanner("Out of special bullets: back to default bullets.", 2.5f);
+        lastBullets = bullets;
+    }
+
+    // ================= The hiders' Start button =================
+
+    private bool StartButtonWanted() =>
+        !hunter && !localOut && !startPressed && !resultShown && Net.Phase == MatchPhase.Hide && !Net.PhasePaused;
+
+    private void PressStart()
+    {
+        if (!StartButtonWanted()) return;
+
+        startPressed = true;
+        Net.SkipHide();
+        ShowBanner("Ready! The seek starts once every hider has pressed Start.", 3f);
     }
 
     // ================= Phases, timer, counters =================
@@ -442,6 +497,8 @@ public partial class OnlineRound : MonoBehaviour
                 {
                     localOut = true;
                     gmm.PlayerFrozen = true;
+                    ClearSpot();
+                    spectateAt = Time.unscaledTime + spectateDelaySeconds;
                 }
                 continue;
             }
@@ -477,6 +534,8 @@ public partial class OnlineRound : MonoBehaviour
         {
             localOut = true;
             if (gmm != null) gmm.PlayerFrozen = true;
+            ClearSpot();
+            spectateAt = Time.unscaledTime + spectateDelaySeconds;
             ShowBanner(cause == EliminationCause.Shot ? "You were shot! Watch the rest of the round."
                                                       : "You were caught! Watch the rest of the round.", 5f);
         }
@@ -490,9 +549,87 @@ public partial class OnlineRound : MonoBehaviour
         }
     }
 
-    private void HandleSpotAlert(byte slot)
+    // SpotAlert is sent only to the hider who was spotted, and names the seeker bot that spotted
+    // them (it used to be compared with this player's own slot, so the banner never showed).
+    // As in Single Play's BeginSpot: frozen — the server holds the hider still too — and the camera
+    // turned to the bot until its shot, SpotShootDelaySeconds later.
+    private void HandleSpotAlert(byte spotterSlot)
     {
-        if (slot == Net.LocalSlot && !hunter) ShowBanner("A seeker has spotted you! Move!", 2f);
+        if (hunter || localOut) return;
+
+        spotter = NetEntityRegistry.Get(spotterSlot);
+        if (gmm != null) gmm.PlayerFrozen = true;
+        ShowBanner("A seeker has spotted you!", 3f);
+    }
+
+    // Every frame, as Single Play's UpdateSpot does, since the bot turns as it aims.
+    private void UpdateSpotView()
+    {
+        if (spotter == null || camCtrl == null || localBody == null) return;
+        camCtrl.SetSpotView(spotter.transform, localBody);
+    }
+
+    private void ClearSpot()
+    {
+        if (spotter == null && (camCtrl == null || !camCtrl.IsSpotView)) return;
+        spotter = null;
+        if (camCtrl != null) camCtrl.ClearSpotView();
+    }
+
+    // ================= Spectating =================
+
+    // Out of the round: the camera follows the players still in, from spectateDelaySeconds after
+    // the catch until the result, moving on when the one watched is out too.
+    private void UpdateSpectating()
+    {
+        if (!localOut || resultShown || camCtrl == null || spectateAt < 0f) return;
+        if (Time.unscaledTime < spectateAt) return;
+
+        NetEntityView current = watching != 0xFF ? NetEntityRegistry.Get(watching) : null;
+        if (current == null || current.Eliminated) Watch(NextToWatch(watching));
+
+        if (nextButton != null) nextButton.gameObject.SetActive(watching != 0xFF);
+    }
+
+    // The next player still in after this slot (in slot order, wrapping), or 0xFF for none.
+    private byte NextToWatch(byte after)
+    {
+        if (roster == null) return 0xFF;
+
+        byte next = 0xFF, first = 0xFF;
+        foreach (MecchaNetClient.RosterEntry e in roster)
+        {
+            if (e.Slot == Net.LocalSlot || eliminated.Contains(e.Slot)) continue;
+            NetEntityView view = NetEntityRegistry.Get(e.Slot);
+            if (view == null || view.Eliminated) continue;
+
+            if (first == 0xFF || e.Slot < first) first = e.Slot;
+            if (after != 0xFF && e.Slot > after && (next == 0xFF || e.Slot < next)) next = e.Slot;
+        }
+
+        return next != 0xFF ? next : first;
+    }
+
+    private void Watch(byte slot)
+    {
+        watching = slot;
+        NetEntityView view = slot != 0xFF ? NetEntityRegistry.Get(slot) : null;
+        camCtrl.SetFollowTarget(view != null ? view.transform : null);
+        if (view != null) ShowBanner($"Watching {NameOf(slot)}", 2f);
+    }
+
+    private void WatchNext()
+    {
+        AudioManager.ButtonTap();
+        Watch(NextToWatch(watching));
+    }
+
+    private void StopSpectating()
+    {
+        spectateAt = -1f;
+        watching = 0xFF;
+        if (camCtrl != null) camCtrl.SetFollowTarget(null);
+        if (nextButton != null) nextButton.gameObject.SetActive(false);
     }
 
     private void HandleIdleWarning(int seconds)
@@ -532,6 +669,8 @@ public partial class OnlineRound : MonoBehaviour
     private void ShowResult(bool won, int rank, string score, long coinCents)
     {
         resultShown = true;
+        ClearSpot();
+        StopSpectating();
         OnlineRejoin.Clear();   // the match is decided: nothing left to rejoin
         string rankText = rank > 0 ? $"#{rank}/8" : "-";
 
@@ -605,6 +744,14 @@ public partial class OnlineRound : MonoBehaviour
         Outline bulletsOutline = bulletsLabel.gameObject.AddComponent<Outline>();
         bulletsOutline.effectColor = new Color(0f, 0f, 0f, 0.8f);
         bulletsLabel.gameObject.SetActive(false);
+
+        // Spectating: switch to the next player still in, bottom centre.
+        nextButton = OnlineUI.NewButton(canvas.transform, "Next player", Vector2.zero, new Vector2(360f, 96f),
+                                        OnlineUI.Blue, WatchNext);
+        RectTransform nrt = (RectTransform)nextButton.transform;
+        nrt.anchorMin = nrt.anchorMax = nrt.pivot = new Vector2(0.5f, 0f);
+        nrt.anchoredPosition = new Vector2(0f, 60f);
+        nextButton.gameObject.SetActive(false);
     }
 
     private void ShowBanner(string text, float seconds)

@@ -6,10 +6,11 @@ using Meccha.Shared.Protocol;
 using UnityEngine;
 using UnityEngine.UI;
 
-// Multiple Play after sign-in: Seeker/Hider -> Room Selection (a price tier, not a map) ->
-// Matchmaking with Players, shown in the game's own MatchmakingUI with the server's real roster ->
-// Game Start: from MatchStart the round itself belongs to OnlineRound. Adapted from the role, room
-// and lobby parts of the SDK sample's OnlineFlow.
+// Multiple Play after sign-in: Seeker/Hider -> Room Selection (a price tier) -> the map, in Single
+// Play's own map picker (MapSelectPopup; the server matches players only with others on the same
+// map) -> Matchmaking with Players, shown in the game's own MatchmakingUI with the server's real
+// roster -> Game Start: from MatchStart the round itself belongs to OnlineRound. Adapted from the
+// role, room and lobby parts of the SDK sample's OnlineFlow.
 //
 // Only free rooms can be joined until online rounds have been proven: a paid room holds a real
 // entry, and leaving one before the round counts toward the server's early-leave cooldown.
@@ -20,7 +21,7 @@ using UnityEngine.UI;
 // round that was running (OfferRejoin): signing in then lands straight back in the held seat.
 public class OnlineLobby : MonoBehaviour
 {
-    private enum Step { Idle, Role, Room, Searching, Lobby, Match, Rejoin }
+    private enum Step { Idle, Role, Room, Map, Searching, Lobby, Match, Rejoin }
 
     [Tooltip("Rejoining after a restart: how long after signing in to wait for the held seat.")]
     [SerializeField] private float rejoinWaitSeconds = 3f;
@@ -49,7 +50,9 @@ public class OnlineLobby : MonoBehaviour
     private MetaProfile profile;
     private RolePreference role = RolePreference.Any;
     private MetaRoom room;
-    private string mapName = "";
+    private string mapName = "";          // the match's map, as MatchFound names it
+    private string chosenMap = "";        // the map picked for FindMatch; "" = any
+    private string[] serverMaps;          // the maps the server has baked (ListRooms)
 
     // ---- UI ---------------------------------------------------------------------------------
     private GameObject roleScreen, roomScreen, lobbyBar, noticeScreen, rejoinScreen;
@@ -162,7 +165,7 @@ public class OnlineLobby : MonoBehaviour
     // connection drops (a held seat only exists once a match was found), so ask again.
     private void HandleAuthenticated()
     {
-        if (step == Step.Searching && room.Id != null) Net.FindMatch(role, room.Id, ModelId());
+        if (step == Step.Searching && room.Id != null) Net.FindMatch(role, room.Id, ModelId(), chosenMap);
     }
 
     // The SDK does not reconnect after this one: another device has the account now.
@@ -307,6 +310,7 @@ public class OnlineLobby : MonoBehaviour
             }
 
             if (error == null) roomError.text = "";
+            serverMaps = reply.Maps;
             BuildRoomButtons(reply.Rooms);
         });
     }
@@ -343,7 +347,71 @@ public class OnlineLobby : MonoBehaviour
     {
         AudioManager.ButtonTap();
         room = picked;
-        StartSearch();
+        PickMap();
+    }
+
+    // ================= Map (Single Play's picker) =================
+
+    // The same map picker as Single Play. A room that fixes its map skips it, and so does a server
+    // that has none of this build's maps (it then picks one itself).
+    private void PickMap()
+    {
+        if (!string.IsNullOrEmpty(room.Map))
+        {
+            chosenMap = room.Map;
+            StartSearch();
+            return;
+        }
+
+        MapSelectPopup popup = MapSelectPopup.Instance;
+        LevelManager levels = LevelManager.Instance;
+        if (popup == null || !popup.Ready || levels == null || !ServerHasAnyMapOf(levels))
+        {
+            chosenMap = "";
+            StartSearch();
+            return;
+        }
+
+        step = Step.Map;
+        HideScreens();
+
+        int version = flowVersion;
+        popup.Show(() =>
+        {
+            if (version != flowVersion || step != Step.Map) return;
+
+            string map = levels.CurrentRoomName;
+            if (!ServerHasMap(map))
+            {
+                ShowRoomScreen($"<color=#FFC759>{MapTitle(map)} isn't available online yet. Pick another map.</color>");
+                return;
+            }
+
+            chosenMap = map;
+            StartSearch();
+        },
+        () =>
+        {
+            if (version != flowVersion || step != Step.Map) return;
+            ShowRoomScreen(null);
+        });
+    }
+
+    // An older server's room list carries no maps: then every map is offered, and the server says
+    // (FindMatchError.UnknownMap) if one is not baked.
+    private bool ServerHasMap(string map) =>
+        serverMaps == null || serverMaps.Length == 0 || Array.IndexOf(serverMaps, map) >= 0;
+
+    private bool ServerHasAnyMapOf(LevelManager levels)
+    {
+        if (serverMaps == null || serverMaps.Length == 0) return true;
+
+        for (int i = 0; i < levels.Count; i++)
+        {
+            if (Array.IndexOf(serverMaps, levels.RoomNameAt(i)) >= 0) return true;
+        }
+
+        return false;
     }
 
     // ================= Matchmaking =================
@@ -352,12 +420,12 @@ public class OnlineLobby : MonoBehaviour
     {
         step = Step.Searching;
         HideScreens();
-        mapName = "";
+        mapName = chosenMap;
 
         if (matchmaking != null)
         {
             matchmaking.BeginOnline(role == RolePreference.Seeker, "Searching for players...");
-            matchmaking.SetMapLabel("Server picks the map");
+            matchmaking.SetMapLabel(string.IsNullOrEmpty(chosenMap) ? "Server picks the map" : MapTitle(chosenMap));
             matchmaking.SetCoinText((Net.CoinCents / 100).ToString());
         }
 
@@ -371,7 +439,7 @@ public class OnlineLobby : MonoBehaviour
             message += $"\n{AvatarName(picked)} isn't unlocked online: playing as {AvatarName((int)model)}.";
         SetLobbyMessage(message);
 
-        Net.FindMatch(role, room.Id, model);
+        Net.FindMatch(role, room.Id, model, chosenMap);
     }
 
     /// <summary>
@@ -653,6 +721,7 @@ public class OnlineLobby : MonoBehaviour
             case FindMatchError.NotEnoughCoins: return "Not enough coins for this room.";
             case FindMatchError.LeaveCooldown: return "You left too many matches early. Try again in a few minutes.";
             case FindMatchError.PaidRoomsUnavailable: return "Paid rooms are closed on this server.";
+            case FindMatchError.UnknownMap: return "That map isn't available online yet. Pick another map.";
             default: return "The server refused the request.";
         }
     }

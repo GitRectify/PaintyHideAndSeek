@@ -97,6 +97,14 @@ namespace Meccha.Client
             if (MecchaNetClient.Instance != null) MecchaNetClient.Instance.Fire(worldDirection);
         }
 
+        /// <summary>As <see cref="FirePressed(Vector3)"/>, from the muzzle the bullet is drawn from (protocol 4).</summary>
+        public void FirePressed(Vector3 worldOrigin, Vector3 worldDirection)
+        {
+            fireHeld = true;
+
+            if (MecchaNetClient.Instance != null) MecchaNetClient.Instance.Fire(worldOrigin, worldDirection);
+        }
+
         public void FireReleased() => fireHeld = false;
     }
 }

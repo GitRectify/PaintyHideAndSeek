@@ -76,6 +76,7 @@ public partial class OnlineRound
         offlineSince = -1f;
         ClearCanvases();
         QueuePaintReplay(since);
+        ResendPaintMaterial();
         ShowBanner("Reconnected.", 2f);
     }
 

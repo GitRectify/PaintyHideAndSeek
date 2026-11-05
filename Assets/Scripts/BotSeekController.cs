@@ -449,6 +449,14 @@ public class BotSeekController : MonoBehaviour
     // RootManager throws.
     public void SkipGrace()
     {
+        // Online the same button tells the server this hider is ready; the seek starts once
+        // every hider has pressed it (OnlineRound.SkipHide).
+        if (OnlineRound.Active)
+        {
+            OnlineRound.SkipHide();
+            return;
+        }
+
         // Singleton<RootManager>.Instance.ShowInterAds_Native();
         if (state == State.Grace && chasePlayer)
         {
@@ -481,7 +489,7 @@ public class BotSeekController : MonoBehaviour
     // move/detect/look. Running out the clock without being caught is a win.
     private void Update()
     {
-        SetStartButtonVisible(chasePlayer && state == State.Grace);
+        SetStartButtonVisible(OnlineRound.Active ? OnlineRound.WantsStartButton : chasePlayer && state == State.Grace);
 
         if (state == State.Idle || state == State.Over) return;
         if (playerTf == null) return;

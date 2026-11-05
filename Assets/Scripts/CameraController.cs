@@ -126,6 +126,7 @@ public class CameraController : MonoBehaviour
     private float _scoutFloorY;
     private float _scoutRoofY;
     private Transform character;
+    private Transform playerCharacter;   // the scene's own player; character while not spectating
     private Camera cam;
     private ChameleonPaint paint;
     private GameModeManager gmm;
@@ -154,6 +155,7 @@ public class CameraController : MonoBehaviour
         if (player != null)
         {
             character = player.transform;
+            playerCharacter = character;
         }
         cam = Camera.main;
         paint = FindAnyObjectByType<ChameleonPaint>();
@@ -490,6 +492,21 @@ public class CameraController : MonoBehaviour
         spotBot = null;
         spotTarget = null;
     }
+
+    // Online spectating (OnlineRound): follow another player's body instead of the player's own;
+    // null goes back to the player. The height smoothing snaps to the new body.
+    public void SetFollowTarget(Transform target)
+    {
+        if (playerCharacter == null) playerCharacter = character;
+        Transform next = target != null ? target : playerCharacter;
+        if (next == character) return;
+        character = next;
+        _smoothYInit = false;
+        _freeLook = false;
+        ClearSpotView();
+    }
+
+    public bool IsFollowingOther => character != null && playerCharacter != null && character != playerCharacter;
 
     // Turning free-look on starts the scout pivot at the character and measures the room.
     public void SetFreeLook(bool on)
