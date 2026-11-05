@@ -30,6 +30,8 @@ using UnityEngine.UI;
 //   * As in Single Play: the hider's Start button (BotSeekController.SkipGrace) sends SkipHide, and
 //     the seek starts once every hider has pressed it; a seeker bot that spots the player freezes
 //     them and the camera turns to it (SpotAlert names the bot) until its shot.
+//   * The camera position is reported a few times a second (SetViewPoint): the server sends
+//     whoever the camera can see, not only who the body's eye can (gap G10).
 //   * Out of the round, the player spectates: the server sends everyone, and the camera follows the
 //     players still in (Next switches) until the result.
 //   * Poses and weapons are the shop's: PoseSelectorUI sends a pick through SendPose (owned poses
@@ -327,6 +329,7 @@ public partial class OnlineRound : MonoBehaviour
 
         UpdateTimer();
         FeedInput();
+        ReportCamera();
         RefreshCounters();
         ApplyCanvases();
         UpdateSpotView();
@@ -419,6 +422,15 @@ public partial class OnlineRound : MonoBehaviour
         gun.SpawnRemoteBullet(shot.Origin, shot.Impact - shot.Origin,
                               view != null ? view.transform : null,
                               BulletSpecs.Of(shot.Bullet).RadiusScale);
+    }
+
+    // The camera, for what the server sends us (gap G10): the third-person camera sees round
+    // corners the body cannot, and a hider on screen used to vanish because the server judged
+    // only from the body's eye.
+    private void ReportCamera()
+    {
+        Camera cam = Camera.main;
+        if (cam != null) Net.SetViewPoint(cam.transform.position);
     }
 
     // ================= Input =================
