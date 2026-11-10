@@ -502,8 +502,7 @@ public class CameraController : MonoBehaviour
         if (next == character) return;
         character = next;
         _smoothYInit = false;
-        _freeLook = false;
-        ClearSpotView();
+        ClearSpotView();    // free look is left alone: spectating moves on without taking it away
     }
 
     public bool IsFollowingOther => character != null && playerCharacter != null && character != playerCharacter;

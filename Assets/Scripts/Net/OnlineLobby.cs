@@ -264,6 +264,7 @@ public class OnlineLobby : MonoBehaviour
         step = Step.Idle;
         HideScreens();
         if (matchmaking != null) matchmaking.EndOnline();
+        if (home != null) home.SetHomeVisible(true);
         if (fromRound && home != null) home.GoHome();
         onClosed?.Invoke();
     }
@@ -324,6 +325,7 @@ public class OnlineLobby : MonoBehaviour
     {
         step = Step.Room;
         HideScreens();
+        if (home != null) home.SetHomeVisible(true);
         roomScreen.SetActive(true);
         roomBalance.text = $"Your coins: {OnlineUI.CoinsText(Net.CoinCents)}";
         roomError.text = error ?? "Loading rooms...";
@@ -454,6 +456,7 @@ public class OnlineLobby : MonoBehaviour
     {
         step = Step.Searching;
         HideScreens();
+        if (home != null) home.SetHomeVisible(false);
         mapName = chosenMap;
 
         if (matchmaking != null)
@@ -554,6 +557,7 @@ public class OnlineLobby : MonoBehaviour
         if (step != Step.Searching && step != Step.Lobby)
         {
             HideScreens();
+            if (home != null) home.SetHomeVisible(false);
             if (matchmaking != null)
             {
                 matchmaking.BeginOnline(info.YourRole == Role.Hunter, "");

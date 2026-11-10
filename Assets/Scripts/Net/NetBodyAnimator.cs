@@ -6,7 +6,9 @@ using UnityEngine;
 // parameters the local player's scripts use offline: "Nam" (prone, Mode1FirstPersonGun),
 // "Pose" = 1 while on a wall (WallClimber) and otherwise the struck pose (PoseSelectorUI), and
 // "GunFire" on a shot (the gun and BotSeekController). "Speed" is NetEntityView's own, from the
-// interpolated movement. A parameter the body's controller does not have is skipped.
+// interpolated movement. A parameter the body's controller does not have is skipped. The "Gun"
+// layer, which a seeker's body holds at full weight, comes off while they lie down or climb: it
+// overrides the base layer, so those poses never showed through it.
 [DisallowMultipleComponent]
 public class NetBodyAnimator : MonoBehaviour
 {
@@ -18,6 +20,7 @@ public class NetBodyAnimator : MonoBehaviour
     private Animator anim;
     private bool hasNam, hasPose, hasGunFire;
     private bool wasClimbing, wasProne;
+    private int gunLayer = -1;
 
     public void Bind(NetEntityView entity)
     {
@@ -30,6 +33,12 @@ public class NetBodyAnimator : MonoBehaviour
             if (p.nameHash == NamHash && p.type == AnimatorControllerParameterType.Bool) hasNam = true;
             else if (p.nameHash == PoseHash && p.type == AnimatorControllerParameterType.Int) hasPose = true;
             else if (p.nameHash == GunFireHash && p.type == AnimatorControllerParameterType.Trigger) hasGunFire = true;
+        }
+
+        if (entity.Role != Role.Hunter) return;
+        for (int i = 0; i < anim.layerCount; i++)
+        {
+            if (anim.GetLayerName(i) == "Gun") gunLayer = i;
         }
     }
 
@@ -46,6 +55,9 @@ public class NetBodyAnimator : MonoBehaviour
         EntityFlags flags = view.Flags;
         bool prone = (flags & EntityFlags.Prone) != 0;
         bool climbing = (flags & EntityFlags.Climbing) != 0;
+
+        if (gunLayer >= 0 && (prone != wasProne || climbing != wasClimbing))
+            anim.SetLayerWeight(gunLayer, prone || climbing ? 0f : 1f);
 
         if (hasNam && prone != wasProne) anim.SetBool(NamHash, prone);
         wasProne = prone;

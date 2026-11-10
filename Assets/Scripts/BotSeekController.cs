@@ -86,6 +86,17 @@ public class BotSeekController : MonoBehaviour
         public bool seenHasVel;              // 0x14C
         public float backupTimer;            // 0x150
 
+        // Wall climbing (StepClimb).
+        public bool climbing;
+        public int climbDir;                 // ClimbApproach, 1 up, 0 holding, -1 down
+        public Vector3 climbNormal;          // the wall's level outward direction
+        public float climbStartFeet;
+        public float climbTopFeet;           // the highest its feet go on this wall
+        public float climbTimer;             // gives up after BotClimbGiveUpSeconds
+        public float climbHoldTimer;
+        public float climbOverTimer;         // walking on to the top of what it climbed
+        public float nextClimbAt;
+
         // Online only (see IOnlineBotGame).
         public Transform onlineSpot;         // the human hider this bot has spotted
         public float onlineSpotUntil;
@@ -241,9 +252,27 @@ public class BotSeekController : MonoBehaviour
     [Tooltip("When false (Mode 1 ally seekers), the bots roam/search but never lock onto the player.")]
     public bool chasePlayer = true;
 
-    [Header("Seeker gun (a clone of the player's gun, placed in each seeker bot's hand)")]
-    public string gunObjectName = "gun";
+    [Header("Seeker gun (Resources/GameObjects/gun, placed in each seeker bot's hand by SeekerGun)")]
     public string handBoneName = "mixamorig:RightHand";
+
+    [Header("Wall climbing (a seeker goes up what it walks up to, like the player's WallClimber)")]
+    [Tooltip("Off: seekers only walk.")]
+    public bool botsClimbWalls = true;
+    [Tooltip("World units per second on a wall. Matches WallClimber.climbSpeed.")]
+    public float botClimbSpeed = 8f;
+    [Tooltip("How far beyond its body a bot notices a wall.")]
+    public float botWallCheckDistance = 6f;
+    [Tooltip("Only surfaces steeper than this (degrees from straight up) are walls. Matches WallClimber.minWallSteepness.")]
+    public float botMinWallSteepness = 50f;
+    [Tooltip("How high above its feet a bot goes up a wall too tall to get over, picked at random in this range.")]
+    public Vector2 botClimbHeightRange = new Vector2(10f, 24f);
+    [Tooltip("Chance a searching bot goes up a wall it has come to. A bot that is blocked, or whose target is above it, always does.")]
+    [Range(0f, 1f)]
+    public float botClimbChance = 0.5f;
+    [Tooltip("Seconds before a bot will climb again.")]
+    public float botClimbCooldown = 8f;
+    [Tooltip("Seconds a bot stays up, looking around, before coming down.")]
+    public float botClimbHoldSeconds = 1.5f;
 
     [Header("Seeker shooting (a spotted target is SHOT — the bullet's hit ends it, not the sighting)")]
     [Tooltip("Seconds between a seeker bot's shots while it keeps a target locked. The bullet's impact — not the spotting — is what catches the player / removes a hider.")]
@@ -681,6 +710,12 @@ public class BotSeekController : MonoBehaviour
     {
         if (b.tf == null) return;
 
+        if (b.climbing)
+        {
+            StepClimb(b, dt);
+            return;
+        }
+
         // Gravity (dt capped at 0.05 s).
         if (b.cc != null && b.cc.enabled)
         {
@@ -776,6 +811,9 @@ public class BotSeekController : MonoBehaviour
             Vector3 toPoint = new Vector3(sp.x - pos.x, 0f, sp.z - pos.z);
             if (toPoint.magnitude <= arriveDistance * 2f)
             {
+                // Hiders go up walls, so a wall beside the search point may be searched too.
+                if (TryClimbNearby(b)) return;
+
                 if (b.anim != null)
                 {
                     b.anim.SetFloat(SpeedHash, 0f);
@@ -888,6 +926,8 @@ public class BotSeekController : MonoBehaviour
             b.anim.SetFloat(SpeedHash, 1f);
         }
 
+        if (TryStartClimb(b, dir, b.stuckTimer > 0.2f)) return;
+
         // Progress check every 1.4 s: less than 4 units covered means the pursuit is abandoned.
         b.progressTimer += dt;
         if (b.progressTimer >= 1.4f)
@@ -994,6 +1034,210 @@ public class BotSeekController : MonoBehaviour
 
         if (face.x * face.x + face.z * face.z <= 0.001f) return;
         b.tf.rotation = Quaternion.Slerp(b.tf.rotation, Quaternion.LookRotation(face), dt * 10f);
+    }
+
+    // ====================== WALL CLIMBING ======================
+
+    private const int ClimbApproach = 2;
+    private const float BotClimbGiveUpSeconds = 12f;
+
+    /// <summary>Whether this seeker bot is on a wall now; online, the other players are told.</summary>
+    public bool IsClimbing(Transform body)
+    {
+        foreach (SeekBot b in bots)
+        {
+            if (b != null && b.tf == body) return b.climbing && b.climbDir != ClimbApproach && b.climbOverTimer <= 0f;
+        }
+        return false;
+    }
+
+    private static float BodyScale(SeekBot b) => Mathf.Max(0.01f, b.tf.lossyScale.y);
+    private static float BodyHeight(SeekBot b) => b.cc.height * BodyScale(b);
+    private static float BodyRadius(SeekBot b) => b.cc.radius * BodyScale(b);
+    private static float FeetY(SeekBot b) => b.tf.position.y + (b.cc.center.y - b.cc.height * 0.5f) * BodyScale(b);
+
+    // The nearest climbable surface along dir, heightUpBody above the feet. The same rule as the
+    // player's WallClimber: anything solid but the floor and characters, if it is steep enough.
+    private bool WallAhead(SeekBot b, Vector3 dir, float heightUpBody, out Vector3 normal, out float distance)
+    {
+        normal = -dir;
+        distance = float.MaxValue;
+
+        Vector3 centre = b.tf.TransformPoint(b.cc.center);
+        var origin = new Vector3(centre.x, FeetY(b) + heightUpBody, centre.z);
+        int n = Physics.RaycastNonAlloc(origin, dir, _rayHits, BodyRadius(b) + botWallCheckDistance, ~0, QueryTriggerInteraction.Ignore);
+
+        bool found = false;
+        for (int i = 0; i < n; i++)
+        {
+            RaycastHit hit = _rayHits[i];
+            if (hit.distance <= 0f || hit.distance >= distance) continue;
+            if (hit.collider is CharacterController || IsCharacter(hit.collider) || hit.collider.CompareTag("Ground")) continue;
+            if (Vector3.Angle(hit.normal, Vector3.up) < botMinWallSteepness) continue;
+
+            distance = hit.distance;
+            normal = hit.normal;
+            found = true;
+        }
+        return found;
+    }
+
+    // A wall in front of this heading, and a reason to go up it: the bot is blocked, what it is
+    // after is above it, or it is searching and the dice say so.
+    private bool TryStartClimb(SeekBot b, Vector3 heading, bool blocked)
+    {
+        if (!botsClimbWalls || b.cc == null || !b.cc.enabled || Time.time < b.nextClimbAt) return false;
+
+        // At the ankles and the waist: a ledge the bot can step on or a table it can walk under is not a wall.
+        float height = BodyHeight(b);
+        if (!WallAhead(b, heading, height * 0.1f, out Vector3 normal, out float _)) return false;
+        if (!WallAhead(b, heading, height * 0.4f, out normal, out float _)) return false;
+
+        var outward = new Vector3(normal.x, 0f, normal.z);
+        if (outward.sqrMagnitude < 0.01f) return false;
+        outward.Normalize();
+        if (!blocked && Vector3.Dot(outward, -heading) < 0.5f) return false;   // only passing along it
+
+        bool targetAbove = b.alerted && b.lastSeen.y > b.tf.position.y + height * 0.5f;
+        if (!blocked && !targetAbove && (b.alerted || Random.value > botClimbChance))
+        {
+            b.nextClimbAt = Time.time + 1.5f;
+            return false;
+        }
+
+        b.climbing = true;
+        b.climbDir = ClimbApproach;
+        b.climbNormal = outward;
+        b.climbStartFeet = FeetY(b);
+        b.climbTopFeet = b.climbStartFeet + Random.Range(botClimbHeightRange.x, botClimbHeightRange.y);
+        b.climbTimer = 0f;
+        b.climbHoldTimer = 0f;
+        b.climbOverTimer = 0f;
+        b.vy = 0f;
+        return true;
+    }
+
+    private bool TryClimbNearby(SeekBot b)
+    {
+        return TryStartClimb(b, b.tf.forward, false) || TryStartClimb(b, b.tf.right, false)
+            || TryStartClimb(b, -b.tf.right, false) || TryStartClimb(b, -b.tf.forward, false);
+    }
+
+    private void StepClimb(SeekBot b, float dt)
+    {
+        if (b.cc == null || !b.cc.enabled)
+        {
+            EndClimb(b);
+            return;
+        }
+
+        b.climbTimer += dt;
+        if (b.climbTimer > BotClimbGiveUpSeconds)
+        {
+            EndClimb(b);
+            return;
+        }
+
+        Vector3 into = -b.climbNormal;
+        b.tf.rotation = Quaternion.Slerp(b.tf.rotation, Quaternion.LookRotation(into), dt * 10f);
+
+        // Over the top: on to what it climbed, and gravity takes over from there.
+        if (b.climbOverTimer > 0f)
+        {
+            b.climbOverTimer -= dt;
+            b.cc.Move(into * (walkSpeed * dt));
+            if (b.climbOverTimer <= 0f) EndClimb(b);
+            return;
+        }
+
+        float ankles = BodyHeight(b) * 0.1f;
+
+        if (b.climbDir == ClimbApproach)
+        {
+            if (!WallAhead(b, into, ankles, out Vector3 _, out float distance))
+            {
+                EndClimb(b);
+                return;
+            }
+
+            float gap = distance - BodyRadius(b) - 0.3f;
+            if (gap > 0.05f)
+            {
+                if (b.anim != null) b.anim.SetFloat(SpeedHash, 1f);
+                b.cc.Move(into * Mathf.Min(gap, walkSpeed * dt) + Vector3.down * (botGravity * 0.05f * dt));
+                return;
+            }
+
+            b.climbDir = 1;
+            if (b.anim != null)
+            {
+                b.anim.SetFloat(SpeedHash, 0f);
+                b.anim.SetInteger(PoseHash, 1);
+            }
+            SetGunPose(b.anim, false);     // the "Gun" layer would hide the climbing pose
+            return;
+        }
+
+        if (b.climbDir > 0)
+        {
+            if (!WallAhead(b, into, ankles, out Vector3 _, out float _))
+            {
+                b.climbOverTimer = 0.4f;   // its feet have cleared the top
+                return;
+            }
+
+            if (FeetY(b) >= b.climbTopFeet || CeilingAbove(b))
+            {
+                b.climbDir = 0;
+                b.climbHoldTimer = botClimbHoldSeconds;
+                return;
+            }
+
+            b.cc.Move(Vector3.up * (botClimbSpeed * dt));
+            return;
+        }
+
+        if (b.climbDir == 0)
+        {
+            b.climbHoldTimer -= dt;
+            if (b.climbHoldTimer <= 0f) b.climbDir = -1;
+            return;
+        }
+
+        b.cc.Move(Vector3.down * (botClimbSpeed * 1.5f * dt));
+        if (b.cc.isGrounded || FeetY(b) <= b.climbStartFeet + 0.25f) EndClimb(b);
+    }
+
+    private bool CeilingAbove(SeekBot b)
+    {
+        Vector3 centre = b.tf.TransformPoint(b.cc.center);
+        var head = new Vector3(centre.x, FeetY(b) + BodyHeight(b), centre.z);
+        return Physics.Raycast(head, Vector3.up, out RaycastHit hit, 1.5f, ~0, QueryTriggerInteraction.Ignore) && !IsCharacter(hit.collider);
+    }
+
+    // Back to walking, from wherever it ended up: the path is planned afresh and every timer that
+    // watches for a stuck bot starts again, since a bot on a wall makes no headway across the floor.
+    private void EndClimb(SeekBot b)
+    {
+        b.climbing = false;
+        b.climbDir = 0;
+        b.climbOverTimer = 0f;
+        b.nextClimbAt = Time.time + botClimbCooldown * Random.Range(0.7f, 1.3f);
+        b.vy = 0f;
+        b.corners = null;
+        b.repathTimer = 0f;
+        b.stuckTimer = 0f;
+        b.sidestepTimer = 0f;
+        b.noProgressTimer = 0f;
+        b.bestDist = float.MaxValue;
+        b.targetTimer = 0f;
+        b.progressTimer = 0f;
+        b.progressAnchor = b.tf.position;
+        b.idleAnchor = b.tf.position;
+        b.idleTimer = 0f;
+
+        if (b.anim != null) b.anim.SetInteger(PoseHash, 0);
+        SetGunPose(b.anim, true);
     }
 
     // Steps the bot 8 units backwards (onto the floor NavMesh) and drops the current chase/target.
@@ -2153,20 +2397,10 @@ public class BotSeekController : MonoBehaviour
         return ragdoll.IsRagdolling;
     }
 
-    // Gives each seeker a BotLook and the "Gun" animator layer, and a clone of the scene's gun
-    // (named "BotGun") in its hand bone, placed with the GunHolder's offsets.
+    // Gives each seeker a BotLook, the "Gun" animator layer and the gun prefab (named "BotGun") in
+    // its hand bone.
     private void AttachGunsToSeekers()
     {
-        GameObject gunSrc = FindInScene(gunObjectName);
-        // GunHolder holder = Object.FindAnyObjectByType<GunHolder>();
-        // Vector3 localPos = holder != null ? holder.localPosition : Vector3.zero;
-        // Vector3 localEuler = holder != null ? holder.localEuler : Vector3.zero;
-        // Vector3 localScale = holder != null ? holder.localScale : Vector3.one;
-
-        Vector3 localPos = gunSrc.transform.localPosition;
-        Vector3 localEuler = gunSrc.transform.localEulerAngles;
-        Vector3 localScale = gunSrc.transform.localScale;
-
         for (int i = 0; i < bots.Count; i++)
         {
             SeekBot b = bots[i];
@@ -2183,7 +2417,6 @@ public class BotSeekController : MonoBehaviour
             }
 
             SetGunPose(b.anim, true);
-            if (gunSrc == null) continue;
 
             Transform hand = null;
             Transform[] all = b.tf.GetComponentsInChildren<Transform>(true);
@@ -2205,13 +2438,7 @@ public class BotSeekController : MonoBehaviour
             }
             else
             {
-                GameObject gun = Object.Instantiate(gunSrc, hand, false);
-                gun.name = "BotGun";
-                gun.transform.localPosition = localPos;
-                gun.transform.localEulerAngles = localEuler;
-                gun.transform.localScale = localScale;
-                gun.SetActive(true);
-                b.gunTf = gun.transform;
+                b.gunTf = SeekerGun.Attach(hand, "BotGun");
             }
         }
     }
@@ -2783,6 +3010,10 @@ public class BotSeekController : MonoBehaviour
                 b.sniffHold = false;
                 b.sniffReachable = false;
                 b.poiPoint = b.tf.position;
+                b.climbing = false;
+                b.climbDir = 0;
+                b.climbOverTimer = 0f;
+                b.nextClimbAt = 0f;
                 if (b.look != null)
                 {
                     b.look.LookForward();

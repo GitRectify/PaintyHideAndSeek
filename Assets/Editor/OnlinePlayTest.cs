@@ -237,6 +237,11 @@ public static class OnlinePlayTest
 
             case Step.Match:
                 if (!lobbyLaidOut) { lobbyLaidOut = true; CheckLobbyLayout(); }
+                if (!homeChecked && FindByName("MatchmakingCanvas") is { activeSelf: true })
+                {
+                    homeChecked = true;
+                    Check(FindByName("HomeCanvas") is { activeSelf: false }, "the Home screen is hidden during matchmaking");
+                }
                 if (!OnlineRound.Active) return;
                 Check(Net.MatchSeats == Seats, $"the match has the room's {Seats} seats ({Net.MatchSeats})");
                 Check(Net.LocalRole == (Seeker ? Role.Hunter : Role.Fugitive), $"plays the side picked ({Net.LocalRole})");
@@ -405,7 +410,7 @@ public static class OnlinePlayTest
     private static int matchesFound, matchesAtAgain;
 
     private static bool signedIn, bought, boughtAnswered, submittedName, reboughtAnswered;
-    private static bool lobbyLaidOut;
+    private static bool lobbyLaidOut, homeChecked;
 
     // The lobby screen with every seat taken: bots fill a lobby in the same tick the round starts,
     // so this is laid out directly. Each seat must show, inside its column, overlapping no other.
@@ -513,7 +518,8 @@ public static class OnlinePlayTest
     private static bool hostingBeganLate;
     private static bool Handover => System.Environment.GetCommandLineArgs().Contains("-playtestHandover");
     private static readonly Dictionary<byte, Vector3> hostedStart = new Dictionary<byte, Vector3>();
-    private static float hostedSeekerWalked, worstHostedGap;
+    private static float hostedSeekerWalked, worstHostedGap, hostedClimbRise;
+    private static readonly HashSet<byte> hostedClimbers = new HashSet<byte>();
 
     // Single Play's last-resort rescue hops a stranded seeker across the room. The server lets the
     // body catch up at running speed, so it is left out of the gap until it has.
@@ -533,6 +539,12 @@ public static class OnlinePlayTest
             if (!hostedStart.ContainsKey(v.Slot)) { hostedStart[v.Slot] = v.FeetPosition; continue; }
             if (v.Role == Role.Hunter)
             {
+                if (Object.FindAnyObjectByType<BotSeekController>().IsClimbing(v.transform))
+                {
+                    hostedClimbers.Add(v.Slot);
+                    hostedClimbRise = Mathf.Max(hostedClimbRise, v.FeetPosition.y - hostedStart[v.Slot].y);
+                }
+
                 hostedSeekerWalked = Mathf.Max(hostedSeekerWalked, Vector3.Distance(hostedStart[v.Slot], v.FeetPosition));
 
                 float now = Time.realtimeSinceStartup;
@@ -577,6 +589,7 @@ public static class OnlinePlayTest
             Check(hiderBotsPainted > 0, $"hider bots camouflaged themselves ({hiderBotsPainted})");
         }
         Check(hostedSeekerWalked > 15f, $"seeker bots walked the room under Single Play's seek logic (furthest {hostedSeekerWalked:F0} units from the start)");
+        Check(hostedClimbers.Count > 0 && hostedClimbRise > 3f, $"seeker bots climbed walls ({hostedClimbers.Count} bots, up to {hostedClimbRise:F0} units up)");
         Check(worstHostedGap < 15f, $"the server followed the hosted bots (worst gap {worstHostedGap:F1} units)");
         if (!Seeker) report.Add($"INFO  seeker bots spotted this hider {spotAlerts} time(s)");
         if (hostedHops > 0) report.Add($"INFO  a stranded seeker bot used Single Play's rescue hop {hostedHops} time(s)");
@@ -622,7 +635,7 @@ public static class OnlinePlayTest
     }
 
     // -playtestChase: the seeker walks up to the nearest hider instead of shooting, at walking speed
-    // and straight through anything, to prove a touch catch reaches the server.
+    // and straight through anything, to prove that touching a hider eliminates nobody.
     private static bool Chase => System.Environment.GetCommandLineArgs().Contains("-playtestChase");
 
     // Single Play's hider bots tuck in behind furniture, where a touch has no clear line: after a
@@ -632,27 +645,6 @@ public static class OnlinePlayTest
     private static byte chaseProgressSlot = 0xFF;
     private static float chaseBestDistance = float.MaxValue, chaseProgressAt;
     private static float chaseArrivedAt = -1f;
-
-    private static readonly List<string> chaseTrace = new List<string>();
-    private static float nextChaseTraceAt;
-
-    // Reported only when no catch was made: what ReportCatches would have seen.
-    private static void TraceChase(NetEntityView me, NetEntityView target)
-    {
-        float now = Time.realtimeSinceStartup;
-        if (now < nextChaseTraceAt || chaseTrace.Count > 40) return;
-        nextChaseTraceAt = now + 1f;
-
-        Vector3 eye = me.FeetPosition + Vector3.up * (GameTuning.PlayerHeight * 0.85f);
-        Vector3 line = target.transform.position - eye;
-        IEnumerable<string> blockers = Physics.RaycastAll(eye, line.normalized, line.magnitude, ~0, QueryTriggerInteraction.Ignore)
-            .Where(h => !Bullet.IsCharacter(h.collider) && Bullet.BlocksShot(h.collider.gameObject))
-            .Select(h => $"{h.collider.name}@{h.distance:F1}");
-        chaseTrace.Add($"  slot {target.Slot} dist {Vector3.Distance(me.transform.position, target.transform.position):F1} " +
-                       $"line {line.magnitude:F1} serverSelf ({me.LastServerFeet.x:F0},{me.LastServerFeet.y:F0},{me.LastServerFeet.z:F0}) " +
-                       $"feet ({me.FeetPosition.x:F0},{me.FeetPosition.y:F0},{me.FeetPosition.z:F0}) target ({target.transform.position.x:F0},{target.transform.position.y:F0},{target.transform.position.z:F0}) " +
-                       $"hosted={target.IsHosted} blocked by [{string.Join(", ", blockers)}]");
-    }
 
     private static void WalkToNearestHider()
     {
@@ -664,8 +656,6 @@ public static class OnlinePlayTest
             .OrderBy(v => Vector3.Distance(v.transform.position, me.transform.position))
             .FirstOrDefault();
         if (nearest == null) return;
-
-        TraceChase(me, nearest);
 
         Vector3 to = nearest.transform.position - me.transform.position;
         if (nearest.Slot != chaseTarget) { chaseTarget = nearest.Slot; chaseArrivedAt = -1f; }
@@ -697,8 +687,143 @@ public static class OnlinePlayTest
         if (cc != null) cc.enabled = true;
     }
 
+    // ================= What the 2026-11-10 fixes promise =================
+
+    private static bool spawnsChecked, playerPrefabChecked, gunChecked;
+
+    // Every seat of the match resolves to a place of its own, whichever number the match starts from.
+    private static void CheckSpawnsApart()
+    {
+        if (spawnsChecked || Net.Phase != MatchPhase.Hide) return;
+        spawnsChecked = true;
+
+        OnlineRound round = OnlineRoundInstance();
+        MethodInfo resolve = typeof(OnlineRound).GetMethod("ResolveSpawn", Any, null, new[] { typeof(int), typeof(bool) }, null);
+        int seekers = GameTuning.SeekersFor(Seats);
+        float closest = float.MaxValue;
+
+        foreach (int first in new[] { 0, 7, 199 })
+        {
+            var spots = new List<Vector3>();
+            for (int i = 0; i < seekers; i++) spots.Add((Vector3)resolve.Invoke(round, new object[] { first + i, true }));
+            for (int i = 0; i < Seats - seekers; i++) spots.Add((Vector3)resolve.Invoke(round, new object[] { first + i, false }));
+
+            for (int a = 0; a < spots.Count; a++)
+                for (int b = a + 1; b < spots.Count; b++)
+                    closest = Mathf.Min(closest, Vector2.Distance(new Vector2(spots[a].x, spots[a].z), new Vector2(spots[b].x, spots[b].z)));
+        }
+
+        Check(closest >= 9f, $"all {Seats} seats start apart (closest two {closest:F1} units)");
+    }
+
+    private static void CheckPlayerPrefab()
+    {
+        if (playerPrefabChecked) return;
+        playerPrefabChecked = true;
+
+        Transform player = PlayerRef.Active;
+        int bodies = Object.FindObjectsByType<SeekerCamProfile>(FindObjectsInactive.Include).Length;
+        Check(player != null && player.parent != null && player.parent.name == "Characters" && bodies == 1,
+              $"the player is one body spawned from Resources/Players ({(player != null ? player.name : "none")}, {bodies} in the scene)");
+    }
+
+    private static void CheckSeekerBotGun()
+    {
+        if (gunChecked) return;
+
+        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>().Where(x => !x.IsLocal && x.Role == Role.Hunter))
+        {
+            Transform gun = v.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == "NetGun" || t.name == "BotGun");
+            if (gun == null) continue;
+
+            gunChecked = true;
+            GameObject prefab = Resources.Load<GameObject>("GameObjects/gun");
+            Check(prefab != null && gun.GetComponent<MeshFilter>().sharedMesh == prefab.GetComponent<MeshFilter>().sharedMesh
+                  && gun.localScale == prefab.transform.localScale && gun.Find("MuzzlePoint") != null,
+                  "seeker bodies carry the gun from Resources/GameObjects");
+            return;
+        }
+    }
+
+    // A seeker's body lying down shows it: the "Gun" layer used to cover the pose.
+    private static int proneStage;
+    private static float proneAt;
+    private static NetEntityView proneBody;
+
+    private static void CheckSeekerBodyLiesDown()
+    {
+        if (proneStage >= 3 || Net.Phase != MatchPhase.Seek) return;
+
+        PropertyInfo flags = typeof(NetEntityView).GetProperty("Flags", Any);
+        BotSeekController seek = Object.FindAnyObjectByType<BotSeekController>();
+        float now = Time.realtimeSinceStartup;
+
+        if (proneStage == 0)
+        {
+            proneBody = Object.FindObjectsByType<NetEntityView>()
+                .FirstOrDefault(v => v.IsHosted && v.Role == Role.Hunter && v.GetComponent<NetBodyAnimator>() != null && !seek.IsClimbing(v.transform));
+            if (proneBody == null) return;
+            flags.SetValue(proneBody, EntityFlags.Prone);
+            proneStage = 1;
+            proneAt = now;
+            return;
+        }
+
+        if (now < proneAt + 0.3f) return;
+
+        Animator animator = proneBody.GetComponentInChildren<Animator>();
+        int layer = animator.GetLayerIndex("Gun");
+
+        if (proneStage == 1)
+        {
+            Check(animator.GetBool("Nam") && animator.GetLayerWeight(layer) == 0f, "a seeker's body lying down is drawn lying down (Gun layer off)");
+            flags.SetValue(proneBody, EntityFlags.None);
+            proneStage = 2;
+            proneAt = now;
+            return;
+        }
+
+        Check(!animator.GetBool("Nam") && animator.GetLayerWeight(layer) == 1f, "and it gets up again with its gun");
+        proneStage = 3;
+    }
+
+    // The free camera, once this hider is out.
+    private static int freeLookStage;
+    private static float freeLookAt;
+    private static Vector3 freeLookFrom;
+
+    private static void CheckFreeLookWhenOut()
+    {
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+        if (me == null || !me.Eliminated || freeLookStage == 2) return;
+
+        CameraController cam = Object.FindAnyObjectByType<CameraController>();
+        FieldInfo pivot = typeof(CameraController).GetField("_freePivot", Any);
+
+        if (freeLookStage == 0)
+        {
+            cam.SetFreeLook(true);
+            freeLookFrom = (Vector3)pivot.GetValue(cam);
+            freeLookAt = Time.realtimeSinceStartup;
+            freeLookStage = 1;
+            return;
+        }
+
+        if (Time.realtimeSinceStartup < freeLookAt + 1.5f) return;
+
+        float moved = Vector3.Distance((Vector3)pivot.GetValue(cam), freeLookFrom);
+        Check(cam.FreeLook && moved > 5f, $"the free camera flies once the player is out ({moved:F0} units in 1.5 s)");
+        cam.SetFreeLook(false);
+        freeLookStage = 2;
+    }
+
     private static void PlayRound()
     {
+        CheckPlayerPrefab();
+        CheckSpawnsApart();
+        CheckSeekerBotGun();
+        CheckSeekerBodyLiesDown();
+        CheckFreeLookWhenOut();
         SampleMovement();
         SampleHostedBots();
         DriveJoystick(!Chase && (Net.Phase == MatchPhase.Seek || (!Seeker && Net.Phase == MatchPhase.Hide)));
@@ -768,8 +893,7 @@ public static class OnlinePlayTest
         Check(spawnGap < 12f, $"the character started on one of the room's spawn markers ({spawnGap:F1} units away)");
         if (Chase)
         {
-            Check(catches > 0, $"walking into a hider caught them ({catches} catches)");
-            if (catches == 0) report.AddRange(chaseTrace);
+            Check(catches == 0, $"walking into the hiders eliminated nobody ({catches} touch eliminations)");
             return;
         }
         // How long there is to walk depends on the bots (a short round, or being caught), so this
@@ -809,6 +933,8 @@ public static class OnlinePlayTest
         // the map, so none arriving is reported, not failed (the server tests cover delivery).
         if (remoteShots > 0) Check(true, $"other players' shots arrived as OnRemoteShot ({remoteShots}) and were drawn");
         else report.Add("INFO  no other player's shot was in view this match (OnRemoteShot 0)");
+        report.Add($"INFO  other players are drawn {Net.InterpolationDelaySeconds * 1000f:F0} ms behind the newest snapshot; ping {Net.PingMs} ms");
+        if (freeLookStage == 0) report.Add("INFO  this player was not eliminated, so the free camera was not tried out of the round");
         Check(matchEnds > 0, "the match ended with the server's result");
     }
 

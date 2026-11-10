@@ -134,13 +134,23 @@ public class JoystickMover : MonoBehaviour
         if (character == null) return;
         if (joystick == null) return;
 
-        // Frozen player: joystick hidden; frozen or seeker hide countdown: no movement at all.
+        // Frozen player: joystick hidden, unless it is flying the free camera; frozen or seeker
+        // hide countdown: no movement at all.
         bool frozen = gmm != null && gmm.PlayerFrozen;
-        if (joystick != null && _joyHidden != frozen)
+        bool scouting = camCtrl != null && camCtrl.FreeLook;
+        bool hideStick = frozen && !scouting;
+        if (joystick != null && _joyHidden != hideStick)
         {
-            joystick.gameObject.SetActive(!frozen);
-            _joyHidden = frozen;
+            joystick.gameObject.SetActive(!hideStick);
+            _joyHidden = hideStick;
         }
+
+        // Out of the round the free camera works as it does alive; the body just stays where it fell.
+        if (frozen && scouting)
+        {
+            camCtrl.PanFree(joystick.Direction, Time.deltaTime);
+        }
+
         bool countdown = gmm != null && gmm.SeekerHideCountdown;
         if (countdown || frozen)
         {

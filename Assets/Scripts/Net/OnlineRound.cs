@@ -32,8 +32,7 @@ using UnityEngine.UI;
 //     the seek starts once every hider has pressed it; a seeker bot that spots the player freezes
 //     them and the camera turns to it (SpotAlert names the bot) until its shot.
 //   * The server has no map, so this scene answers what needs one: which point a spawn number
-//     means (SpawnPointResolver), how far a shot flies before a wall (Fire), and whether a seeker
-//     touching a hider has a clear line to them (ReportCatch).
+//     means (SpawnPointResolver) and how far a shot flies before a wall (Fire).
 //   * The server has no bots of its own either: when it gives this player the empty seats, this
 //     game runs Single Play's bot controllers on them and reports what they do (OnlineRound.Bots.cs).
 //   * Out of the round, the player spectates: the server sends everyone, and the camera follows the
@@ -212,7 +211,6 @@ public partial class OnlineRound : MonoBehaviour
         leaveArmed = false;
         roster = entries;
         eliminated.Clear();
-        catchSentAt.Clear();
         nextFireAt = 0f;
         lastChosen = BulletType.Default;
         firedBullet = BulletType.Default;
@@ -337,13 +335,9 @@ public partial class OnlineRound : MonoBehaviour
     }
 
     private const float SpawnLift = 0.2f;           // markers lie on the floor; the feet go just above it
-    private const float SpawnShareRadius = 6f;
+    private const float SpawnBesideRadius = 7f;     // under half the markers' spacing, so neighbours stay apart
     private const float SpawnClearance = 0.5f;
     private const float ShotRayLength = 1000f;
-    private const float CatchCheckSeconds = 0.1f;
-    private const float CatchResendSeconds = 0.25f;
-    private float nextCatchCheckAt;
-    private readonly Dictionary<byte, float> catchSentAt = new Dictionary<byte, float>();
 
     private void Update()
     {
@@ -351,7 +345,6 @@ public partial class OnlineRound : MonoBehaviour
 
         UpdateTimer();
         FeedInput();
-        ReportCatches();
         PumpBots();
         RefreshCounters();
         ApplyCanvases();
@@ -447,7 +440,7 @@ public partial class OnlineRound : MonoBehaviour
                               BulletSpecs.Of(shot.Bullet).RadiusScale);
     }
 
-    // ================= What the server cannot judge: spawns, walls and touches =================
+    // ================= What the server cannot judge: spawns and walls =================
 
     // The server names a spawn by number; the markers (HunterSpawn_*, HiderSpawn_*) are in this room.
     private Vector3? ResolveSpawn(int index) => ResolveSpawn(index, hunter);
@@ -467,23 +460,29 @@ public partial class OnlineRound : MonoBehaviour
         if (markers.Count == 0) return null;
         markers.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
 
-        // Markers were laid on the bots' NavMesh, which runs under furniture a full-size body does
-        // not fit: a seeker put on one inside a table is wedged for the round. Such a marker is
-        // passed over for the next one, and whoever comes off it stands beside that one.
+        // The server gives each seat on a side the next number, and a room has a marker for every
+        // seat, so nobody shares one. Only with more seats than markers does a lap stand beside it.
         int count = markers.Count;
-        int share = index / count % 3;
-        for (int i = 0; i < count; i++)
+        int seatsOnSide = 0;
+        if (roster != null)
         {
-            Vector3 spot = markers[(index + i) % count].position + Vector3.up * SpawnLift;
-            if (!SpawnFree(spot)) continue;
-            if (share == 0 && i == 0) return spot;
-
-            float angle = ((share + i) * 120f + index * 40f) * Mathf.Deg2Rad;
-            Vector3 beside = spot + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * SpawnShareRadius;
-            return SpawnFree(beside) ? beside : spot;
+            foreach (MecchaNetClient.RosterEntry e in roster)
+                if ((e.Role == Role.Hunter) == forSeeker) seatsOnSide++;
         }
 
-        return markers[index % count].position + Vector3.up * SpawnLift;     // nothing free: as named
+        Vector3 marker = markers[index % count].position + Vector3.up * SpawnLift;
+        bool shared = seatsOnSide > count && index / count > 0;
+        if (!shared && SpawnFree(marker)) return marker;
+
+        // Something solid on the marker, for this size of body: beside it, never on another seat's.
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = (index * 47f + i * 60f) * Mathf.Deg2Rad;
+            Vector3 beside = marker + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * SpawnBesideRadius;
+            if (SpawnFree(beside)) return beside;
+        }
+
+        return marker;
     }
 
     // Whether the local character fits with its feet here. Other players do not count: they move.
@@ -515,39 +514,6 @@ public partial class OnlineRound : MonoBehaviour
             if (nearest < 0f || hit.distance < nearest) nearest = hit.distance;
         }
         return nearest;
-    }
-
-    // A seeker who touches a hider catches them, as in Single Play. Only this client has the
-    // walls to say the two were really in contact, so it tells the server when they are.
-    private void ReportCatches()
-    {
-        if (!hunter || localOut || Net.Phase != MatchPhase.Seek || Time.unscaledTime < nextCatchCheckAt) return;
-        nextCatchCheckAt = Time.unscaledTime + CatchCheckSeconds;
-
-        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
-        if (me == null || me.Eliminated) return;
-
-        Vector3 eye = me.FeetPosition + Vector3.up * (GameTuning.PlayerHeight * 0.85f);
-        float reach = GameTuning.MinCatchRange * 2f;
-
-        foreach (MecchaNetClient.RosterEntry e in roster)
-        {
-            if (e.Role != Role.Fugitive || eliminated.Contains(e.Slot)) continue;
-            if (catchSentAt.TryGetValue(e.Slot, out float sent) && Time.unscaledTime < sent + CatchResendSeconds) continue;
-
-            NetEntityView target = NetEntityRegistry.Get(e.Slot);
-            if (target == null || target.Eliminated) continue;
-
-            // Views pivot mid-body: their position is the centre the server measures between.
-            Vector3 centre = target.transform.position;
-            if (Vector3.Distance(me.transform.position, centre) > reach) continue;
-
-            Vector3 line = centre - eye;
-            if (WallDistanceAlong(eye, line.normalized, line.magnitude) >= 0f) continue;
-
-            Net.ReportCatch(e.Slot);
-            catchSentAt[e.Slot] = Time.unscaledTime;
-        }
     }
 
     // ================= Input =================
@@ -837,6 +803,7 @@ public partial class OnlineRound : MonoBehaviour
     private void WatchNext()
     {
         AudioManager.ButtonTap();
+        if (camCtrl != null) camCtrl.SetFreeLook(false);   // the button means: show me them
         Watch(NextToWatch(watching));
     }
 
@@ -886,6 +853,7 @@ public partial class OnlineRound : MonoBehaviour
     {
         resultShown = true;
         ClearSpot();
+        if (camCtrl != null) camCtrl.SetFreeLook(false);
         StopSpectating();
         OnlineRejoin.Clear();   // the match is decided: nothing left to rejoin
         string rankText = rank > 0 ? $"#{rank}/{Net.MatchSeats}" : "-";

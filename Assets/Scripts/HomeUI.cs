@@ -382,6 +382,12 @@ public class HomeUI : MonoBehaviour
         AudioManager.MusicGame();
     }
 
+    /// <summary>Takes the Home screen away while online matchmaking is up, and brings it back.</summary>
+    public void SetHomeVisible(bool visible)
+    {
+        SetHome(visible);
+    }
+
     private void SetGameplayUI(bool v)
     {
         if (gameplayUI == null) return;

@@ -252,6 +252,7 @@ public partial class OnlineRound : IOnlineBotGame
     private BotState StateOf(HostedBot bot)
     {
         Vector3 feet = bot.View.FeetPosition;
+        bool climbing = bot.Role == Role.Hunter && seekBots != null && seekBots.IsClimbing(bot.View.transform);
         var state = new BotState
         {
             Slot = bot.Slot,
@@ -259,8 +260,9 @@ public partial class OnlineRound : IOnlineBotGame
             GridY = Quantize.PosToGrid(feet.y),
             GridZ = Quantize.PosToGrid(feet.z),
             Yaw = (ushort)Quantize.YawToBits(bot.View.transform.eulerAngles.y),
-            Movement = (byte)MovementState.Grounded,
-            Pose = (ushort)PoseIdFor(bot.Animator != null ? bot.Animator.GetInteger(PoseHash) : 0),
+            Movement = (byte)(climbing ? MovementState.Climbing : MovementState.Grounded),
+            // On a wall "Pose" is the climb, which the Climbing flag already says.
+            Pose = (ushort)(climbing ? 0 : PoseIdFor(bot.Animator != null ? bot.Animator.GetInteger(PoseHash) : 0)),
             PaintColor = Quantize.ColorToRgb565(1f, 1f, 1f),
         };
 

@@ -1,5 +1,5 @@
-// Copied unchanged from the Meccha Client SDK sample "Online integration" (v1.0.0). Don't import
-// the sample's own copy of this file as well, or NetInputAdapter is defined twice.
+// From the Meccha Client SDK sample "Online integration". Don't import the sample's own copy of
+// this file as well, or NetInputAdapter is defined twice.
 
 using UnityEngine;
 
@@ -60,11 +60,10 @@ namespace Meccha.Client
             : Vector2.zero;
 
         /// <summary>
-        /// The camera's yaw is the player's facing: JoystickMover moves relative to the camera,
-        /// so this is the value the server has to integrate against or predicted and authoritative
-        /// movement will point in different directions.
+        /// Which way the body faces, which is what other players are shown. Not the camera's yaw:
+        /// the camera orbits freely, and using it turned this player on every other screen.
         /// </summary>
-        public float YawDegrees => cameraController != null ? cameraController.yaw : transform.eulerAngles.y;
+        public float YawDegrees => transform.eulerAngles.y;
 
         public float PitchDegrees => cameraController != null ? cameraController.pitch : 0f;
 

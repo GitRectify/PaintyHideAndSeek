@@ -64403,7 +64403,6 @@ MonoBehaviour:
   roleSelectBackButton: {fileID: 1560367644}
   toastRoot: {fileID: 1321648598}
   toastText: {fileID: 1516321799}
-  multiplayerMessage: Online multiplayer coming soon!
   toastSeconds: 1.6
 --- !u!114 &1251256191
 MonoBehaviour:
@@ -75989,7 +75988,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5a74ff1d633655d4c8505db76523e193, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameController
-  txtCoin: []
   seeker: 0
   head: {fileID: 0}
   isReward3: 0
@@ -77310,8 +77308,6 @@ MonoBehaviour:
   iconHome: {fileID: 21300000, guid: d66143c57675d8543a0b9bdeef5a935b, type: 3}
   iconNext: {fileID: 21300000, guid: b298cda479d4b2e449d8c8878c17dd05, type: 3}
   iconAds: {fileID: 21300000, guid: c9b26e89747fcd147b61405761bf80aa, type: 3}
-  winCoinRange: {x: 50, y: 100}
-  loseCoinRange: {x: 30, y: 50}
 --- !u!114 &2114935809
 MonoBehaviour:
   m_ObjectHideFlags: 0

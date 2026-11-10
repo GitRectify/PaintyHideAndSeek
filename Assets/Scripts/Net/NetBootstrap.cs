@@ -15,6 +15,10 @@ public static class NetBootstrap
 
         OnlineConfig config = OnlineConfig.Load();
 
+        // The project has Run In Background off, so an Editor without focus stopped sending and
+        // receiving altogether: its player froze for everyone else, and then timed out.
+        Application.runInBackground = true;
+
         var go = new GameObject("Net");
         Object.DontDestroyOnLoad(go);
 

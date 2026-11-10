@@ -9,9 +9,9 @@ using Object = UnityEngine.Object;
 //   1. The floor gets "Floor" in its name, which is how shots know not to stop at it
 //      (Bullet.BlocksShot). The floor is the collider the game's own StairRampBuilder.FindFloor
 //      picks: the largest flat one below the middle of the room.
-//   2. HunterSpawn / HiderSpawn markers under a "ServerSpawns" child, placed where the offline game
-//      starts a round: around LevelManager's player spawn (x 0, z 0 in every room), hunters in a
-//      tight group and hiders on a ring of radius 10, each snapped onto the bots' NavMesh.
+//   2. HunterSpawn / HiderSpawn markers under a "ServerSpawns" child, one for every seat of a
+//      16-player match on either side: on the floor, reachable, with room for a body and apart from
+//      one another, spreading out from LevelManager's player spawn (x 0, z 0 in every room).
 // Running it again keeps the floor name and replaces the markers.
 public static class RoomPrefabsForServer
 {
@@ -21,10 +21,17 @@ public static class RoomPrefabsForServer
 
     // LevelManager's playerSpawnPos for every level, on the floor plane.
     private static readonly Vector2 SpawnCentre = Vector2.zero;
-    private const int HunterCount = 4;
-    private const float HunterRadius = 4f;
-    private const int HiderCount = 8;
-    private const float HiderRadius = 10f;
+
+    // Either side can have nearly every seat, and the server hands out consecutive numbers.
+    private const int MarkersPerSide = 16;
+
+    // Tried in order until a room has space for them all. A body is about 8 across with its arms.
+    private static readonly float[] MarkerSpacings = { 18f, 14f, 10f };
+    private const float FirstRing = 8f;
+    private const float LastRing = 260f;
+    private const float FloorTolerance = 3f;       // not on top of the furniture, or upstairs
+    private const float BodyRadius = 2.5f;
+    private const float BodyHeight = 14f;
 
     [MenuItem(MenuPath)]
     public static void PrepareAll()
@@ -54,7 +61,7 @@ public static class RoomPrefabsForServer
         float floorTop;
         var hunters = new List<Vector3>();
         var hiders = new List<Vector3>();
-        int unsnapped = 0;
+        float spacing = 0f;
 
         try
         {
@@ -78,8 +85,7 @@ public static class RoomPrefabsForServer
                 floorTop = roomBounds.min.y + 1f;
             }
 
-            unsnapped += Ring(HunterCount, HunterRadius, floorTop, hunters);
-            unsnapped += Ring(HiderCount, HiderRadius, floorTop, hiders);
+            spacing = SpreadOut(floorTop, hunters, hiders);
         }
         finally
         {
@@ -118,8 +124,7 @@ public static class RoomPrefabsForServer
 
             string floorText = floorInPrefab != null ? $"floor '{floorInPrefab.name}'{renamed} at {floorTop:F1}"
                              : $"no floor collider, spawns placed from {floorTop:F1}";
-            string snapText = unsnapped > 0 ? $", {unsnapped} marker(s) off the NavMesh" : "";
-            return $"{prefab.name}: {floorText}, {hunters.Count} hunter + {hiders.Count} hider spawns{snapText}";
+            return $"{prefab.name}: {floorText}, {hunters.Count} hunter + {hiders.Count} hider spawns, {spacing:F0} apart";
         }
         finally
         {
@@ -159,31 +164,58 @@ public static class RoomPrefabsForServer
         return best;
     }
 
-    // Points on a ring around the offline spawn, moved onto the NavMesh and lifted 1 unit so the
-    // server drops them onto the floor. Returns how many found no NavMesh nearby.
-    private static int Ring(int count, float radius, float floorTop, List<Vector3> points)
+    // Hunters take the spots nearest the middle and hiders the ones around them. Returns the spacing used.
+    private static float SpreadOut(float floorTop, List<Vector3> hunters, List<Vector3> hiders)
     {
-        int unsnapped = 0;
+        List<Vector3> spots = null;
+        float spacing = 0f;
 
-        for (int i = 0; i < count; i++)
+        foreach (float tried in MarkerSpacings)
         {
-            float angle = i * Mathf.PI * 2f / count;
-            var probe = new Vector3(SpawnCentre.x + Mathf.Cos(angle) * radius, floorTop + 2f,
-                                    SpawnCentre.y + Mathf.Sin(angle) * radius);
+            spacing = tried;
+            spots = FindSpots(MarkersPerSide * 2, spacing, floorTop);
+            if (spots.Count >= MarkersPerSide * 2) break;
+        }
 
-            if (NavMesh.SamplePosition(probe, out NavMeshHit hit, 30f, NavMesh.AllAreas))
+        for (int i = 0; i < spots.Count; i++) (i < MarkersPerSide ? hunters : hiders).Add(spots[i]);
+        return spacing;
+    }
+
+    // Rings around the offline spawn, from the middle out. Each point is moved onto the NavMesh and
+    // lifted 1 unit so the character drops onto the floor.
+    private static List<Vector3> FindSpots(int wanted, float spacing, float floorTop)
+    {
+        var spots = new List<Vector3>();
+        var path = new NavMeshPath();
+        var probeCentre = new Vector3(SpawnCentre.x, floorTop + 2f, SpawnCentre.y);
+        bool haveCentre = NavMesh.SamplePosition(probeCentre, out NavMeshHit centre, 30f, NavMesh.AllAreas);
+
+        for (float radius = FirstRing; radius <= LastRing && spots.Count < wanted; radius += spacing)
+        {
+            int around = Mathf.Max(6, Mathf.FloorToInt(2f * Mathf.PI * radius / spacing));
+
+            for (int i = 0; i < around && spots.Count < wanted; i++)
             {
-                points.Add(hit.position + Vector3.up);
-            }
-            else
-            {
-                points.Add(new Vector3(probe.x, floorTop + 1f, probe.z));
-                unsnapped++;
+                float angle = radius + i * Mathf.PI * 2f / around;     // each ring turned a little from the last
+                var probe = new Vector3(SpawnCentre.x + Mathf.Cos(angle) * radius, floorTop + 2f,
+                                        SpawnCentre.y + Mathf.Sin(angle) * radius);
+
+                if (!NavMesh.SamplePosition(probe, out NavMeshHit hit, 4f, NavMesh.AllAreas)) continue;
+                if (Mathf.Abs(hit.position.y - floorTop) > FloorTolerance) continue;
+                if (spots.Exists(s => Flat(s - hit.position).magnitude < spacing)) continue;
+                if (haveCentre && (!NavMesh.CalculatePath(centre.position, hit.position, NavMesh.AllAreas, path)
+                                   || path.status != NavMeshPathStatus.PathComplete)) continue;
+                if (Physics.CheckCapsule(hit.position + Vector3.up * (BodyRadius + 1f), hit.position + Vector3.up * (BodyHeight - BodyRadius),
+                                         BodyRadius, ~0, QueryTriggerInteraction.Ignore)) continue;
+
+                spots.Add(hit.position + Vector3.up);
             }
         }
 
-        return unsnapped;
+        return spots;
     }
+
+    private static Vector3 Flat(Vector3 v) => new Vector3(v.x, 0f, v.z);
 
     private static void AddMarkers(Transform parent, string prefix, List<Vector3> points)
     {

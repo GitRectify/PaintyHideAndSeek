@@ -41,26 +41,13 @@ public partial class OnlineRound
         WeaponSkins.Apply(FindChild(view.transform, RemoteGunName), view.WeaponId);
     }
 
-    // Other seekers carry the same gun as the local player, as Single Play's bot seekers do
-    // (BotSeekController.AttachGunsToSeekers): a copy of the scene's gun in the body's hand bone,
-    // with the same local placement, and the animator's "Gun" layer on. The copy is only a model:
-    // colliders and scripts are stripped.
+    // Other seekers carry the gun prefab, as Single Play's bot seekers do (SeekerGun), with the
+    // animator's "Gun" layer on.
     private void AttachRemoteGun(GameObject body)
     {
-        Transform template = LocalGun();
-        if (template == null) return;
-
         Transform hand = FindChild(body.transform, HandBoneName);
         if (hand == null || hand.Find(RemoteGunName) != null) return;
-
-        GameObject copy = Instantiate(template.gameObject, hand, false);
-        copy.name = RemoteGunName;
-        copy.transform.localPosition = template.localPosition;
-        copy.transform.localRotation = template.localRotation;
-        copy.transform.localScale = template.localScale;
-        foreach (Collider c in copy.GetComponentsInChildren<Collider>(true)) Destroy(c);
-        foreach (MonoBehaviour m in copy.GetComponentsInChildren<MonoBehaviour>(true)) Destroy(m);
-        copy.SetActive(true);
+        if (SeekerGun.Attach(hand, RemoteGunName) == null) return;
 
         Animator animator = body.GetComponentInChildren<Animator>();
         if (animator != null)

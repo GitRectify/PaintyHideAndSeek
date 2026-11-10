@@ -5,6 +5,9 @@ using UnityEngine.UI;
 public class CharacterSelect : MonoBehaviour
 {
     [Header("Characters")]
+    [Tooltip("Resources paths of the player prefabs, in selection order. The selected one is spawned when the scene loads.")]
+    public string[] characterPrefabs = { "Players/Player", "Players/Player2" };
+    [Tooltip("Filled at runtime from Character Prefabs. Anything assigned here in the scene is replaced by the prefab.")]
     public Transform[] characters;
     public string[] buttonLabels = { "Player", "Player 2" };
     public string prefsKey = "SelectedCharacter";
@@ -38,7 +41,40 @@ public class CharacterSelect : MonoBehaviour
 
     private void Awake()
     {
+        SpawnSelectedPrefab();
         Apply();
+    }
+
+    // The player comes from Resources/Players. It is named as the prefab is, because the game finds
+    // it by that name, and anything left in the scene goes first so the name means only this one.
+    private void SpawnSelectedPrefab()
+    {
+        if (characterPrefabs == null || characterPrefabs.Length == 0) return;
+
+        Transform[] inScene = characters;
+        characters = new Transform[characterPrefabs.Length];   // CurrentIndex counts these
+
+        int selected = CurrentIndex;
+        GameObject prefab = Resources.Load<GameObject>(characterPrefabs[selected]);
+        if (prefab == null)
+        {
+            Debug.LogWarning("[CharacterSelect] Resources/" + characterPrefabs[selected] + " not found; using the scene's characters.");
+            characters = inScene;
+            return;
+        }
+
+        if (inScene != null)
+        {
+            foreach (Transform t in inScene)
+            {
+                if (t != null) DestroyImmediate(t.gameObject);
+            }
+        }
+
+        GameObject holder = GameObject.Find("Characters");
+        GameObject player = Instantiate(prefab, holder != null ? holder.transform : null);
+        player.name = prefab.name;
+        characters[selected] = player.transform;
     }
 
     // Positions/rotates/scales the currently-selected character into the "home" pose and marks it as
