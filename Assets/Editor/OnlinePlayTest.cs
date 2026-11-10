@@ -10,6 +10,7 @@ using Meccha.Shared.Protocol;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
@@ -164,6 +165,7 @@ public static class OnlinePlayTest
                 // Point the game at the test server (NetBootstrap reads NetConfig.json).
                 MecchaNetClient net = NetBootstrap.Ensure();
                 net.Configure(Host, Port, 0, OnlineConfig.Load().connectionKey);
+                if (Pair) net.AuthToken = "pair-test-" + System.Diagnostics.Process.GetCurrentProcess().Id;   // one PC, two players
                 Meta.Configure(MetaPort, false, "");
                 Hook();
                 OnlineSignIn.Open(p => { signedIn = true; profile = p; }, null);
@@ -199,8 +201,17 @@ public static class OnlinePlayTest
                         stockBeforeRound = receipt.Bullets;
                         boughtAnswered = true;
                     });
+                    if (Pair)
+                    {
+                        // Every pose the shop sells: all nine are tried in the round.
+                        Meta.Purchase(Enumerable.Range(3, 6).Select(i => new MetaPurchaseLine { ItemId = "pose-" + i, Quantity = 1 }).ToList(), receipt =>
+                        {
+                            Check(receipt.Status == PurchaseStatus.Completed, $"bought the six poses on sale ({receipt.Status}, {receipt.Error})");
+                            posesAnswered = true;
+                        });
+                    }
                 }
-                if (!boughtAnswered) return;
+                if (!boughtAnswered || (Pair && !posesAnswered)) return;
 
                 OnlineLobby.Open(profile, null);
                 Go(Step.Role);
@@ -272,7 +283,7 @@ public static class OnlinePlayTest
                       && Authored("FugitiveBox") == GameTuning.FugitiveSlots && Authored("HunterBox") == GameTuning.HunterSlots,
                       $"lobby screen is back to Single Play's 3 + 5 ({Authored("HunterBox")} + {Authored("FugitiveBox")})");
                 Check(ShopInventory.Loaded, "wallet refreshed from the server after the round");
-                if (Seeker && !Chase)
+                if (Seeker && !Chase && !Pair)
                     Check(ShopInventory.SpecialBullets(BulletType.Special2) < stockBeforeRound.Special2,
                           $"special bullets spent in the round are gone from the wallet ({stockBeforeRound.Special2} -> {ShopInventory.SpecialBullets(BulletType.Special2)})");
                 OnlineHistory.Show(Object.FindAnyObjectByType<OnlineLobby>().transform, null);
@@ -356,6 +367,12 @@ public static class OnlinePlayTest
     private static float singleWalked;
     private static List<Transform> singleBots;
 
+    private static bool WallsOpen()
+    {
+        WallClimber climber = Object.FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
+        return (bool)typeof(WallClimber).GetProperty("WallsOpen", Any).GetValue(climber);
+    }
+
     private static void PlaySinglePlay()
     {
         GameModeManager gmm = Object.FindAnyObjectByType<GameModeManager>();
@@ -379,6 +396,7 @@ public static class OnlinePlayTest
                 if (InStep < 0.3f) return;
                 seekerStarts = singleBots.Skip(singleBots.Count - GameTuning.HunterSlots).Select(b => b.position).ToList();
                 Check(seek.chasePlayer, "Single Play's seekers hunt the player again after an online round");
+                Check(WallsOpen(), "Single Play: a hider can use the walls");
                 singlePlayStage = 2;
                 return;
 
@@ -399,7 +417,9 @@ public static class OnlinePlayTest
             case 3:
                 if (InStep < 3f) return;
                 Check(hide.BotCount > 0 && hide.Active, $"Single Play: the hider bots took their places ({hide.BotCount})");
+                Check(WallsOpen(), "Single Play: a seeker can use the walls");
                 gmm.ShowMenu();
+                Check(!WallsOpen(), "and nobody can from the Home screen");
                 Go(Step.Done);
                 return;
         }
@@ -409,7 +429,7 @@ public static class OnlinePlayTest
     private static bool Again => System.Environment.GetCommandLineArgs().Contains("-playtestAgain");
     private static int matchesFound, matchesAtAgain;
 
-    private static bool signedIn, bought, boughtAnswered, submittedName, reboughtAnswered;
+    private static bool signedIn, bought, boughtAnswered, submittedName, reboughtAnswered, posesAnswered;
     private static bool lobbyLaidOut, homeChecked;
 
     // The lobby screen with every seat taken: bots fill a lobby in the same tick the round starts,
@@ -452,7 +472,7 @@ public static class OnlinePlayTest
     // Client-authoritative movement, measured.
     private static Vector3 lastFeet;
     private static bool haveLastFeet;
-    private static float walkedPath, walkedSince, walkedSeconds, worstServerGap;
+    private static float walkedPath, walkedSince, walkedSeconds, worstServerGap, placementGap;
     private static readonly List<float> feetAboveFloor = new List<float>();
 
     // Pushes the real on-screen joystick, so JoystickMover and the CharacterController do the walking.
@@ -616,7 +636,11 @@ public static class OnlinePlayTest
             }
             lastFeet = local.FeetPosition;
             TraceMovement(local, now);
-            worstServerGap = Mathf.Max(worstServerGap, Vector3.Distance(local.FeetPosition, local.LastServerFeet));
+
+            // Once it has landed: the snapshot that places the player still says where they were.
+            float gap = Vector3.Distance(local.FeetPosition, local.LastServerFeet);
+            if (now > walkedSince) worstServerGap = Mathf.Max(worstServerGap, gap);
+            else placementGap = Mathf.Max(placementGap, gap);
         }
 
         // The wire position is the feet: a body standing on the floor must have it at floor level.
@@ -754,7 +778,6 @@ public static class OnlinePlayTest
     {
         if (proneStage >= 3 || Net.Phase != MatchPhase.Seek) return;
 
-        PropertyInfo flags = typeof(NetEntityView).GetProperty("Flags", Any);
         BotSeekController seek = Object.FindAnyObjectByType<BotSeekController>();
         float now = Time.realtimeSinceStartup;
 
@@ -763,7 +786,7 @@ public static class OnlinePlayTest
             proneBody = Object.FindObjectsByType<NetEntityView>()
                 .FirstOrDefault(v => v.IsHosted && v.Role == Role.Hunter && v.GetComponent<NetBodyAnimator>() != null && !seek.IsClimbing(v.transform));
             if (proneBody == null) return;
-            flags.SetValue(proneBody, EntityFlags.Prone);
+            BodyAnimation.SetProne(proneBody.GetComponentInChildren<Animator>(), true);
             proneStage = 1;
             proneAt = now;
             return;
@@ -777,7 +800,7 @@ public static class OnlinePlayTest
         if (proneStage == 1)
         {
             Check(animator.GetBool("Nam") && animator.GetLayerWeight(layer) == 0f, "a seeker's body lying down is drawn lying down (Gun layer off)");
-            flags.SetValue(proneBody, EntityFlags.None);
+            BodyAnimation.SetProne(animator, false);
             proneStage = 2;
             proneAt = now;
             return;
@@ -826,6 +849,14 @@ public static class OnlinePlayTest
         CheckFreeLookWhenOut();
         SampleMovement();
         SampleHostedBots();
+        SampleTimer();
+        SampleAnimations();
+        CheckAnimationSwitching();
+        if (Pair)
+        {
+            PlayPair();
+            return;
+        }
         DriveJoystick(!Chase && (Net.Phase == MatchPhase.Seek || (!Seeker && Net.Phase == MatchPhase.Hide)));
 
         if (Chase && Seeker && Net.Phase == MatchPhase.Seek)
@@ -886,9 +917,393 @@ public static class OnlinePlayTest
     private static int catches;
     private static float hideSeenAt = -1f;
 
+    // ================= The server's clock, as this game shows it =================
+
+    private static readonly StringBuilder timerCsv = new StringBuilder("utc_ms,phase,left,shown,text\n");
+    private static float nextTimerSampleAt;
+
+    private static void Mark(string what) =>
+        timerCsv.Append($"#{what},{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}\n");
+
+    private static void SampleTimer()
+    {
+        float now = Time.realtimeSinceStartup;
+        if (now < nextTimerSampleAt) return;
+        nextTimerSampleAt = now + 0.05f;
+
+        GameModeManager gmm = Object.FindAnyObjectByType<GameModeManager>();
+        string text = FindByName("TimerText")?.GetComponent<Text>()?.text ?? "";
+        string left = Net.PhaseTimeLeft.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+        timerCsv.Append($"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},{(int)Net.Phase},{left},{gmm.NetTimerSeconds},{text}\n");
+    }
+
+    // ================= Animations that start over =================
+
+    private sealed class AnimTrack
+    {
+        public int State, Previous;
+        public float Time, ChangedAt;
+    }
+
+    private static readonly Dictionary<Animator, AnimTrack> animTracks = new Dictionary<Animator, AnimTrack>();
+    private static int animRestarts, animBounces;
+    private static readonly List<string> animNotes = new List<string>();
+
+    private static readonly Dictionary<int, string> StateNames = new[] { "idle", "run", "pose_nam", "pose1", "pose2", "pose3", "pose4", "pose5", "pose6", "pose7", "pose8", "pose9" }
+        .ToDictionary(n => Animator.StringToHash("Base Layer." + n), n => n);
+
+    private static string StateName(Animator a) => StateNames.GetValueOrDefault(a.GetCurrentAnimatorStateInfo(0).fullPathHash, "?");
+
+    // Every body in the match, each frame. A state whose time goes backwards was restarted; a state
+    // left and come back to within a moment is a body flickering between two.
+    private static void SampleAnimations()
+    {
+        float now = Time.realtimeSinceStartup;
+        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>())
+        {
+            Animator a = v.GetComponentInChildren<Animator>();
+            if (a == null || !a.isActiveAndEnabled || v.Eliminated || a.IsInTransition(0)) continue;
+
+            AnimatorStateInfo s = a.GetCurrentAnimatorStateInfo(0);
+            if (!animTracks.TryGetValue(a, out AnimTrack t))
+            {
+                animTracks[a] = new AnimTrack { State = s.fullPathHash, Time = s.normalizedTime, ChangedAt = now };
+                continue;
+            }
+
+            if (s.fullPathHash == t.State)
+            {
+                if (s.normalizedTime < t.Time - 0.05f)
+                {
+                    animRestarts++;
+                    if (animNotes.Count < 8) animNotes.Add($"restart on {v.name}: {t.Time:F2} -> {s.normalizedTime:F2}");
+                }
+                t.Time = s.normalizedTime;
+                continue;
+            }
+
+            if (s.fullPathHash == t.Previous && now - t.ChangedAt < 0.3f)
+            {
+                animBounces++;
+                if (animNotes.Count < 8) animNotes.Add($"{(v.IsHosted ? "hosted " : "")}{v.name} back to {StateName(a)} from {StateNames.GetValueOrDefault(t.State, "?")} after {now - t.ChangedAt:F2} s");
+            }
+
+            t.Previous = t.State;
+            t.State = s.fullPathHash;
+            t.Time = s.normalizedTime;
+            t.ChangedAt = now;
+        }
+    }
+
+    // On two spare bodies out of sight: what the controller does with both states on, and what
+    // BodyAnimation makes of the same request; then one frame of stillness in the middle of a run.
+    private static int switchStage, rawEntries, drivenEntries, switchLast;
+    private static GameObject switchBody;
+    private static float switchAt;
+    private static bool runHeld = true, runFlip;
+
+    private static Animator NewSwitchBody()
+    {
+        if (switchBody != null) Object.Destroy(switchBody);
+        switchBody = Object.Instantiate(Resources.Load<GameObject>("GameObjects/Bot"), Vector3.down * 800f, Quaternion.identity);
+        switchBody.name = "SwitchTest";
+        switchBody.SetActive(true);
+        switchLast = 0;
+        return switchBody.GetComponentInChildren<Animator>();
+    }
+
+    private static void CountStateEntries(Animator a, ref int entries)
+    {
+        if (a.IsInTransition(0)) return;
+        int state = a.GetCurrentAnimatorStateInfo(0).fullPathHash;
+        if (state != switchLast) entries++;
+        switchLast = state;
+    }
+
+    private static void CheckAnimationSwitching()
+    {
+        if (switchStage >= 4) return;
+        float now = Time.realtimeSinceStartup;
+        Animator a = switchBody != null ? switchBody.GetComponentInChildren<Animator>() : null;
+
+        switch (switchStage)
+        {
+            case 0:
+                a = NewSwitchBody();
+                a.SetBool("Nam", true);
+                a.SetInteger("Pose", 3);
+                switchAt = now + 2f;
+                switchStage = 1;
+                return;
+
+            case 1:
+                CountStateEntries(a, ref rawEntries);
+                if (now < switchAt) return;
+                a = NewSwitchBody();
+                BodyAnimation.SetProne(a, true);
+                BodyAnimation.SetPose(a, 3);
+                switchAt = now + 2f;
+                switchStage = 2;
+                return;
+
+            case 2:
+                CountStateEntries(a, ref drivenEntries);
+                if (now < switchAt) return;
+                report.Add($"INFO  lying down and a pose asked for together: the bare controller hopped between states {rawEntries} times in 2 s");
+                Check(drivenEntries <= 2 && a.GetBool("Nam") && a.GetInteger("Pose") == 0,
+                      $"BodyAnimation plays only one of them ({drivenEntries} state entries; the bare controller {rawEntries})");
+                a = NewSwitchBody();
+                BodyAnimation.SetSpeed(a, 1f);
+                switchAt = now + 1.5f;
+                switchStage = 3;
+                return;
+
+            case 3:
+                runFlip = !runFlip;
+                BodyAnimation.SetSpeed(a, runFlip ? 0f : 1f);     // stillness for a frame, every other frame
+                runHeld &= a.GetFloat("Speed") == 1f;
+                if (now < switchAt) return;
+                Check(runHeld, "a frame of stillness in the middle of a run does not stop it");
+                Object.Destroy(switchBody);
+                switchStage = 4;
+                return;
+        }
+    }
+
+    // ================= -playtestPair: two real games in the one match =================
+
+    // Each game runs through all nine shapes with the real buttons, lies down if it is a seeker and
+    // climbs a wall, and judges what the OTHER game's body does on its own screen.
+    // -playtestMixed: a hider and a seeker, the hider keeping the last shape into the seek.
+    private static bool Pair => System.Environment.GetCommandLineArgs().Contains("-playtestPair");
+    private static bool Mixed => System.Environment.GetCommandLineArgs().Contains("-playtestMixed");
+
+    private static readonly List<string> climbTrace = new List<string>();
+    private static float nextClimbTraceAt;
+    private static int pairStage, shapeIndex, placementsBeforeClimb;
+    private static float pairAt, walkDeadline, climbFromY, climbHighest;
+    private static readonly HashSet<int> partnerShapes = new HashSet<int>();
+    private static bool partnerSeen, partnerClimbFlag, partnerClimbAnim, partnerLayFlag, partnerLayAnim, partnerGunOffShape, partnerGunBack;
+    private static bool climbButtonsShown, climbedUp, cameDown, climbFlagFromServer, climbShownWhileFrozen;
+
+    private static void DriveStraight(bool on)
+    {
+        JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+        Joystick stick = mover != null ? Get<Joystick>(mover, "joystick") : null;
+        if (stick != null) typeof(Joystick).GetField("input", Any).SetValue(stick, on ? Vector2.up : Vector2.zero);
+    }
+
+    private static void Hold(string button, bool held)
+    {
+        ClimbHold hold = FindByName(button).GetComponent<ClimbHold>();
+        if (held) hold.onDown();
+        else hold.onUp();
+    }
+
+    private static void WatchPartner()
+    {
+        var entries = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster");
+        if (entries == null) return;
+
+        foreach (MecchaNetClient.RosterEntry e in entries)
+        {
+            if (e.IsBot || e.Slot == Net.LocalSlot) continue;
+            NetEntityView v = NetEntityRegistry.Get(e.Slot);
+            if (v == null || v.IsLocal || !v.HasPosition) continue;
+            partnerSeen = true;
+
+            Animator a = v.GetComponentInChildren<Animator>();
+            AnimatorStateInfo s = a.GetCurrentAnimatorStateInfo(0);
+            bool climbing = (v.Flags & EntityFlags.Climbing) != 0;
+            bool prone = (v.Flags & EntityFlags.Prone) != 0;
+            int gun = e.Role == Role.Hunter ? a.GetLayerIndex("Gun") : -1;
+
+            if (v.Pose > 0 && !prone && s.IsName("pose" + PoseSelectorUI.AnimatorPoseFor(v.Pose)))
+            {
+                partnerShapes.Add(v.Pose);
+                if (gun >= 0 && a.GetLayerWeight(gun) < 0.01f) partnerGunOffShape = true;
+            }
+
+            if (climbing)
+            {
+                partnerClimbFlag = true;
+                if (v.Pose == 0 && s.IsName("pose1")) partnerClimbAnim = true;
+            }
+
+            if (prone)
+            {
+                partnerLayFlag = true;
+                if (s.IsName("pose_nam")) partnerLayAnim = true;
+            }
+
+            if (gun >= 0 && !prone && !climbing && v.Pose == 0 && partnerGunOffShape && a.GetLayerWeight(gun) > 0.99f) partnerGunBack = true;
+        }
+    }
+
+    private static void CheckClimbButtons()
+    {
+        foreach (string name in new[] { "ClimbUp", "ClimbDown" })
+        {
+            var rt = (RectTransform)FindByName(name).transform;
+            var corners = new Vector3[4];
+            rt.GetWorldCorners(corners);
+            var pointer = new PointerEventData(EventSystem.current) { position = (corners[0] + corners[2]) * 0.5f };
+            var hits = new List<RaycastResult>();
+            EventSystem.current.RaycastAll(pointer, hits);
+            GameObject top = hits.Count > 0 ? hits[0].gameObject : null;
+            Check(top != null && top.transform.IsChildOf(rt), $"a tap on {name} reaches it (top of the pile: {(top != null ? top.name : "nothing")}) at {Screen.width}x{Screen.height}");
+        }
+    }
+
+    private static void PlayPair()
+    {
+        WatchPartner();
+
+        GameObject climbCanvas = FindByName("ClimbButtonsCanvas");
+        if (Seeker && Net.Phase == MatchPhase.Hide && climbCanvas != null && climbCanvas.activeSelf) climbShownWhileFrozen = true;
+
+        MatchPhase acting = Seeker ? MatchPhase.Seek : MatchPhase.Hide;
+        if (Net.Phase != acting)
+        {
+            DriveStraight(false);
+            return;
+        }
+
+        float now = Time.realtimeSinceStartup;
+        PoseSelectorUI poses = Object.FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include);
+        WallClimber climber = Object.FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
+        Mode1FirstPersonGun gun = Object.FindAnyObjectByType<Mode1FirstPersonGun>(FindObjectsInactive.Include);
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+        if (now < pairAt)
+        {
+            if (pairStage == 5)
+            {
+                climbHighest = Mathf.Max(climbHighest, me.FeetPosition.y);
+                if (now >= nextClimbTraceAt)
+                {
+                    nextClimbTraceAt = now + 0.3f;
+                    climbTrace.Add($"{me.FeetPosition.y - climbFromY:F1}{(climber.IsClinging ? "" : "(off)")}");
+                }
+            }
+            if (pairStage == 5) climbFlagFromServer |= (me.Flags & EntityFlags.Climbing) != 0;
+            return;
+        }
+
+        switch (pairStage)
+        {
+            case 0:
+                pairAt = now + 1f;
+                pairStage = 1;
+                return;
+
+            case 1:     // the nine pose buttons, in turn, as their OnClick calls them
+                if (shapeIndex < 9)
+                {
+                    poses.SlotNoads(shapeIndex++);
+                    pairAt = now + 0.8f;
+                    return;
+                }
+                pairStage = Mixed && !Seeker ? 9 : 2;
+                if (pairStage == 9) return;     // the hider keeps shape 9 for the seeker to find
+                poses.SlotNoads(8);             // tapping the active one again takes it off
+                pairAt = now + 1f;
+                return;
+
+            case 2:     // a seeker lies down and gets up, with the real button
+                pairStage = 4;
+                walkDeadline = now + 16f;
+                if (!Seeker) return;
+                gun.ToggleProne();
+                pairAt = now + 1f;
+                pairStage = 3;
+                return;
+
+            case 3:
+                gun.ToggleProne();
+                pairAt = now + 0.8f;
+                walkDeadline = pairAt + 16f;
+                pairStage = 4;
+                return;
+
+            case 4:     // to the nearest wall; the buttons come up by themselves
+                DriveStraight(true);
+                if (climbCanvas != null && climbCanvas.activeSelf)
+                {
+                    DriveStraight(false);
+                    climbButtonsShown = true;
+                    CheckClimbButtons();
+                    placementsBeforeClimb = Net.PositionPlacements;
+                    climbFromY = climbHighest = me.FeetPosition.y;
+                    Hold("ClimbUp", true);
+                    pairAt = now + 2.5f;
+                    pairStage = 5;
+                    return;
+                }
+                if (now > walkDeadline)
+                {
+                    DriveStraight(false);
+                    pairStage = 9;
+                }
+                return;
+
+            case 5:
+                Hold("ClimbUp", false);
+                climbedUp = climber.IsOnWall && climbHighest > climbFromY + 6f;
+                Hold("ClimbDown", true);
+                pairAt = now + 0.2f;
+                walkDeadline = now + 8f;
+                pairStage = 6;
+                return;
+
+            case 6:
+                if (climber.IsOnWall && now < walkDeadline) return;
+                Hold("ClimbDown", false);
+                cameDown = !climber.IsOnWall;
+                pairStage = 9;
+                return;
+        }
+    }
+
+    private static void CheckPair()
+    {
+        DriveStraight(false);
+        Check(partnerSeen, "the other real player was on this screen");
+
+        if (Mixed)
+        {
+            if (Seeker) Check(partnerShapes.Contains(9), $"the hider's shape shows on the seeker's screen (seen: {string.Join(",", partnerShapes)})");
+            else report.Add($"INFO  shapes of the seeker seen on the hider's screen: {string.Join(",", partnerShapes)}");
+            return;
+        }
+
+        Check(partnerShapes.Count == 9, $"all nine shapes of the other player show here ({string.Join(",", partnerShapes.OrderBy(x => x))})");
+        if (Seeker)
+        {
+            Check(partnerGunOffShape, "a seeker's shape shows through their gun layer");
+            Check(partnerGunBack, "and their gun comes back after it");
+            Check(partnerLayFlag && partnerLayAnim, $"the other seeker lying down shows here (flag {partnerLayFlag}, animation {partnerLayAnim})");
+            Check(!climbShownWhileFrozen, "no climb buttons while a seeker is frozen");
+        }
+
+        Check(climbButtonsShown, "walking to a wall brought up this player's climb buttons");
+        Check(climbedUp, $"this player climbed the wall ({climbHighest - climbFromY:F1} units up; every 0.3 s: {string.Join(" ", climbTrace)})");
+        Check(climbFlagFromServer, "the server has this player climbing");
+        Check(Net.PositionPlacements == placementsBeforeClimb, $"the server accepted the climb ({Net.PositionPlacements - placementsBeforeClimb} corrections)");
+        Check(cameDown, "and came back down with the down button");
+        Check(partnerClimbFlag && partnerClimbAnim, $"the other player climbing shows here (flag {partnerClimbFlag}, animation {partnerClimbAnim})");
+    }
+
     private static void CheckRound()
     {
         DriveJoystick(false);
+        Check(animRestarts == 0, $"no animation started over on any body ({animRestarts}{(animNotes.Count > 0 ? ": " + string.Join("; ", animNotes) : "")})");
+        report.Add($"INFO  bodies that went back to a state within 0.3 s: {animBounces}, over {animTracks.Count} bodies");
+        if (switchStage < 4) report.Add("INFO  the animation switching check did not finish");
+        if (Pair)
+        {
+            CheckPair();
+            return;
+        }
         CheckHostedBots();
         Check(spawnGap < 12f, $"the character started on one of the room's spawn markers ({spawnGap:F1} units away)");
         if (Chase)
@@ -949,6 +1364,8 @@ public static class OnlinePlayTest
         Net.OnMatchEnd += _ => matchEnds++;
         Net.OnSpotAlert += _ => spotAlerts++;
         Net.OnMatchFound += _ => matchesFound++;
+        Net.OnMatchStart += _ => Mark("matchstart");
+        Net.OnPhaseChanged += (phase, _) => Mark("phase" + (int)phase);
         Net.OnBotHost += bots =>
         {
             if (bots.Length == 0) return;
@@ -973,6 +1390,7 @@ public static class OnlinePlayTest
         text.AppendLine(failures == 0 ? "RESULT: PASS" : $"RESULT: FAIL ({failures})");
         Directory.CreateDirectory(Path.GetDirectoryName(ReportPath));
         File.WriteAllText(ReportPath, text.ToString());
+        File.WriteAllText(ReportPath + ".timer.csv", timerCsv.ToString());
         Debug.Log("[PlayTest]\n" + text);
 
         int code = failures == 0 ? 0 : 1;

@@ -21,7 +21,6 @@ public class AnimTester : MonoBehaviour
     // Decoded from the .cctor's raw bit patterns.
     private static readonly Color Normal = new Color(0.18f, 0.2f, 0.26f, 0.95f);  // statics 0x00
     private static readonly Color Active = new Color(0.2f, 0.62f, 0.34f, 1f);     // statics 0x10
-    private static readonly int PoseHash = Animator.StringToHash("Pose");         // statics 0x20
     private static readonly string[] ActLabels = new string[] { "Attack", "Gun Walk" };      // 0x28
     private static readonly string[] ActTrigs = new string[] { "GunAttack", "GunWalking" };  // 0x30
 
@@ -143,7 +142,7 @@ public class AnimTester : MonoBehaviour
         activePose = (activePose != n) ? n : 0;
         if (anim != null)
         {
-            anim.SetInteger(PoseHash, activePose);
+            BodyAnimation.SetPose(anim, activePose);
         }
         RefreshPoseHighlights();
     }

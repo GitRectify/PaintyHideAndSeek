@@ -29,14 +29,13 @@ public class Mode1FirstPersonGun : MonoBehaviour
     private CameraController camCtrl;
     private GunHolder gunHolder;
     private Animator playerAnim;
-    private int gunLayer = -1;
+    private WallClimber climber;
     private Font font;
     private GameObject fireBtn;
     private GameObject jumpBtn;
     private GameObject namBtn;
     private bool prone;
     private bool gunModeOn;
-    private static readonly int NamHash = Animator.StringToHash("Nam");
     private bool wasGunMode;
 
     [Header("Aim (Mode 1 — drag the RIGHT side of the screen)")]
@@ -119,7 +118,6 @@ public class Mode1FirstPersonGun : MonoBehaviour
     [Tooltip("Fallback muzzle offset from the camera (forward / up) — used only if the gun can't be found.")]
     public float muzzleForward = 2.5f;
     public float muzzleUp = -0.5f;
-    private static readonly int GunFireHash = Animator.StringToHash("GunFire");
 
     private void Start()
     {
@@ -167,16 +165,6 @@ public class Mode1FirstPersonGun : MonoBehaviour
             }
         }
 
-        gunLayer = -1;
-        if (playerAnim == null) return;
-        for (int i = 0; i < playerAnim.layerCount; i++)
-        {
-            if (playerAnim.GetLayerName(i) == "Gun")
-            {
-                gunLayer = i;
-                return;
-            }
-        }
     }
 
     // Gun mode = round running with the player as the seeker; re-applied only when it flips.
@@ -251,17 +239,22 @@ public class Mode1FirstPersonGun : MonoBehaviour
         }
     }
 
-    // The "Gun" animator layer is full weight in gun mode, except while prone.
+    // The "Gun" animator layer is on in gun mode; BodyAnimation takes it off while a pose shows.
     private void RefreshGunLayerWeight()
     {
-        if (playerAnim == null || gunLayer < 0) return;
-        playerAnim.SetLayerWeight(gunLayer, (gunModeOn && !prone) ? 1f : 0f);
+        BodyAnimation.SetCarriesGun(playerAnim, gunModeOn);
     }
+
+    /// <summary>Gets up, when something else needs the body (climbing).</summary>
+    public void StandUp() => SetProne(false);
 
     public bool IsProne => prone;
 
     public void ToggleProne()
     {
+        if (climber == null) climber = FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
+        if (climber != null && climber.IsOnWall) return;    // nobody lies down on a wall
+
         if (gunModeOn)
         {
             SetProne(!prone);
@@ -272,10 +265,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
     {
         if (prone == v) return;
         prone = v;
-        if (playerAnim != null)
-        {
-            playerAnim.SetBool(NamHash, v);
-        }
+        BodyAnimation.SetProne(playerAnim, v);
         RefreshGunLayerWeight();
         if (camCtrl != null)
         {
@@ -299,10 +289,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
         // never out of bullets: default bullets are unlimited.
         if (!OnlineRound.TryFire()) return;
 
-        if (playerAnim != null)
-        {
-            playerAnim.SetTrigger(GunFireHash);
-        }
+        BodyAnimation.PlayShot(playerAnim);
         AudioManager.WaterGunShot();
 
         if (gmm == null) return;

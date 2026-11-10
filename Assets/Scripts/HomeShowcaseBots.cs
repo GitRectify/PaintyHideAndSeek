@@ -3,15 +3,6 @@ using UnityEngine;
 
 public class HomeShowcaseBots : MonoBehaviour
 {
-    private static readonly int PoseHash;
-    private static readonly int SpeedHash;
-
-    static HomeShowcaseBots()
-    {
-        PoseHash = Animator.StringToHash("Pose");
-        SpeedHash = Animator.StringToHash("Speed");
-    }
-
     public bool showOnHome;
     public string playerName = "Player";
     public GameObject botPrefab;
@@ -154,11 +145,11 @@ public class HomeShowcaseBots : MonoBehaviour
     {
         if (anim == null) return;
 
-        anim.SetFloat(SpeedHash, 0f);
+        BodyAnimation.SetSpeed(anim, 0f);
 
         if (pose > 3) pose = 4;
         if (pose < 0) pose = 0;
 
-        anim.SetInteger(PoseHash, pose);
+        BodyAnimation.SetPose(anim, pose);
     }
 }

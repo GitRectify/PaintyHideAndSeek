@@ -38,6 +38,7 @@ public class GameModeManager : MonoBehaviour
     public bool NetworkRound { get; private set; }
     public bool NetSeekerFrozen { get; set; }
     public int NetTimerSeconds { get; set; }
+    public bool NetTimerWaiting { get; set; }      // the match has no phase clock yet: games still loading
     public float NetTimerFraction { get; set; }
     public int NetFugitivesLeft { get; set; }
     public int NetHuntersLeft { get; set; }

@@ -247,7 +247,7 @@ public static class ShopInventory
         if (!Loaded) return true;
         foreach (MetaItem item in listing.Values)
             if (item.Kind == ItemKind.Pose && (int)item.GameId == poseId) return item.Owned;
-        return false;
+        return true;    // the shop doesn't sell it, so there is nothing to buy
     }
 
     private static bool OwnsWeapon(int weaponId)

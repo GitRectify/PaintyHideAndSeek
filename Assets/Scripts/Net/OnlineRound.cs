@@ -95,9 +95,8 @@ public partial class OnlineRound : MonoBehaviour
     private MecchaNetClient.RosterEntry[] roster;
     private readonly HashSet<byte> eliminated = new HashSet<byte>();
 
-    private float phaseEndsAt;
-    private int phaseTotal;
-    private bool phaseRunning;
+    private int timerShown = -1;
+    private float nextWaitNoticeAt;
 
     private Transform localBody;
     private NetInputAdapter adapter;
@@ -252,6 +251,7 @@ public partial class OnlineRound : MonoBehaviour
         Net.OnBotHost += HandleBotHost;
 
         // Start from the phase the client last heard (the ready gate, normally).
+        nextWaitNoticeAt = Time.unscaledTime + WaitNoticeAfterSeconds;
         HandlePhaseChanged(Net.Phase, Net.PhaseSecondsLeft);
         RefreshCounters();
         ShowBanner(hunter ? "You are a SEEKER. Wait for the hiders to hide..." : "You are a HIDER. Paint yourself and hide!", 4f);
@@ -338,12 +338,14 @@ public partial class OnlineRound : MonoBehaviour
     private const float SpawnBesideRadius = 7f;     // under half the markers' spacing, so neighbours stay apart
     private const float SpawnClearance = 0.5f;
     private const float ShotRayLength = 1000f;
+    private const float WaitNoticeAfterSeconds = 1.5f;
 
     private void Update()
     {
         if (!active) return;
 
         UpdateTimer();
+        CheckPoseAnswer();
         FeedInput();
         PumpBots();
         RefreshCounters();
@@ -527,7 +529,7 @@ public partial class OnlineRound : MonoBehaviour
         adapter.SetProne(gun != null && gun.IsProne);
         adapter.SetJump(mover != null && Time.unscaledTime - mover.LastJumpTime < 0.15f);
         adapter.SetPaintPanelOpen(paint != null && paint.DrawingActive);
-        adapter.SetOnWall(climber != null && climber.IsOnWall);
+        adapter.SetOnWall(climber != null && climber.IsClinging);
 
         if (fireReleaseAt > 0f && Time.unscaledTime > fireReleaseAt)
         {
@@ -628,16 +630,9 @@ public partial class OnlineRound : MonoBehaviour
 
     private void HandlePhaseChanged(MatchPhase phase, int secondsLeft)
     {
-        phaseTotal = Mathf.Max(1, secondsLeft);
-        phaseEndsAt = Time.unscaledTime + secondsLeft;
-        phaseRunning = !Net.PhasePaused && (phase == MatchPhase.Hide || phase == MatchPhase.Seek);
-
-        if (gmm != null)
-        {
-            gmm.NetSeekerFrozen = phase == MatchPhase.Hide || phase == MatchPhase.Lobby;
-            gmm.NetTimerSeconds = secondsLeft;
-            gmm.NetTimerFraction = 0f;
-        }
+        timerShown = -1;
+        if (gmm != null) gmm.NetSeekerFrozen = phase == MatchPhase.Hide || phase == MatchPhase.Lobby;
+        UpdateTimer();
 
         if (Net.PhasePaused) ShowBanner("Paused: a seat is being refilled.", 3f);
         else if (phase == MatchPhase.Hide && hunter) ShowBanner("Hiders are hiding. You are frozen until the seek starts.", 3f);
@@ -646,13 +641,37 @@ public partial class OnlineRound : MonoBehaviour
         if (phase == MatchPhase.Result) StopHostingBots();
     }
 
+    // The timer on screen is the server's clock, read every frame. Nothing here counts it down,
+    // starts it or resets it, so every client shows the same time.
     private void UpdateTimer()
     {
-        if (gmm == null || !phaseRunning) return;
+        if (gmm == null || resultShown) return;
 
-        float left = Mathf.Max(0f, phaseEndsAt - Time.unscaledTime);
-        gmm.NetTimerSeconds = Mathf.CeilToInt(left);
-        gmm.NetTimerFraction = 1f - left / phaseTotal;
+        MatchPhase phase = Net.Phase;
+        gmm.NetTimerWaiting = phase == MatchPhase.Lobby;
+
+        if (phase == MatchPhase.Lobby)
+        {
+            // Only a slow phone makes this last: the hide starts once every game has loaded.
+            if (Time.unscaledTime >= nextWaitNoticeAt)
+            {
+                nextWaitNoticeAt = Time.unscaledTime + 1f;
+                ShowBanner("Waiting for the other players to load...", 1.2f);
+            }
+            return;
+        }
+
+        if (phase != MatchPhase.Hide && phase != MatchPhase.Seek) return;
+
+        float left = Net.PhaseTimeLeft;
+        int seconds = Net.PhaseSecondsLeft;
+
+        // A small correction to the clock right at the edge of a second must not tick it back up.
+        if (timerShown >= 0 && seconds == timerShown + 1 && left < timerShown + 0.25f) seconds = timerShown;
+        timerShown = seconds;
+
+        gmm.NetTimerSeconds = seconds;
+        gmm.NetTimerFraction = 1f - left / Mathf.Max(1, Net.PhaseDurationSeconds);
     }
 
     private void HandleRosterChanged(MecchaNetClient.RosterEntry[] entries)
@@ -824,7 +843,6 @@ public partial class OnlineRound : MonoBehaviour
 
     private void HandleRoundEnd(MecchaNetClient.RoundEndInfo info)
     {
-        phaseRunning = false;
         if (gmm != null) gmm.PlayerFrozen = true;
 
         string score = hunter ? info.Eliminations.ToString() : info.SurvivalSeconds + "s";
@@ -837,7 +855,6 @@ public partial class OnlineRound : MonoBehaviour
         if (matchEndShown) return;
         matchEndShown = true;
 
-        phaseRunning = false;
         if (gmm != null) gmm.PlayerFrozen = true;
 
         string score = hunter ? info.Eliminations.ToString() : info.SurvivalSeconds + "s";

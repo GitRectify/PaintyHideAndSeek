@@ -333,9 +333,6 @@ public class BotSeekController : MonoBehaviour
     private GameModeManager gmm;                                                         // 0x2A8
     private BotManager botMgr;                                                           // 0x2B0
     private Ragdoll playerRagdoll;                                                       // 0x2B8
-    private static readonly int SpeedHash = Animator.StringToHash("Speed");
-    private static readonly int PoseHash = Animator.StringToHash("Pose");
-    private static readonly int GunFireHash = Animator.StringToHash("GunFire");
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
     // Used only by the revive callback (RevivePlayer's lambda) - separate from resultUI.
     public HideModeResultUI hideUI;                                                      // 0x2C0
@@ -425,7 +422,7 @@ public class BotSeekController : MonoBehaviour
             return false;
         }
 
-        if (b.anim != null) b.anim.SetFloat(SpeedHash, 0f);
+        if (b.anim != null) BodyAnimation.SetSpeed(b.anim, 0f);
 
         Vector3 flat = b.onlineSpot.position - b.tf.position;
         flat.y = 0f;
@@ -682,7 +679,7 @@ public class BotSeekController : MonoBehaviour
                 b.activateTimer -= Time.deltaTime;
                 if (b.anim != null)
                 {
-                    b.anim.SetFloat(SpeedHash, 0f);
+                    BodyAnimation.SetSpeed(b.anim, 0f);
                 }
                 continue;
             }
@@ -746,7 +743,7 @@ public class BotSeekController : MonoBehaviour
         {
             if (b.anim != null)
             {
-                b.anim.SetFloat(SpeedHash, 0f);
+                BodyAnimation.SetSpeed(b.anim, 0f);
             }
             LookAroundInPlace(b, dt);
             b.idleAnchor = b.tf.position;
@@ -799,7 +796,7 @@ public class BotSeekController : MonoBehaviour
                 {
                     if (b.anim != null)
                     {
-                        b.anim.SetFloat(SpeedHash, 0f);
+                        BodyAnimation.SetSpeed(b.anim, 0f);
                     }
                     return;
                 }
@@ -816,7 +813,7 @@ public class BotSeekController : MonoBehaviour
 
                 if (b.anim != null)
                 {
-                    b.anim.SetFloat(SpeedHash, 0f);
+                    BodyAnimation.SetSpeed(b.anim, 0f);
                 }
                 b.scanTimer += dt;
                 LookAroundInPlace(b, dt);
@@ -847,7 +844,7 @@ public class BotSeekController : MonoBehaviour
                     b.corners = null;
                     if (b.anim != null)
                     {
-                        b.anim.SetFloat(SpeedHash, 0f);
+                        BodyAnimation.SetSpeed(b.anim, 0f);
                     }
                     return;
                 }
@@ -858,7 +855,7 @@ public class BotSeekController : MonoBehaviour
         {
             if (b.anim != null)
             {
-                b.anim.SetFloat(SpeedHash, 0f);
+                BodyAnimation.SetSpeed(b.anim, 0f);
             }
             if (b.alerted) return;
             MarkChecked(b.targetIdx);
@@ -870,7 +867,7 @@ public class BotSeekController : MonoBehaviour
         {
             if (b.anim != null)
             {
-                b.anim.SetFloat(SpeedHash, 0f);
+                BodyAnimation.SetSpeed(b.anim, 0f);
             }
             if (!b.alerted)
             {
@@ -923,7 +920,7 @@ public class BotSeekController : MonoBehaviour
         }
         if (b.anim != null)
         {
-            b.anim.SetFloat(SpeedHash, 1f);
+            BodyAnimation.SetSpeed(b.anim, 1f);
         }
 
         if (TryStartClimb(b, dir, b.stuckTimer > 0.2f)) return;
@@ -984,7 +981,7 @@ public class BotSeekController : MonoBehaviour
                 b.progressAnchor = b.tf.position;
                 if (b.anim != null)
                 {
-                    b.anim.SetFloat(SpeedHash, 0f);
+                    BodyAnimation.SetSpeed(b.anim, 0f);
                 }
                 return;
             }
@@ -1025,7 +1022,7 @@ public class BotSeekController : MonoBehaviour
                 b.corners = null;
                 if (b.anim != null)
                 {
-                    b.anim.SetFloat(SpeedHash, 0f);
+                    BodyAnimation.SetSpeed(b.anim, 0f);
                 }
                 return;
             }
@@ -1163,7 +1160,7 @@ public class BotSeekController : MonoBehaviour
             float gap = distance - BodyRadius(b) - 0.3f;
             if (gap > 0.05f)
             {
-                if (b.anim != null) b.anim.SetFloat(SpeedHash, 1f);
+                if (b.anim != null) BodyAnimation.SetSpeed(b.anim, 1f);
                 b.cc.Move(into * Mathf.Min(gap, walkSpeed * dt) + Vector3.down * (botGravity * 0.05f * dt));
                 return;
             }
@@ -1171,10 +1168,9 @@ public class BotSeekController : MonoBehaviour
             b.climbDir = 1;
             if (b.anim != null)
             {
-                b.anim.SetFloat(SpeedHash, 0f);
-                b.anim.SetInteger(PoseHash, 1);
+                BodyAnimation.SetSpeed(b.anim, 0f);
+                BodyAnimation.SetClimbing(b.anim, true);     // takes the "Gun" layer off too
             }
-            SetGunPose(b.anim, false);     // the "Gun" layer would hide the climbing pose
             return;
         }
 
@@ -1236,8 +1232,7 @@ public class BotSeekController : MonoBehaviour
         b.idleAnchor = b.tf.position;
         b.idleTimer = 0f;
 
-        if (b.anim != null) b.anim.SetInteger(PoseHash, 0);
-        SetGunPose(b.anim, true);
+        BodyAnimation.SetClimbing(b.anim, false);
     }
 
     // Steps the bot 8 units backwards (onto the floor NavMesh) and drops the current chase/target.
@@ -1287,7 +1282,7 @@ public class BotSeekController : MonoBehaviour
         b.progressAnchor = b.tf.position;
         if (b.anim != null)
         {
-            b.anim.SetFloat(SpeedHash, 0f);
+            BodyAnimation.SetSpeed(b.anim, 0f);
         }
     }
 
@@ -1323,7 +1318,7 @@ public class BotSeekController : MonoBehaviour
         {
             if (b.anim != null)
             {
-                b.anim.SetFloat(SpeedHash, 0f);
+                BodyAnimation.SetSpeed(b.anim, 0f);
             }
             LookAroundInPlace(b, dt);
             if (b.investigateTimer > 0f) return;
@@ -1383,7 +1378,7 @@ public class BotSeekController : MonoBehaviour
         }
         if (b.anim != null)
         {
-            b.anim.SetFloat(SpeedHash, 1f);
+            BodyAnimation.SetSpeed(b.anim, 1f);
         }
 
         if (dir.z * dir.z + dir.x * dir.x > 0.001f)
@@ -1413,7 +1408,7 @@ public class BotSeekController : MonoBehaviour
         b.progressAnchor = b.tf != null ? b.tf.position : Vector3.zero;
         if (b.anim != null)
         {
-            b.anim.SetFloat(SpeedHash, 0f);
+            BodyAnimation.SetSpeed(b.anim, 0f);
         }
     }
 
@@ -1511,7 +1506,7 @@ public class BotSeekController : MonoBehaviour
             b.idleTimer = 0f;
             if (b.anim != null)
             {
-                b.anim.SetFloat(SpeedHash, 0f);
+                BodyAnimation.SetSpeed(b.anim, 0f);
             }
             return;
         }
@@ -1536,7 +1531,7 @@ public class BotSeekController : MonoBehaviour
         b.idleTimer = 0f;
         if (b.anim != null)
         {
-            b.anim.SetFloat(SpeedHash, 0f);
+            BodyAnimation.SetSpeed(b.anim, 0f);
         }
         Debug.Log("[BotSeek] " + b.tf.name + " deeply stranded — teleported to spawn.");
     }
@@ -2043,7 +2038,7 @@ public class BotSeekController : MonoBehaviour
         {
             if (_spotBot.anim != null)
             {
-                _spotBot.anim.SetFloat(SpeedHash, 0f);
+                BodyAnimation.SetSpeed(_spotBot.anim, 0f);
             }
 
             Vector3 pp = playerTf.position;
@@ -2222,7 +2217,7 @@ public class BotSeekController : MonoBehaviour
 
         if (b.anim != null)
         {
-            b.anim.SetTrigger(GunFireHash);
+            BodyAnimation.PlayShot(b.anim);
         }
         AudioManager.WaterGunShot();
 
@@ -2445,15 +2440,7 @@ public class BotSeekController : MonoBehaviour
 
     private static void SetGunPose(Animator anim, bool on)
     {
-        if (anim == null) return;
-        for (int i = 0; i < anim.layerCount; i++)
-        {
-            if (anim.GetLayerName(i) == "Gun")
-            {
-                anim.SetLayerWeight(i, on ? 1f : 0f);
-                return;
-            }
-        }
+        BodyAnimation.SetCarriesGun(anim, on);
     }
 
     private GameObject FindInScene(string n)
@@ -2894,7 +2881,7 @@ public class BotSeekController : MonoBehaviour
             SeekBot b = bots[i];
             if (b.anim != null)
             {
-                b.anim.SetFloat(SpeedHash, 0f);
+                BodyAnimation.SetSpeed(b.anim, 0f);
             }
             if (b.look != null)
             {
@@ -2964,8 +2951,9 @@ public class BotSeekController : MonoBehaviour
 
                 if (b.anim != null)
                 {
-                    b.anim.SetFloat(SpeedHash, 0f);
-                    b.anim.SetInteger(PoseHash, 0);
+                    BodyAnimation.SetSpeed(b.anim, 0f);
+                    BodyAnimation.SetPose(b.anim, 0);
+                    BodyAnimation.SetClimbing(b.anim, false);
                 }
                 if (b.smr != null)
                 {

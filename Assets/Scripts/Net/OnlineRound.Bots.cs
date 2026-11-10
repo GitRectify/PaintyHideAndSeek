@@ -117,8 +117,8 @@ public partial class OnlineRound : IOnlineBotGame
         ReportBots();
     }
 
-    // Baking navigation stalls the frame, so it is done once, during the countdown when nobody can
-    // walk. (A host who takes over mid-round has no such moment, and takes the stall then.)
+    // Baking navigation stalls the frame, so it is done once, as soon as this game hears it hosts
+    // the bots. (A host who takes over mid-round takes the stall then.)
     private void PrepareBotRoom()
     {
         if (botRoomPreparedFor == matchId) return;

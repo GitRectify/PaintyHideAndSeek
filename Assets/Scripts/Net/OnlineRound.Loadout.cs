@@ -13,7 +13,9 @@ public partial class OnlineRound
     private const string RemoteGunName = "NetGun";
     private const string HandBoneName = "mixamorig:RightHand";
     private static readonly int PoseHash = Animator.StringToHash("Pose");
+    private const float PoseAnswerSeconds = 1.5f;
     private int requestedPose = -1;
+    private float poseAnswerDueAt;
 
     // ================= Entry point: poses =================
 
@@ -22,6 +24,7 @@ public partial class OnlineRound
     {
         if (!Active || Net == null) return;
         _instance.requestedPose = poseId;
+        _instance.poseAnswerDueAt = Time.unscaledTime + PoseAnswerSeconds;
         Net.SelectPose(poseId);
     }
 
@@ -32,12 +35,7 @@ public partial class OnlineRound
     {
         if (view == null) return;
 
-        // On a wall "Pose" is the climb (NetBodyAnimator); the struck pose comes back after it.
-        NetBodyAnimator body = view.GetComponent<NetBodyAnimator>();
-        Animator animator = view.GetComponentInChildren<Animator>();
-        if (animator != null && HasParameter(animator, PoseHash) && (body == null || !body.Climbing))
-            animator.SetInteger(PoseHash, PoseSelectorUI.AnimatorPoseFor(view.Pose));
-
+        BodyAnimation.SetPose(view.GetComponentInChildren<Animator>(), PoseSelectorUI.AnimatorPoseFor(view.Pose));
         WeaponSkins.Apply(FindChild(view.transform, RemoteGunName), view.WeaponId);
     }
 
@@ -49,16 +47,7 @@ public partial class OnlineRound
         if (hand == null || hand.Find(RemoteGunName) != null) return;
         if (SeekerGun.Attach(hand, RemoteGunName) == null) return;
 
-        Animator animator = body.GetComponentInChildren<Animator>();
-        if (animator != null)
-        {
-            for (int i = 0; i < animator.layerCount; i++)
-            {
-                if (animator.GetLayerName(i) != "Gun") continue;
-                animator.SetLayerWeight(i, 1f);
-                break;
-            }
-        }
+        BodyAnimation.SetCarriesGun(body.GetComponentInChildren<Animator>(), true);
     }
 
     private static Transform FindChild(Transform root, string name)
@@ -69,13 +58,6 @@ public partial class OnlineRound
         return null;
     }
 
-    private static bool HasParameter(Animator animator, int hash)
-    {
-        foreach (AnimatorControllerParameter p in animator.parameters)
-            if (p.nameHash == hash) return true;
-        return false;
-    }
-
     // ================= The local player's loadout =================
 
     // LoadoutState: the server's answer to every pose/weapon request, and its bullet count when
@@ -84,16 +66,23 @@ public partial class OnlineRound
     {
         RefreshBullets();
         ApplyLocalWeapon();
+    }
 
-        if (requestedPose < 0) return;
-        if (Net.Pose != requestedPose)
-        {
-            if (poses != null) poses.ShowServerPose(Net.Pose);
-            ShowBanner(ShopInventory.OwnsPose(requestedPose)
-                ? "Changing poses too fast. Try again in a moment."
-                : "That pose isn't unlocked online. Get it in the Shop.", 2.5f);
-        }
+    // Judged once the taps have stopped: the answer to one pick arriving after the next was made
+    // is not a refusal of the next.
+    private void CheckPoseAnswer()
+    {
+        if (requestedPose < 0 || Time.unscaledTime < poseAnswerDueAt) return;
+
+        int asked = requestedPose;
         requestedPose = -1;
+        if (Net.Pose == asked) return;
+
+        if (poses != null) poses.ShowServerPose(Net.Pose);
+        if (!Net.IsConnected) return;
+        ShowBanner(ShopInventory.OwnsPose(asked)
+            ? "Changing poses too fast. Try again in a moment."
+            : "That pose isn't unlocked online. Get it in the Shop.", 2.5f);
     }
 
     // ================= Weapons =================

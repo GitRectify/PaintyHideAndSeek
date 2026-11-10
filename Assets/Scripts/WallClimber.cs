@@ -58,6 +58,9 @@ public class WallClimber : MonoBehaviour
     private CameraController camCtrl;
     private BotSeekController seek;
     private PoseSelectorUI poseSel;
+    private BotHideController hide;
+    private Mode1FirstPersonGun gun;
+    private bool clinging;
     private GameObject climbCanvas;
     private readonly RaycastHit[] _hits = new RaycastHit[16];
     private readonly Vector3[] _probeDirs = new Vector3[4];
@@ -71,12 +74,33 @@ public class WallClimber : MonoBehaviour
 
     private readonly Dictionary<Collider, bool> _isCharacterCache = new Dictionary<Collider, bool>();
 
-    private static readonly int SpeedHash = Animator.StringToHash("Speed");
-    private static readonly int PoseHash = Animator.StringToHash("Pose");
 
     // ================= properties =================
 
     public bool IsOnWall => state == State.OnWall;
+
+    /// <summary>On a wall and touching it, not hanging in the open past its top.</summary>
+    public bool IsClinging => state == State.OnWall && clinging;
+
+    // The walls are open to the player in any round, on either side: online, hunted by the seeker
+    // bots in Single Play, or hunting the hider bots. They close with the round.
+    private bool WallsOpen
+    {
+        get
+        {
+            if (gmm == null || !gmm.RoundActive) return false;
+            if (gmm.NetworkRound) return true;
+            if (gmm.PlayerIsSeeker) return hide != null && hide.Active;
+            return seek != null && seek.Active && seek.chasePlayer;
+        }
+    }
+
+    private void LeaveWall()
+    {
+        state = State.Grounded;
+        clinging = false;
+        BodyAnimation.SetClimbing(anim, false);
+    }
 
     // True when not currently on a wall, but chasing the player and near a climbable one — used
     // to suppress some other system's rotation control while approaching a wall.
@@ -86,9 +110,7 @@ public class WallClimber : MonoBehaviour
         {
             if (state == State.OnWall) return false;
             if (character == null) return false;
-            if (seek == null) return false;
-            if (!seek.Active) return false;
-            if (!seek.chasePlayer) return false;
+            if (!WallsOpen) return false;
             return TryGetWall(out Vector3 _);
         }
     }
@@ -96,18 +118,6 @@ public class WallClimber : MonoBehaviour
     private bool IsNearWall()
     {
         return TryGetWall(out Vector3 _);
-    }
-
-    // Raw reads poseSel.activeSlot directly and tests its sign bit, i.e. activeSlot >= 0. That field
-    // is private in PoseSelectorUI (per dump.cs), so this uses PoseSelectorUI.HasPose, whose body
-    // is the identical test.
-    private bool HasUserPose
-    {
-        get
-        {
-            if (poseSel == null) return false;
-            return poseSel.HasPose;
-        }
     }
 
     // ================= lifecycle =================
@@ -123,15 +133,14 @@ public class WallClimber : MonoBehaviour
         Grounding.ToFloor(character, charRends);
         up = 0;
         down = 0;
-        state = State.Grounded;
+        LeaveWall();
 
         if (poseSel != null)
         {
             poseSel.ClearSelection();
             return;
         }
-        if (anim == null) return;
-        anim.SetInteger(PoseHash, 0);
+        BodyAnimation.SetPose(anim, 0);
     }
 
     private void Start()
@@ -155,6 +164,8 @@ public class WallClimber : MonoBehaviour
         gmm = UnityEngine.Object.FindAnyObjectByType<GameModeManager>();
         camCtrl = UnityEngine.Object.FindAnyObjectByType<CameraController>();
         poseSel = UnityEngine.Object.FindAnyObjectByType<PoseSelectorUI>();
+        hide = UnityEngine.Object.FindAnyObjectByType<BotHideController>(FindObjectsInactive.Include);
+        gun = UnityEngine.Object.FindAnyObjectByType<Mode1FirstPersonGun>(FindObjectsInactive.Include);
         font = UIFont.Default;
 
         EnsureEventSystem();
@@ -219,7 +230,8 @@ public class WallClimber : MonoBehaviour
     {
         if (character == null) return;
 
-        bool suppressed = gmm != null && gmm.PlayerFrozen;
+        // Frozen, or a seeker waiting for the hiders to hide: nobody climbs.
+        bool suppressed = gmm != null && (gmm.PlayerFrozen || gmm.SeekerHideCountdown);
         if (!suppressed)
         {
             suppressed = camCtrl != null && camCtrl._freeLook;
@@ -233,14 +245,13 @@ public class WallClimber : MonoBehaviour
             {
                 climbCanvas.SetActive(false);
             }
-            if (anim == null) return;
-            anim.SetFloat(SpeedHash, 0f);
+            BodyAnimation.SetSpeed(anim, 0f);
             return;
         }
 
         bool showClimbUI;
         bool notInteracting;
-        if (seek != null && seek.Active && seek.chasePlayer)
+        if (WallsOpen)
         {
             if (state == State.OnWall)
             {
@@ -277,21 +288,15 @@ public class WallClimber : MonoBehaviour
         {
             if (state != State.OnWall) return;
 
-            // Was climbing, but the chase ended — drop back to the ground.
+            // Was climbing, but the round ended — drop back to the ground.
             Grounding.ToFloor(character, charRends);
-            state = State.Grounded;
+            LeaveWall();
             if (poseSel != null)
             {
                 poseSel.ClearSelection();
                 return;
             }
-            if (anim == null) return;
-            // FIXED: raw does NOT gate this reset on HasUserPose — unlike the two "fell off the
-            // wall" resets further down in this method (which both do check it), this path always
-            // forces Pose back to 0. Confirmed by tracing all four Pose-reset call sites in the
-            // raw dump; this asymmetry (always clear pose when the chase itself ends, but respect
-            // a manually-selected pose only while actively climbing) appears intentional.
-            anim.SetInteger(PoseHash, 0);
+            BodyAnimation.SetPose(anim, 0);
             return;
         }
 
@@ -309,9 +314,9 @@ public class WallClimber : MonoBehaviour
             if (!TryGetWall(out Vector3 _)) return;
 
             state = State.OnWall;
-            if (anim == null) return;
-            if (HasUserPose) return;
-            anim.SetInteger(PoseHash, 1);
+            clinging = true;
+            if (gun != null) gun.StandUp();     // nobody climbs lying down
+            BodyAnimation.SetClimbing(anim, true);
             return;
         }
 
@@ -322,21 +327,16 @@ public class WallClimber : MonoBehaviour
 
         Vector3 camHoriz = CameraHorizontal(joyDir);
         bool stillOnWall = TryGetWall(out Vector3 _);
+        clinging = stillOnWall;
 
         if (down < 1 || stillOnWall)
         {
-            if (anim != null && !HasUserPose)
-            {
-                anim.SetInteger(PoseHash, stillOnWall ? 1 : 0);
-            }
+            BodyAnimation.SetClimbing(anim, stillOnWall);
 
             if (!stillOnWall)
             {
                 float moveMag = Mathf.Clamp01(camHoriz.magnitude);
-                if (anim != null)
-                {
-                    anim.SetFloat(SpeedHash, moveMag);
-                }
+                BodyAnimation.SetSpeed(anim, moveMag);
                 if (moveMag > 0.01f)
                 {
                     // CONFIRMED by decoding the two unnamed helpers' ARM64 bytes in libil2cpp.so:
@@ -351,10 +351,7 @@ public class WallClimber : MonoBehaviour
             }
             else
             {
-                if (anim != null)
-                {
-                    anim.SetFloat(SpeedHash, 0f);
-                }
+                BodyAnimation.SetSpeed(anim, 0f);
             }
 
             int climbDir = upBefore - downBefore;
@@ -379,22 +376,16 @@ public class WallClimber : MonoBehaviour
 
             // Climbing down and touched ground — drop off the wall.
             Grounding.ToFloor(character, charRends);
-            state = State.Grounded;
-            if (anim == null) return;
-            if (HasUserPose) return;
-            anim.SetInteger(PoseHash, 0);
+            LeaveWall();
             return;
         }
         else
         {
             // Holding "down" and no longer touching a wall — fell off while descending.
             Grounding.ToFloor(character, charRends);
-            state = State.Grounded;
+            LeaveWall();
             up = 0;
             down = 0;
-            if (anim == null) return;
-            if (HasUserPose) return;
-            anim.SetInteger(PoseHash, 0);
         }
     }
 

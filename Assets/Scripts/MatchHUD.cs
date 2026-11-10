@@ -144,7 +144,8 @@ public class MatchHUD : MonoBehaviour
 
         if (timerText != null)
         {
-            timerText.text = secs.ToString();
+            // No number while the games are still loading: nothing is counting yet.
+            timerText.text = gmm != null && gmm.NetworkRound && gmm.NetTimerWaiting ? "" : secs.ToString();
         }
 
         ApplyPulse(secs);

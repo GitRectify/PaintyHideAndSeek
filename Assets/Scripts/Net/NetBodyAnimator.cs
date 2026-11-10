@@ -2,74 +2,36 @@ using Meccha.Client;
 using Meccha.Shared.Game;
 using UnityEngine;
 
-// Drives another player's body animator from what the server replicates, with the same
-// parameters the local player's scripts use offline: "Nam" (prone, Mode1FirstPersonGun),
-// "Pose" = 1 while on a wall (WallClimber) and otherwise the struck pose (PoseSelectorUI), and
-// "GunFire" on a shot (the gun and BotSeekController). "Speed" is NetEntityView's own, from the
-// interpolated movement. A parameter the body's controller does not have is skipped. The "Gun"
-// layer, which a seeker's body holds at full weight, comes off while they lie down or climb: it
-// overrides the base layer, so those poses never showed through it.
+// Plays another player's body from what the server replicates: lying down and climbing from the
+// replicated flags, moving from how the body is being drawn, and a shot when one is drawn. Their
+// struck pose comes from OnlineRound.ApplyRemoteLoadout. BodyAnimation does the switching, exactly
+// as it does for the player's own body and the bots. A bot this game hosts is left to its controller.
 [DisallowMultipleComponent]
 public class NetBodyAnimator : MonoBehaviour
 {
-    private static readonly int NamHash = Animator.StringToHash("Nam");
-    private static readonly int PoseHash = Animator.StringToHash("Pose");
-    private static readonly int GunFireHash = Animator.StringToHash("GunFire");
-
     private NetEntityView view;
     private Animator anim;
-    private bool hasNam, hasPose, hasGunFire;
-    private bool wasClimbing, wasProne;
-    private int gunLayer = -1;
 
     public void Bind(NetEntityView entity)
     {
         view = entity;
+        view.DrivesAnimatorSpeed = false;
         anim = GetComponentInChildren<Animator>();
-        if (anim == null) return;
-
-        foreach (AnimatorControllerParameter p in anim.parameters)
-        {
-            if (p.nameHash == NamHash && p.type == AnimatorControllerParameterType.Bool) hasNam = true;
-            else if (p.nameHash == PoseHash && p.type == AnimatorControllerParameterType.Int) hasPose = true;
-            else if (p.nameHash == GunFireHash && p.type == AnimatorControllerParameterType.Trigger) hasGunFire = true;
-        }
-
-        if (entity.Role != Role.Hunter) return;
-        for (int i = 0; i < anim.layerCount; i++)
-        {
-            if (anim.GetLayerName(i) == "Gun") gunLayer = i;
-        }
     }
 
     /// <summary>The shot's gun animation (the sound and tracer are OnlineRound's).</summary>
     public void PlayShot()
     {
-        if (anim != null && hasGunFire && !view.Eliminated) anim.SetTrigger(GunFireHash);
+        if (view != null && !view.Eliminated) BodyAnimation.PlayShot(anim);
     }
 
     private void LateUpdate()
     {
-        if (view == null || anim == null || view.Eliminated) return;
+        if (view == null || anim == null || view.Eliminated || view.IsHosted) return;
 
         EntityFlags flags = view.Flags;
-        bool prone = (flags & EntityFlags.Prone) != 0;
-        bool climbing = (flags & EntityFlags.Climbing) != 0;
-
-        if (gunLayer >= 0 && (prone != wasProne || climbing != wasClimbing))
-            anim.SetLayerWeight(gunLayer, prone || climbing ? 0f : 1f);
-
-        if (hasNam && prone != wasProne) anim.SetBool(NamHash, prone);
-        wasProne = prone;
-
-        if (hasPose && climbing != wasClimbing)
-        {
-            // Off the wall: back to the pose they struck (0 = none), as WallClimber does offline.
-            anim.SetInteger(PoseHash, climbing ? 1 : PoseSelectorUI.AnimatorPoseFor(view.Pose));
-        }
-        wasClimbing = climbing;
+        BodyAnimation.SetProne(anim, (flags & EntityFlags.Prone) != 0);
+        BodyAnimation.SetClimbing(anim, (flags & EntityFlags.Climbing) != 0);
+        BodyAnimation.SetSpeed(anim, view.AnimationSpeed / GameTuning.MoveSpeed);
     }
-
-    /// <summary>True while the body is on a wall, whose "Pose" 1 a pose change must not overwrite.</summary>
-    public bool Climbing => wasClimbing;
 }

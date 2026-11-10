@@ -77,7 +77,6 @@ public class JoystickMover : MonoBehaviour
     private GameModeManager gmm;
     private CharacterController cc;
     private Animator anim;
-    private static readonly int SpeedHash = Animator.StringToHash("Speed");
 
     private void Start()
     {
@@ -319,10 +318,7 @@ public class JoystickMover : MonoBehaviour
 
     private void SetSpeed(float v)
     {
-        if (anim != null)
-        {
-            anim.SetFloat(SpeedHash, v);
-        }
+        BodyAnimation.SetSpeed(anim, v, BodyAnimation.PlayerStopSeconds);
     }
 
     // Finds the scene's rotate toggle and the left / right hold buttons (their events are authored in

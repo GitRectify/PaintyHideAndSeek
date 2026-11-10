@@ -54,7 +54,6 @@ public class PoseSelectorUI : MonoBehaviour
     private int activeSlot = -1;
     private readonly List<Image> slotPicks = new List<Image>();
 
-    private static readonly int PoseHash = Animator.StringToHash("Pose");
 
     public bool HasPose => activeSlot >= 0;
 
@@ -144,7 +143,7 @@ public class PoseSelectorUI : MonoBehaviour
     public void ShowServerPose(int poseId)
     {
         activeSlot = poseId >= 1 && poseId <= PoseForSlot.Length ? poseId - 1 : -1;
-        if (anim != null) anim.SetInteger(PoseHash, AnimatorPoseFor(poseId));
+        BodyAnimation.SetPose(anim, AnimatorPoseFor(poseId));
         RefreshPicks();
     }
 
@@ -641,17 +640,22 @@ public class PoseSelectorUI : MonoBehaviour
             value = PoseForSlot[activeSlot];
         }
 
-        if (anim != null)
-        {
-            anim.SetInteger(PoseHash, value);
-        }
+        BodyAnimation.SetPose(anim, value);
 
         RefreshPicks();
         AudioManager.PoseChange();
     }
 
+    // What the scene's nine pose buttons call. Online the pick has to go through the server, or
+    // nobody else ever sees it.
     public void SlotNoads(int slotIndex)
     {
+        if (OnlineRound.Active)
+        {
+            PickSlotOnline(slotIndex);
+            return;
+        }
+
         ApplyPick(slotIndex);
     }
 
@@ -662,11 +666,10 @@ public class PoseSelectorUI : MonoBehaviour
 
     public void ClearSelection()
     {
+        if (activeSlot >= 0 && OnlineRound.Active) OnlineRound.SendPose(0);   // the others see it end too
+
         activeSlot = -1;
-        if (anim != null)
-        {
-            anim.SetInteger(PoseHash, 0);
-        }
+        BodyAnimation.SetPose(anim, 0);
         RefreshPicks();
     }
 }

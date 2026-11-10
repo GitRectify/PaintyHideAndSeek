@@ -106,8 +106,6 @@ public class BotHideController : MonoBehaviour
     private readonly Dictionary<Material, Color> _bgColorCache = new Dictionary<Material, Color>();   // 0xF0
     private Texture2D _camoBlock;                                                   // 0xF8
     private int _lastHideSec = -1;                                                  // 0x100
-    private static readonly int SpeedHash = Animator.StringToHash("Speed");
-    private static readonly int PoseHash = Animator.StringToHash("Pose");
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
     private static readonly int ColorId = Shader.PropertyToID("_Color");
     // Used only by the +30s reward callback (AddSeekTime's lambda) - separate from resultUI.
@@ -209,15 +207,7 @@ public class BotHideController : MonoBehaviour
                 }
             }
 
-            if (b.anim == null) continue;
-            for (int layer = 0; layer < b.anim.layerCount; layer++)
-            {
-                if (b.anim.GetLayerName(layer) == "Gun")
-                {
-                    b.anim.SetLayerWeight(layer, 0f);
-                    break;
-                }
-            }
+            BodyAnimation.SetCarriesGun(b.anim, false);
         }
     }
 
@@ -431,7 +421,7 @@ public class BotHideController : MonoBehaviour
         bot.tf.position = spot;
         if (bot.anim != null)
         {
-            bot.anim.SetFloat(SpeedHash, 0f);
+            BodyAnimation.SetSpeed(bot.anim, 0f);
         }
         if (bot.cc != null) bot.cc.enabled = true;
         Camouflage(bot);
@@ -447,8 +437,8 @@ public class BotHideController : MonoBehaviour
         bot.tf.SetPositionAndRotation(spot, rot);
         if (bot.anim != null)
         {
-            bot.anim.SetFloat(SpeedHash, 0f);
-            bot.anim.SetInteger(PoseHash, 1);
+            BodyAnimation.SetSpeed(bot.anim, 0f);
+            BodyAnimation.SetPose(bot.anim, 1);
         }
         if (bot.cc != null) bot.cc.enabled = true;
 
@@ -846,8 +836,8 @@ public class BotHideController : MonoBehaviour
 
             if (b.anim != null)
             {
-                b.anim.SetFloat(SpeedHash, 0f);
-                b.anim.SetInteger(PoseHash, 0);
+                BodyAnimation.SetSpeed(b.anim, 0f);
+                BodyAnimation.SetPose(b.anim, 0);
             }
             if (b.smr != null)
             {
@@ -1129,7 +1119,7 @@ public class BotHideController : MonoBehaviour
                 }
                 if (bot.anim != null)
                 {
-                    bot.anim.SetFloat(SpeedHash, 1f);
+                    BodyAnimation.SetSpeed(bot.anim, 1f);
                 }
                 bot.tf.rotation = Quaternion.Slerp(bot.tf.rotation, Quaternion.LookRotation(new Vector3(dx / dist, 0f, dz / dist)), Time.deltaTime * 12f);
                 yield return null;
@@ -1142,7 +1132,7 @@ public class BotHideController : MonoBehaviour
 
         if (bot.anim != null)
         {
-            bot.anim.SetFloat(SpeedHash, 0f);
+            BodyAnimation.SetSpeed(bot.anim, 0f);
         }
         Camouflage(bot);
     }
@@ -1189,7 +1179,7 @@ public class BotHideController : MonoBehaviour
         }
         if (bot.anim != null)
         {
-            bot.anim.SetInteger(PoseHash, Random.Range(1, 5));
+            BodyAnimation.SetPose(bot.anim, Random.Range(1, 5));
         }
         if (botMgr != null)
         {
