@@ -30,12 +30,16 @@ namespace Meccha.Client
         [SerializeField] private bool climbUpHeld;
         [SerializeField] private bool climbDownHeld;
         [SerializeField] private bool paintPanelOpen;
+        [SerializeField] private bool onWall;
+
+        private CharacterController controller;
 
         private void Awake()
         {
             // FindAnyObjectByType: Unity 6.5 deprecated FindFirstObjectByType. The scene has one of each.
             if (joystick == null) joystick = FindAnyObjectByType<Joystick>();
             if (cameraController == null) cameraController = FindAnyObjectByType<CameraController>();
+            controller = GetComponent<CharacterController>();
         }
 
         private void OnEnable()
@@ -70,12 +74,17 @@ namespace Meccha.Client
         public bool ClimbUp => climbUpHeld;
         public bool ClimbDown => climbDownHeld;
         public bool PaintPanelOpen => paintPanelOpen;
+        public bool Grounded => controller != null && controller.isGrounded;
+        public bool Climbing => onWall;
 
         // ---- Called by the existing UI ------------------------------------------------------
 
         public void SetJump(bool held) => jumpHeld = held;
         public void SetProne(bool held) => proneHeld = held;
         public void SetPaintPanelOpen(bool open) => paintPanelOpen = open;
+
+        /// <summary>Whether WallClimber has the character on a wall.</summary>
+        public void SetOnWall(bool on) => onWall = on;
 
         /// <summary>
         /// Wire these to WallClimber's two on-screen buttons. It drives climbing from buttons
@@ -98,11 +107,11 @@ namespace Meccha.Client
         }
 
         /// <summary>As <see cref="FirePressed(Vector3)"/>, from the muzzle the bullet is drawn from (protocol 4).</summary>
-        public void FirePressed(Vector3 worldOrigin, Vector3 worldDirection)
+        public void FirePressed(Vector3 worldOrigin, Vector3 worldDirection, float wallDistance = -1f)
         {
             fireHeld = true;
 
-            if (MecchaNetClient.Instance != null) MecchaNetClient.Instance.Fire(worldOrigin, worldDirection);
+            if (MecchaNetClient.Instance != null) MecchaNetClient.Instance.Fire(worldOrigin, worldDirection, wallDistance);
         }
 
         public void FireReleased() => fireHeld = false;

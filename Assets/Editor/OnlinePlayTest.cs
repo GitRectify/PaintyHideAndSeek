@@ -20,7 +20,7 @@ using Object = UnityEngine.Object;
 //
 //   Unity.exe -batchmode -projectPath <project> -executeMethod OnlinePlayTest.Run
 //             -playtestHost 127.0.0.1 -playtestPort 17777 -playtestMetaPort 17779
-//             -playtestRole seeker|hider -playtestReport <file>
+//             -playtestRole seeker|hider -playtestSeats 16 -playtestReport <file>
 //
 // The flow: Multiplayer sign-in (first-run name if the server asks) -> special bullets bought in
 // the shop -> Single Play's role screen (HomeUI.BeginMatch) -> the room screen's Practice button
@@ -64,6 +64,7 @@ public static class OnlinePlayTest
             Arg("-playtestMetaPort", "7779"),
             Arg("-playtestRole", "seeker"),
             Arg("-playtestReport", Path.Combine(Directory.GetCurrentDirectory(), "Logs", "OnlinePlayTest.txt")),
+            Arg("-playtestSeats", "8"),
         });
         SessionState.SetString(ArgsKey, settings);
         SessionState.SetBool(ActiveKey, true);
@@ -76,7 +77,7 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Done }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, SinglePlay, Done }
 
     private static Step step;
     private static float stepStarted, startedAt, nextAction;
@@ -99,6 +100,7 @@ public static class OnlinePlayTest
     private static int MetaPort => int.Parse(Settings[2]);
     private static bool Seeker => Settings[3] != "hider";
     private static string ReportPath => Settings[4];
+    private static int Seats => int.Parse(Settings[5]);
 
     private static MecchaNetClient Net => MecchaNetClient.Instance;
     private static MetaClient Meta => MetaClient.Instance;
@@ -234,7 +236,9 @@ public static class OnlinePlayTest
                 return;
 
             case Step.Match:
+                if (!lobbyLaidOut) { lobbyLaidOut = true; CheckLobbyLayout(); }
                 if (!OnlineRound.Active) return;
+                Check(Net.MatchSeats == Seats, $"the match has the room's {Seats} seats ({Net.MatchSeats})");
                 Check(Net.LocalRole == (Seeker ? Role.Hunter : Role.Fugitive), $"plays the side picked ({Net.LocalRole})");
                 Go(Step.Round);
                 return;
@@ -257,8 +261,13 @@ public static class OnlinePlayTest
             case Step.Home:
                 if (InStep < 3f) return;   // ShopInventory.Refresh after the round
                 Check(!OnlineRound.Active, "back Home after the round");
+                MatchmakingUI lobbyUi = Object.FindAnyObjectByType<MatchmakingUI>(FindObjectsInactive.Include);
+                int Authored(string box) => FindByName(box)?.GetComponentsInChildren<Transform>(true).Count(t => t.name.StartsWith("Slot")) ?? -1;
+                Check(lobbyUi != null && lobbyUi.totalPlayers == GameTuning.TotalPlayers && lobbyUi.hunterSlots == GameTuning.HunterSlots
+                      && Authored("FugitiveBox") == GameTuning.FugitiveSlots && Authored("HunterBox") == GameTuning.HunterSlots,
+                      $"lobby screen is back to Single Play's 3 + 5 ({Authored("HunterBox")} + {Authored("FugitiveBox")})");
                 Check(ShopInventory.Loaded, "wallet refreshed from the server after the round");
-                if (Seeker)
+                if (Seeker && !Chase)
                     Check(ShopInventory.SpecialBullets(BulletType.Special2) < stockBeforeRound.Special2,
                           $"special bullets spent in the round are gone from the wallet ({stockBeforeRound.Special2} -> {ShopInventory.SpecialBullets(BulletType.Special2)})");
                 OnlineHistory.Show(Object.FindAnyObjectByType<OnlineLobby>().transform, null);
@@ -303,7 +312,11 @@ public static class OnlinePlayTest
                     .ToList();
                 Check(owned > 0 && badges.Any(b => b == $"Own {owned}"),
                       $"shop's special bullet 2 cards show the owned count (owned {owned}; ribbons: {string.Join(", ", badges.Select(b => b ?? "-"))}; catalog {(catalog != null ? "loaded" : "missing")})");
-                Go(Step.Done);
+                Go(SinglePlay ? Step.SinglePlay : Step.Done);
+                return;
+
+            case Step.SinglePlay:
+                PlaySinglePlay();
                 return;
 
             case Step.Done:
@@ -313,13 +326,368 @@ public static class OnlinePlayTest
         }
     }
 
+    // -playtestSinglePlay: after the online match, a Single Play round on each side, offline, through
+    // the same entry points the mode buttons use. Online code left behind would show here.
+    private static bool SinglePlay => System.Environment.GetCommandLineArgs().Contains("-playtestSinglePlay");
+    private static int singlePlayStage;
+    private static List<Vector3> seekerStarts;
+    private static float singleWalked;
+    private static List<Transform> singleBots;
+
+    private static void PlaySinglePlay()
+    {
+        GameModeManager gmm = Object.FindAnyObjectByType<GameModeManager>();
+        BotManager manager = Object.FindAnyObjectByType<BotManager>();
+        BotSeekController seek = Object.FindAnyObjectByType<BotSeekController>();
+        BotHideController hide = Object.FindAnyObjectByType<BotHideController>();
+
+        switch (singlePlayStage)
+        {
+            case 0:
+                Check(!OnlineRound.Active, "no online round is left running before Single Play");
+                gmm.ShowMenu();
+                gmm.BeginRound(false);      // Play Now: the player hides, the bots hunt
+                seek.SkipGrace();
+                singleBots = manager.Bots.ToList();
+                singlePlayStage = 1;
+                stepStarted = Time.realtimeSinceStartup;
+                return;
+
+            case 1:
+                if (InStep < 0.3f) return;
+                seekerStarts = singleBots.Skip(singleBots.Count - GameTuning.HunterSlots).Select(b => b.position).ToList();
+                Check(seek.chasePlayer, "Single Play's seekers hunt the player again after an online round");
+                singlePlayStage = 2;
+                return;
+
+            case 2:
+                // The player stands in the open here, so they may be spotted within a couple of seconds.
+                singleWalked = Mathf.Max(singleWalked, singleBots.Skip(singleBots.Count - GameTuning.HunterSlots)
+                    .Select((b, i) => Vector3.Distance(b.position, seekerStarts[i])).Max());
+                bool spotted = (bool)typeof(BotSeekController).GetField("_spotting", Any).GetValue(seek) || gmm.PlayerFrozen;
+                if (InStep < 12f && !spotted) return;
+                Check(singleWalked > 3f || spotted, $"Single Play: the seeker bots hunted (furthest {singleWalked:F0} units, spotted the player: {spotted})");
+                Check(Net.HostedBots.Length == 0, "Single Play sends nothing to the server about its bots");
+                gmm.ShowMenu();
+                gmm.BeginRound(true);       // the player seeks, the bots hide
+                singlePlayStage = 3;
+                stepStarted = Time.realtimeSinceStartup;
+                return;
+
+            case 3:
+                if (InStep < 3f) return;
+                Check(hide.BotCount > 0 && hide.Active, $"Single Play: the hider bots took their places ({hide.BotCount})");
+                gmm.ShowMenu();
+                Go(Step.Done);
+                return;
+        }
+    }
+
     private static bool signedIn, bought, boughtAnswered, submittedName, reboughtAnswered;
+    private static bool lobbyLaidOut;
+
+    // The lobby screen with every seat taken: bots fill a lobby in the same tick the round starts,
+    // so this is laid out directly. Each seat must show, inside its column, overlapping no other.
+    private static void CheckLobbyLayout()
+    {
+        MatchmakingUI ui = Object.FindAnyObjectByType<MatchmakingUI>(FindObjectsInactive.Include);
+        int seekers = GameTuning.SeekersFor(Seats);
+        ui.SetOnlineMatchSize(Seats, seekers);
+        ui.SetOnlineRoster(Enumerable.Range(0, Seats).Select(i => new MatchmakingUI.OnlineSeat { Name = "Seat" + i, Hunter = i < seekers }).ToList());
+
+        int shown = 0, outside = 0, overlaps = 0;
+        foreach (string boxName in new[] { "FugitiveBox", "HunterBox" })
+        {
+            var box = (RectTransform)FindByName(boxName).transform;
+            Rect Bounds(RectTransform rt)
+            {
+                var c = new Vector3[4];
+                rt.GetWorldCorners(c);
+                return new Rect(c[0].x, c[0].y, c[2].x - c[0].x, c[2].y - c[0].y);
+            }
+
+            Rect boxRect = Bounds(box);
+            List<Rect> rows = box.GetComponentsInChildren<RectTransform>(false).Where(t => t.name.StartsWith("Slot")).Select(Bounds).ToList();
+            shown += rows.Count;
+            outside += rows.Count(r => r.xMin < boxRect.xMin || r.xMax > boxRect.xMax || r.yMin < boxRect.yMin || r.yMax > boxRect.yMax);
+            for (int a = 0; a < rows.Count; a++)
+                for (int b = a + 1; b < rows.Count; b++)
+                    if (rows[a].Overlaps(rows[b])) overlaps++;
+        }
+
+        Check(shown == Seats && outside == 0 && overlaps == 0,
+              $"the lobby screen lays out all {Seats} seats ({shown} shown, {outside} outside their column, {overlaps} overlapping)");
+        ui.SetOnlineRoster(null);
+    }
     private static MetaProfile profile;
 
     // ================= The round =================
 
+    // Client-authoritative movement, measured.
+    private static Vector3 lastFeet;
+    private static bool haveLastFeet;
+    private static float walkedPath, walkedSince, walkedSeconds, worstServerGap;
+    private static readonly List<float> feetAboveFloor = new List<float>();
+
+    // Pushes the real on-screen joystick, so JoystickMover and the CharacterController do the walking.
+    private static void DriveJoystick(bool on)
+    {
+        JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+        Joystick stick = mover != null ? Get<Joystick>(mover, "joystick") : null;
+        if (stick == null) return;
+
+        float t = Time.realtimeSinceStartup * 0.7f;
+        typeof(Joystick).GetField("input", Any).SetValue(stick, on ? new Vector2(Mathf.Sin(t), Mathf.Cos(t)) : Vector2.zero);
+    }
+
+    private static float spawnGap = float.MaxValue;
+
+    // What could be holding the character, every couple of seconds; reported only if it did not walk.
+    private static readonly List<string> moveTrace = new List<string>();
+    private static float nextTraceAt;
+
+    private static void TraceMovement(NetEntityView local, float now)
+    {
+        if (now < nextTraceAt) return;
+        nextTraceAt = now + 2f;
+
+        JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+        Joystick stick = mover != null ? Get<Joystick>(mover, "joystick") : null;
+        WallClimber climber = local.GetComponentInChildren<WallClimber>();
+        CameraController cam = Object.FindAnyObjectByType<CameraController>();
+        GameModeManager gmm = Object.FindAnyObjectByType<GameModeManager>();
+        CharacterController cc = local.GetComponent<CharacterController>();
+        Vector3 f = local.FeetPosition;
+        Vector2 d = stick != null ? stick.Direction : Vector2.zero;
+        moveTrace.Add($"  feet ({f.x:F1},{f.y:F1},{f.z:F1}) stick ({d.x:F2},{d.y:F2}) activeStick={stick != null && stick.gameObject.activeInHierarchy} " +
+                      $"moverOn={mover != null && mover.isActiveAndEnabled} onWall={climber != null && climber.IsOnWall} freeLook={cam != null && cam.FreeLook} " +
+                      $"firstPerson={cam != null && cam.IsFirstPerson} frozen={gmm != null && gmm.PlayerFrozen} countdown={gmm != null && gmm.SeekerHideCountdown} " +
+                      $"cc={cc != null && cc.enabled} grounded={cc != null && cc.isGrounded} timeScale={Time.timeScale}");
+
+        if (cc == null) return;
+        float scale = local.transform.lossyScale.y;
+        float radius = cc.radius * scale + 1.5f;
+        Vector3 low = f + Vector3.up * radius, high = f + Vector3.up * (cc.height * scale - radius);
+        IEnumerable<string> around = Physics.OverlapCapsule(low, high, radius, ~0, QueryTriggerInteraction.Collide)
+            .Where(c => !c.transform.IsChildOf(local.transform))
+            .Select(c => $"{c.name}[{c.GetType().Name}{(c.isTrigger ? ",trigger" : "")}]")
+            .Distinct();
+        moveTrace.Add("    touching: " + string.Join(", ", around));
+    }
+
+    // The server names spawns by number; the character must end up on one of this room's markers.
+    private static float DistanceToNearestMarker(Vector3 feet)
+    {
+        GameObject room = Object.FindAnyObjectByType<LevelManager>().CurrentRoomInstance;
+        string prefix = Seeker ? "HunterSpawn" : "HiderSpawn";
+        return room.GetComponentsInChildren<Transform>(true)
+            .Where(t => t.name.StartsWith(prefix))
+            .Select(t => Vector3.Distance(feet, t.position))
+            .DefaultIfEmpty(float.MaxValue)
+            .Min();
+    }
+
+    // Client-hosted bots, measured on the bodies this game drives.
+    private static int hostAssignments, botsHostedMost, spotAlerts;
+    private static bool hostingBeganLate;
+    private static bool Handover => System.Environment.GetCommandLineArgs().Contains("-playtestHandover");
+    private static readonly Dictionary<byte, Vector3> hostedStart = new Dictionary<byte, Vector3>();
+    private static float hostedSeekerWalked, worstHostedGap;
+
+    // Single Play's last-resort rescue hops a stranded seeker across the room. The server lets the
+    // body catch up at running speed, so it is left out of the gap until it has.
+    private static readonly Dictionary<byte, Vector3> hostedLast = new Dictionary<byte, Vector3>();
+    private static readonly Dictionary<byte, float> hopExemptUntil = new Dictionary<byte, float>();
+    private static int hostedHops;
+    private static int hiderBotsMoved, hiderBotsPainted;
+    private static bool hiderBotsMeasured;
+
+    private static void SampleHostedBots()
+    {
+        botsHostedMost = Math.Max(botsHostedMost, OnlineRound.HostedBotCount);
+        if (Net.Phase != MatchPhase.Seek) return;
+
+        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>(FindObjectsSortMode.None).Where(x => x.IsHosted && !x.Eliminated))
+        {
+            if (!hostedStart.ContainsKey(v.Slot)) { hostedStart[v.Slot] = v.FeetPosition; continue; }
+            if (v.Role == Role.Hunter)
+            {
+                hostedSeekerWalked = Mathf.Max(hostedSeekerWalked, Vector3.Distance(hostedStart[v.Slot], v.FeetPosition));
+
+                float now = Time.realtimeSinceStartup;
+                if (hostedLast.TryGetValue(v.Slot, out Vector3 last) && Vector3.Distance(last, v.FeetPosition) > 15f)
+                {
+                    hostedHops++;
+                    hopExemptUntil[v.Slot] = now + 15f;
+                }
+                hostedLast[v.Slot] = v.FeetPosition;
+
+                if (!hopExemptUntil.TryGetValue(v.Slot, out float until) || now > until)
+                    worstHostedGap = Mathf.Max(worstHostedGap, Vector3.Distance(v.FeetPosition, v.LastServerFeet));
+            }
+        }
+
+        if (hiderBotsMeasured) return;
+        hiderBotsMeasured = true;
+
+        GameObject room = Object.FindAnyObjectByType<LevelManager>().CurrentRoomInstance;
+        List<Vector3> markers = room.GetComponentsInChildren<Transform>(true).Where(t => t.name.StartsWith("HiderSpawn")).Select(t => t.position).ToList();
+        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>(FindObjectsSortMode.None).Where(x => x.IsHosted && x.Role == Role.Fugitive))
+        {
+            if (markers.Count > 0 && markers.Min(m => Vector3.Distance(m, v.FeetPosition)) > 4f) hiderBotsMoved++;
+            if (v.GetComponentInChildren<SkinnedMeshRenderer>().material.GetColor("_BaseColor") != Color.white) hiderBotsPainted++;
+        }
+    }
+
+    private static void CheckHostedBots()
+    {
+        if (hostAssignments == 0)
+        {
+            Check(!Handover, "this game was given the bots to run");
+            report.Add("INFO  another player's game hosted the bots");
+            return;
+        }
+
+        Check(botsHostedMost > 0, $"this game ran the empty seats' bots (up to {botsHostedMost})");
+        if (Handover) Check(hostingBeganLate, "the bots came to this game when their host left mid-round");
+        else
+        {
+            Check(hiderBotsMoved > 0, $"Single Play's hide logic put the hider bots in hiding places ({hiderBotsMoved} off their spawns)");
+            Check(hiderBotsPainted > 0, $"hider bots camouflaged themselves ({hiderBotsPainted})");
+        }
+        Check(hostedSeekerWalked > 15f, $"seeker bots walked the room under Single Play's seek logic (furthest {hostedSeekerWalked:F0} units from the start)");
+        Check(worstHostedGap < 15f, $"the server followed the hosted bots (worst gap {worstHostedGap:F1} units)");
+        if (!Seeker) report.Add($"INFO  seeker bots spotted this hider {spotAlerts} time(s)");
+        if (hostedHops > 0) report.Add($"INFO  a stranded seeker bot used Single Play's rescue hop {hostedHops} time(s)");
+    }
+
+    private static void SampleMovement()
+    {
+        NetEntityView local = NetEntityRegistry.Get(Net.LocalSlot);
+        if (local == null || local.Eliminated || Net.PositionEpoch == PlayerInput.NoPositionEpoch) return;
+
+        if (Net.Phase == MatchPhase.Seek || (!Seeker && Net.Phase == MatchPhase.Hide))
+        {
+            float now = Time.realtimeSinceStartup;
+            if (!haveLastFeet)
+            {
+                haveLastFeet = true;
+                walkedSince = now + 1f;   // from when it has landed and got up to speed
+                spawnGap = DistanceToNearestMarker(local.FeetPosition);
+            }
+            else if (now > walkedSince)
+            {
+                walkedPath += Vector3.Distance(lastFeet, local.FeetPosition);
+                walkedSeconds += Time.unscaledDeltaTime;
+            }
+            lastFeet = local.FeetPosition;
+            TraceMovement(local, now);
+            worstServerGap = Mathf.Max(worstServerGap, Vector3.Distance(local.FeetPosition, local.LastServerFeet));
+        }
+
+        // The wire position is the feet: a body standing on the floor must have it at floor level.
+        if (feetAboveFloor.Count >= 400) return;
+        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>(FindObjectsSortMode.None))
+        {
+            if (v.IsLocal || v.Eliminated || (v.Flags & EntityFlags.Grounded) == 0) continue;
+            Vector3 feet = v.FeetPosition;
+            foreach (RaycastHit hit in Physics.RaycastAll(feet + Vector3.up * 6f, Vector3.down, 14f).OrderBy(h => h.distance))
+            {
+                if (hit.collider.GetComponentInParent<NetEntityView>() != null) continue;
+                feetAboveFloor.Add(Mathf.Abs(feet.y - hit.point.y));
+                break;
+            }
+        }
+    }
+
+    // -playtestChase: the seeker walks up to the nearest hider instead of shooting, at walking speed
+    // and straight through anything, to prove a touch catch reaches the server.
+    private static bool Chase => System.Environment.GetCommandLineArgs().Contains("-playtestChase");
+
+    // Single Play's hider bots tuck in behind furniture, where a touch has no clear line: after a
+    // moment beside one, the walker moves on to the next.
+    private static readonly HashSet<byte> chaseSkipped = new HashSet<byte>();
+    private static byte chaseTarget = 0xFF;
+    private static byte chaseProgressSlot = 0xFF;
+    private static float chaseBestDistance = float.MaxValue, chaseProgressAt;
+    private static float chaseArrivedAt = -1f;
+
+    private static readonly List<string> chaseTrace = new List<string>();
+    private static float nextChaseTraceAt;
+
+    // Reported only when no catch was made: what ReportCatches would have seen.
+    private static void TraceChase(NetEntityView me, NetEntityView target)
+    {
+        float now = Time.realtimeSinceStartup;
+        if (now < nextChaseTraceAt || chaseTrace.Count > 40) return;
+        nextChaseTraceAt = now + 1f;
+
+        Vector3 eye = me.FeetPosition + Vector3.up * (GameTuning.PlayerHeight * 0.85f);
+        Vector3 line = target.transform.position - eye;
+        IEnumerable<string> blockers = Physics.RaycastAll(eye, line.normalized, line.magnitude, ~0, QueryTriggerInteraction.Ignore)
+            .Where(h => !Bullet.IsCharacter(h.collider) && Bullet.BlocksShot(h.collider.gameObject))
+            .Select(h => $"{h.collider.name}@{h.distance:F1}");
+        chaseTrace.Add($"  slot {target.Slot} dist {Vector3.Distance(me.transform.position, target.transform.position):F1} " +
+                       $"line {line.magnitude:F1} serverSelf ({me.LastServerFeet.x:F0},{me.LastServerFeet.y:F0},{me.LastServerFeet.z:F0}) " +
+                       $"feet ({me.FeetPosition.x:F0},{me.FeetPosition.y:F0},{me.FeetPosition.z:F0}) target ({target.transform.position.x:F0},{target.transform.position.y:F0},{target.transform.position.z:F0}) " +
+                       $"hosted={target.IsHosted} blocked by [{string.Join(", ", blockers)}]");
+    }
+
+    private static void WalkToNearestHider()
+    {
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+        if (me == null) return;
+
+        NetEntityView nearest = Object.FindObjectsByType<NetEntityView>()
+            .Where(v => !v.IsLocal && !v.Eliminated && v.Role == Role.Fugitive && !chaseSkipped.Contains(v.Slot))
+            .OrderBy(v => Vector3.Distance(v.transform.position, me.transform.position))
+            .FirstOrDefault();
+        if (nearest == null) return;
+
+        TraceChase(me, nearest);
+
+        Vector3 to = nearest.transform.position - me.transform.position;
+        if (nearest.Slot != chaseTarget) { chaseTarget = nearest.Slot; chaseArrivedAt = -1f; }
+        if (to.magnitude < 5f)
+        {
+            if (chaseArrivedAt < 0f) chaseArrivedAt = Time.realtimeSinceStartup;
+            else if (Time.realtimeSinceStartup > chaseArrivedAt + 1.5f) chaseSkipped.Add(nearest.Slot);
+        }
+
+        float step = Mathf.Min(to.magnitude, GameTuning.MoveSpeed * 0.9f * Time.deltaTime);
+
+        // The body's collider stops it at a wall, and a hider is often behind one. Once a second
+        // without progress it hops a wall's thickness, inside the server's burst allowance.
+        if (to.magnitude < chaseBestDistance - 1f || nearest.Slot != chaseProgressSlot)
+        {
+            chaseBestDistance = to.magnitude;
+            chaseProgressSlot = nearest.Slot;
+            chaseProgressAt = Time.realtimeSinceStartup;
+        }
+        else if (Time.realtimeSinceStartup > chaseProgressAt + 1f)
+        {
+            step = Mathf.Min(to.magnitude, GameTuning.MoveBurst * 0.9f);
+            chaseProgressAt = Time.realtimeSinceStartup;
+        }
+
+        CharacterController cc = me.GetComponent<CharacterController>();
+        if (cc != null) cc.enabled = false;
+        me.transform.position += to.normalized * step;
+        if (cc != null) cc.enabled = true;
+    }
+
     private static void PlayRound()
     {
+        SampleMovement();
+        SampleHostedBots();
+        DriveJoystick(!Chase && (Net.Phase == MatchPhase.Seek || (!Seeker && Net.Phase == MatchPhase.Hide)));
+
+        if (Chase && Seeker && Net.Phase == MatchPhase.Seek)
+        {
+            WalkToNearestHider();
+            return;
+        }
+
         // Other bodies, as the server places them.
         foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>())
         {
@@ -354,7 +722,8 @@ public static class OnlinePlayTest
         }
         else
         {
-            if (Net.Phase == MatchPhase.Hide && !pressedStart && InStep > 1f)
+            if (Net.Phase == MatchPhase.Hide && hideSeenAt < 0f) hideSeenAt = Time.realtimeSinceStartup;
+            if (Net.Phase == MatchPhase.Hide && !pressedStart && Time.realtimeSinceStartup > hideSeenAt + 5f)
             {
                 sawStartButton |= OnlineRound.WantsStartButton;
                 Object.FindAnyObjectByType<BotSeekController>()?.SkipGrace();   // the Start button
@@ -368,8 +737,40 @@ public static class OnlinePlayTest
         }
     }
 
+    private static int catches;
+    private static float hideSeenAt = -1f;
+
     private static void CheckRound()
     {
+        DriveJoystick(false);
+        CheckHostedBots();
+        Check(spawnGap < 12f, $"the character started on one of the room's spawn markers ({spawnGap:F1} units away)");
+        if (Chase)
+        {
+            Check(catches > 0, $"walking into a hider caught them ({catches} catches)");
+            if (catches == 0) report.AddRange(chaseTrace);
+            return;
+        }
+        // How long there is to walk depends on the bots (a short round, or being caught), so this
+        // judges the speed reached rather than the distance covered.
+        if (walkedSeconds >= 1f)
+        {
+            bool walked = walkedPath / walkedSeconds > 5f;
+            Check(walked, $"the joystick walked the character ({walkedPath:F0} units in {walkedSeconds:F1} s)");
+            if (!walked) report.AddRange(moveTrace);
+        }
+        else report.Add($"INFO  the round left too little time to judge walking ({walkedSeconds:F1} s)");
+        Check(worstServerGap < (Handover ? 14f : 8f), $"the server's position kept up with the client's (worst gap {worstServerGap:F1} units)");
+        Check(Net.PositionPlacements <= 2, $"the server never had to correct the walking ({Net.PositionPlacements} placements: the spawns only)");
+
+        if (feetAboveFloor.Count > 0)
+        {
+            feetAboveFloor.Sort();
+            float median = feetAboveFloor[feetAboveFloor.Count / 2];
+            Check(median < 3f, $"other bodies stand on the floor (feet within {median:F1} units, {feetAboveFloor.Count} samples)");
+        }
+        else report.Add("INFO  no body was over a collider to measure");
+
         Check(phaseChanges >= 2 && sawPhaseSeek == 1, $"phases came from the server (hide -> seek; {phaseChanges} changes)");
         Check(remoteViews > 0, $"other players' bodies placed from snapshots ({remoteViews})");
         Check(remoteAnimators > 0, "other bodies carry NetBodyAnimator (prone / climbing / gunfire)");
@@ -397,8 +798,15 @@ public static class OnlinePlayTest
         Net.OnRemoteShot += _ => remoteShots++;
         Net.OnLoadoutChanged += () => loadoutAnswers++;
         Net.OnPhaseChanged += (_, _) => phaseChanges++;
-        Net.OnEliminated += (_, _, _) => eliminations++;
+        Net.OnEliminated += (_, _, cause) => { eliminations++; if (cause == EliminationCause.Caught) catches++; };
         Net.OnMatchEnd += _ => matchEnds++;
+        Net.OnSpotAlert += _ => spotAlerts++;
+        Net.OnBotHost += bots =>
+        {
+            if (bots.Length == 0) return;
+            hostAssignments++;
+            hostingBeganLate |= bots.All(b => b.SpawnIndex == Snapshot.NoSpawn);
+        };
     }
 
     // ================= Finish =================

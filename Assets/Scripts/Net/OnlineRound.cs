@@ -8,8 +8,9 @@ using UnityEngine.UI;
 // An online round in the 3D scene, from MatchStart to the result popup. Adapted from the SDK
 // sample's OnlineRound.
 //
-// The existing gameplay scripts keep doing what they do — JoystickMover moves the player,
-// CameraController follows, MatchHUD draws the timer — and this class connects them to the server:
+// The existing gameplay scripts keep doing what they do — JoystickMover moves the player and
+// that movement is the truth (the server only checks it against limits), CameraController follows,
+// MatchHUD draws the timer — and this class connects them to the server:
 //   * GameModeManager is switched into its network mode (BeginNetworkRound): the map is the one the
 //     player picked in the map picker (the server matched them with others on it), no bot is
 //     started, and the timer, counters and seeker freeze come from here.
@@ -30,8 +31,11 @@ using UnityEngine.UI;
 //   * As in Single Play: the hider's Start button (BotSeekController.SkipGrace) sends SkipHide, and
 //     the seek starts once every hider has pressed it; a seeker bot that spots the player freezes
 //     them and the camera turns to it (SpotAlert names the bot) until its shot.
-//   * The camera position is reported a few times a second (SetViewPoint): the server sends
-//     whoever the camera can see, not only who the body's eye can (gap G10).
+//   * The server has no map, so this scene answers what needs one: which point a spawn number
+//     means (SpawnPointResolver), how far a shot flies before a wall (Fire), and whether a seeker
+//     touching a hider has a clear line to them (ReportCatch).
+//   * The server has no bots of its own either: when it gives this player the empty seats, this
+//     game runs Single Play's bot controllers on them and reports what they do (OnlineRound.Bots.cs).
 //   * Out of the round, the player spectates: the server sends everyone, and the camera follows the
 //     players still in (Next switches) until the result.
 //   * Poses and weapons are the shop's: PoseSelectorUI sends a pick through SendPose (owned poses
@@ -46,8 +50,9 @@ using UnityEngine.UI;
 //     round with a notice. OnlineRejoin remembers the round so a restarted app can rejoin it.
 //
 // The class is split by concern: OnlineRound.Paint.cs (own paint sent, logged and replayed;
-// other painters' canvases), OnlineRound.Connection.cs (drops, resume, the rejoin mark) and
-// OnlineRound.Loadout.cs (poses, weapons, remote guns). It is still one component.
+// other painters' canvases), OnlineRound.Connection.cs (drops, resume, the rejoin mark),
+// OnlineRound.Loadout.cs (poses, weapons, remote guns) and OnlineRound.Bots.cs (running the bots
+// when this player is their host). It is still one component.
 public partial class OnlineRound : MonoBehaviour
 {
     private static OnlineRound _instance;
@@ -207,6 +212,7 @@ public partial class OnlineRound : MonoBehaviour
         leaveArmed = false;
         roster = entries;
         eliminated.Clear();
+        catchSentAt.Clear();
         nextFireAt = 0f;
         lastChosen = BulletType.Default;
         firedBullet = BulletType.Default;
@@ -230,6 +236,7 @@ public partial class OnlineRound : MonoBehaviour
 
         localBody = PlayerRef.ResolveTransform("Player");
         NetEntityRegistry.ViewFactory = MakeView;
+        Net.SpawnPointResolver = ResolveSpawn;
 
         Net.OnPhaseChanged += HandlePhaseChanged;
         Net.OnEliminated += HandleEliminated;
@@ -244,6 +251,7 @@ public partial class OnlineRound : MonoBehaviour
         Net.OnRemoteShot += HandleRemoteShot;
         Net.OnLoadoutChanged += HandleLoadoutChanged;
         Net.OnAuthenticated += HandleReauthenticated;
+        Net.OnBotHost += HandleBotHost;
 
         // Start from the phase the client last heard (the ready gate, normally).
         HandlePhaseChanged(Net.Phase, Net.PhaseSecondsLeft);
@@ -265,6 +273,8 @@ public partial class OnlineRound : MonoBehaviour
 
         OnlineRejoin.Mark();
         rejoinMarkAt = Time.unscaledTime + 5f;
+
+        HandleBotHost(Net.HostedBots);     // given them while the scene was still loading
     }
 
     /// <summary>Takes the scene out of online mode. The caller decides where to go next.</summary>
@@ -292,8 +302,10 @@ public partial class OnlineRound : MonoBehaviour
             Net.OnRemoteShot -= HandleRemoteShot;
             Net.OnLoadoutChanged -= HandleLoadoutChanged;
             Net.OnAuthenticated -= HandleReauthenticated;
+            Net.OnBotHost -= HandleBotHost;
         }
 
+        StopHostingBots();
         ClearSpot();
         StopSpectating();
 
@@ -304,6 +316,7 @@ public partial class OnlineRound : MonoBehaviour
         resumeDeadline = 0f;
 
         NetEntityRegistry.ViewFactory = null;
+        if (Net != null) Net.SpawnPointResolver = null;
         NetEntityRegistry.Clear();   // destroys the remote bodies
 
         // The local player is the scene's own character: strip the network parts back off so
@@ -323,13 +336,23 @@ public partial class OnlineRound : MonoBehaviour
         bulletsLabel.gameObject.SetActive(false);
     }
 
+    private const float SpawnLift = 0.2f;           // markers lie on the floor; the feet go just above it
+    private const float SpawnShareRadius = 6f;
+    private const float SpawnClearance = 0.5f;
+    private const float ShotRayLength = 1000f;
+    private const float CatchCheckSeconds = 0.1f;
+    private const float CatchResendSeconds = 0.25f;
+    private float nextCatchCheckAt;
+    private readonly Dictionary<byte, float> catchSentAt = new Dictionary<byte, float>();
+
     private void Update()
     {
         if (!active) return;
 
         UpdateTimer();
         FeedInput();
-        ReportCamera();
+        ReportCatches();
+        PumpBots();
         RefreshCounters();
         ApplyCanvases();
         UpdateSpotView();
@@ -424,13 +447,107 @@ public partial class OnlineRound : MonoBehaviour
                               BulletSpecs.Of(shot.Bullet).RadiusScale);
     }
 
-    // The camera, for what the server sends us (gap G10): the third-person camera sees round
-    // corners the body cannot, and a hider on screen used to vanish because the server judged
-    // only from the body's eye.
-    private void ReportCamera()
+    // ================= What the server cannot judge: spawns, walls and touches =================
+
+    // The server names a spawn by number; the markers (HunterSpawn_*, HiderSpawn_*) are in this room.
+    private Vector3? ResolveSpawn(int index) => ResolveSpawn(index, hunter);
+
+    private Vector3? ResolveSpawn(int index, bool forSeeker)
     {
-        Camera cam = Camera.main;
-        if (cam != null) Net.SetViewPoint(cam.transform.position);
+        LevelManager level = FindAnyObjectByType<LevelManager>();
+        GameObject room = level != null ? level.CurrentRoomInstance : null;
+        if (room == null) return null;
+
+        string prefix = forSeeker ? "HunterSpawn" : "HiderSpawn";
+        var markers = new List<Transform>();
+        foreach (Transform t in room.GetComponentsInChildren<Transform>(true))
+        {
+            if (t.name.StartsWith(prefix, System.StringComparison.Ordinal)) markers.Add(t);
+        }
+        if (markers.Count == 0) return null;
+        markers.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+
+        // Markers were laid on the bots' NavMesh, which runs under furniture a full-size body does
+        // not fit: a seeker put on one inside a table is wedged for the round. Such a marker is
+        // passed over for the next one, and whoever comes off it stands beside that one.
+        int count = markers.Count;
+        int share = index / count % 3;
+        for (int i = 0; i < count; i++)
+        {
+            Vector3 spot = markers[(index + i) % count].position + Vector3.up * SpawnLift;
+            if (!SpawnFree(spot)) continue;
+            if (share == 0 && i == 0) return spot;
+
+            float angle = ((share + i) * 120f + index * 40f) * Mathf.Deg2Rad;
+            Vector3 beside = spot + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * SpawnShareRadius;
+            return SpawnFree(beside) ? beside : spot;
+        }
+
+        return markers[index % count].position + Vector3.up * SpawnLift;     // nothing free: as named
+    }
+
+    // Whether the local character fits with its feet here. Other players do not count: they move.
+    private bool SpawnFree(Vector3 feet)
+    {
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+        CharacterController cc = me != null ? me.GetComponent<CharacterController>() : null;
+        if (cc == null) return true;
+
+        float scale = me.transform.lossyScale.y;
+        float radius = cc.radius * scale + SpawnClearance;
+        Vector3 low = feet + Vector3.up * (radius + SpawnClearance);
+        Vector3 high = feet + Vector3.up * Mathf.Max(radius + SpawnClearance, cc.height * scale - radius);
+
+        foreach (Collider hit in Physics.OverlapCapsule(low, high, radius, ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (!Bullet.IsCharacter(hit) && !hit.transform.IsChildOf(me.transform)) return false;
+        }
+        return true;
+    }
+
+    // How far along a line the room's shell stops a shot (the bullets' own rule), or -1.
+    private static float WallDistanceAlong(Vector3 origin, Vector3 direction, float maxDistance)
+    {
+        float nearest = -1f;
+        foreach (RaycastHit hit in Physics.RaycastAll(origin, direction, maxDistance, ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (Bullet.IsCharacter(hit.collider) || !Bullet.BlocksShot(hit.collider.gameObject)) continue;
+            if (nearest < 0f || hit.distance < nearest) nearest = hit.distance;
+        }
+        return nearest;
+    }
+
+    // A seeker who touches a hider catches them, as in Single Play. Only this client has the
+    // walls to say the two were really in contact, so it tells the server when they are.
+    private void ReportCatches()
+    {
+        if (!hunter || localOut || Net.Phase != MatchPhase.Seek || Time.unscaledTime < nextCatchCheckAt) return;
+        nextCatchCheckAt = Time.unscaledTime + CatchCheckSeconds;
+
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+        if (me == null || me.Eliminated) return;
+
+        Vector3 eye = me.FeetPosition + Vector3.up * (GameTuning.PlayerHeight * 0.85f);
+        float reach = GameTuning.MinCatchRange * 2f;
+
+        foreach (MecchaNetClient.RosterEntry e in roster)
+        {
+            if (e.Role != Role.Fugitive || eliminated.Contains(e.Slot)) continue;
+            if (catchSentAt.TryGetValue(e.Slot, out float sent) && Time.unscaledTime < sent + CatchResendSeconds) continue;
+
+            NetEntityView target = NetEntityRegistry.Get(e.Slot);
+            if (target == null || target.Eliminated) continue;
+
+            // Views pivot mid-body: their position is the centre the server measures between.
+            Vector3 centre = target.transform.position;
+            if (Vector3.Distance(me.transform.position, centre) > reach) continue;
+
+            Vector3 line = centre - eye;
+            if (WallDistanceAlong(eye, line.normalized, line.magnitude) >= 0f) continue;
+
+            Net.ReportCatch(e.Slot);
+            catchSentAt[e.Slot] = Time.unscaledTime;
+        }
     }
 
     // ================= Input =================
@@ -444,6 +561,7 @@ public partial class OnlineRound : MonoBehaviour
         adapter.SetProne(gun != null && gun.IsProne);
         adapter.SetJump(mover != null && Time.unscaledTime - mover.LastJumpTime < 0.15f);
         adapter.SetPaintPanelOpen(paint != null && paint.DrawingActive);
+        adapter.SetOnWall(climber != null && climber.IsOnWall);
 
         if (fireReleaseAt > 0f && Time.unscaledTime > fireReleaseAt)
         {
@@ -471,8 +589,9 @@ public partial class OnlineRound : MonoBehaviour
 
         // The shot itself is the Fire message (muzzle, direction and the tick on screen); the held
         // flag only animates the shooter for others, so it is released a moment later.
-        if (adapter != null) adapter.FirePressed(worldOrigin, worldDirection);
-        else Net.Fire(worldOrigin, worldDirection);
+        float wall = WallDistanceAlong(worldOrigin, worldDirection, ShotRayLength);
+        if (adapter != null) adapter.FirePressed(worldOrigin, worldDirection, wall);
+        else Net.Fire(worldOrigin, worldDirection, wall);
         fireReleaseAt = Time.unscaledTime + 0.2f;
     }
 
@@ -557,6 +676,8 @@ public partial class OnlineRound : MonoBehaviour
         if (Net.PhasePaused) ShowBanner("Paused: a seat is being refilled.", 3f);
         else if (phase == MatchPhase.Hide && hunter) ShowBanner("Hiders are hiding. You are frozen until the seek starts.", 3f);
         else if (phase == MatchPhase.Seek) ShowBanner(hunter ? "GO! Find the hiders." : "The seekers are coming. Stay hidden!", 3f);
+
+        if (phase == MatchPhase.Result) StopHostingBots();
     }
 
     private void UpdateTimer()
@@ -767,7 +888,7 @@ public partial class OnlineRound : MonoBehaviour
         ClearSpot();
         StopSpectating();
         OnlineRejoin.Clear();   // the match is decided: nothing left to rejoin
-        string rankText = rank > 0 ? $"#{rank}/8" : "-";
+        string rankText = rank > 0 ? $"#{rank}/{Net.MatchSeats}" : "-";
 
         if (results != null)
         {

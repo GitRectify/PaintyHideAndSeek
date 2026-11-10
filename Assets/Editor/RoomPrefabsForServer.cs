@@ -4,12 +4,11 @@ using UnityEngine;
 using UnityEngine.AI;
 using Object = UnityEngine.Object;
 
-// Meccha > Prepare Room Prefabs For Server: the two prefab changes the server's room export needs.
-// Run it before Export Rooms For Server (as played).
-//   1. The floor gets "Floor" in its name. The SDK exporter recognises a floor only by that name;
-//      without one it guesses the floor from the room's lowest point (Room4's guess was 63 units too
-//      low, which left the server no walkable cells). The floor is the collider the game's own
-//      StairRampBuilder.FindFloor picks: the largest flat one below the middle of the room.
+// Meccha > Prepare Room Prefabs For Server: what a room prefab needs to be played online. Run it on
+// a new room, and add the room's name to the server's Maps.
+//   1. The floor gets "Floor" in its name, which is how shots know not to stop at it
+//      (Bullet.BlocksShot). The floor is the collider the game's own StairRampBuilder.FindFloor
+//      picks: the largest flat one below the middle of the room.
 //   2. HunterSpawn / HiderSpawn markers under a "ServerSpawns" child, placed where the offline game
 //      starts a round: around LevelManager's player spawn (x 0, z 0 in every room), hunters in a
 //      tight group and hiders on a ring of radius 10, each snapped onto the bots' NavMesh.
@@ -40,7 +39,7 @@ public static class RoomPrefabsForServer
         AssetDatabase.SaveAssets();
         Debug.Log("[RoomPrefabs] " + string.Join("\n", report));
         EditorUtility.DisplayDialog("Room prefabs prepared",
-            string.Join("\n", report) + "\n\nNow run Meccha > Export Rooms For Server (as played).", "OK");
+            string.Join("\n", report) + "\n\nAdd any new room's name to Maps in the server's server.json.", "OK");
     }
 
     private static string Prepare(string path)
@@ -59,8 +58,8 @@ public static class RoomPrefabsForServer
 
         try
         {
-            RoomExportAsPlayed.PrepareLikeBots(room);
-            navMesh = NavMesh.AddNavMeshData(RoomExportAsPlayed.BakeLikeBots(room));
+            PrepareLikeBots(room);
+            navMesh = NavMesh.AddNavMeshData(BakeLikeBots(room));
 
             Collider floor = FindFloor(room, out Bounds roomBounds);
             if (roomBounds.size == Vector3.zero) return $"{prefab.name}: no renderers; left unchanged.";
@@ -214,5 +213,49 @@ public static class RoomPrefabsForServer
             t = t.GetChild(index);
         }
         return t;
+    }
+
+    // Same as BotHideController.EnsureRoomColliders / BotSeekController: readable room meshes
+    // without a collider get a MeshCollider, then the stair ramps.
+    private static void PrepareLikeBots(GameObject room)
+    {
+        foreach (MeshRenderer mr in room.GetComponentsInChildren<MeshRenderer>())
+        {
+            if (mr.GetComponent<Collider>() != null) continue;
+            MeshFilter mf = mr.GetComponent<MeshFilter>();
+            if (mf == null || mf.sharedMesh == null || !mf.sharedMesh.isReadable || mf.sharedMesh.vertexCount <= 0) continue;
+            mr.gameObject.AddComponent<MeshCollider>();
+        }
+
+        // Edit mode does not sync transforms on its own; the ramp builder raycasts against them.
+        Physics.SyncTransforms();
+        StairRampBuilder.EnsureRampsForRoom(room);
+        Physics.SyncTransforms();
+    }
+
+    // Same as BotHideController.BakeNavMesh / BotSeekController (agent r 2.5, h 12, climb 4,
+    // slope 45; colliders only; renderer bounds expanded by 12).
+    private static NavMeshData BakeLikeBots(GameObject room)
+    {
+        Bounds bb = new Bounds(room.transform.position, Vector3.one);
+        Renderer[] rends = room.GetComponentsInChildren<Renderer>();
+        for (int i = 0; i < rends.Length; i++)
+        {
+            if (i > 0) bb.Encapsulate(rends[i].bounds);
+            else bb = rends[i].bounds;
+        }
+        bb.Expand(12f);
+
+        NavMeshBuildSettings settings = NavMesh.GetSettingsByID(0);
+        settings.agentRadius = 2.5f;
+        settings.agentHeight = 12f;
+        settings.agentClimb = 4f;
+        settings.agentSlope = 45f;
+
+        var markups = new List<NavMeshBuildMarkup>();
+        var sources = new List<NavMeshBuildSource>();
+        UnityEngine.AI.NavMeshBuilder.CollectSources(room.transform, -1, NavMeshCollectGeometry.PhysicsColliders, 0, markups, sources);
+
+        return UnityEngine.AI.NavMeshBuilder.BuildNavMeshData(settings, sources, bb, Vector3.zero, Quaternion.identity);
     }
 }

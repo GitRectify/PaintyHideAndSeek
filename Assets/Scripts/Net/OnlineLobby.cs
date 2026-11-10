@@ -567,6 +567,7 @@ public class OnlineLobby : MonoBehaviour
 
         if (matchmaking != null)
         {
+            matchmaking.SetOnlineMatchSize(info.TotalPlayers, info.HunterSlots);
             matchmaking.SetMapLabel(MapTitle(mapName));
             matchmaking.SetOnlineHint(info.YourRole == Role.Hunter
                 ? "You are a Seeker. Find the fugitives and catch them before the round ends."

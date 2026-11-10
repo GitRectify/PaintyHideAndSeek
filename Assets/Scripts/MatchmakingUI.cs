@@ -246,9 +246,88 @@ public class MatchmakingUI : MonoBehaviour
         public bool IsLocal;
     }
 
+    // ---- Online rooms of 8-16 players ------------------------------------------------------
+    // The screen's columns are authored for the standard 3 + 5 and hold 5 rows. A bigger room
+    // adds copies of a slot and flows them into side-by-side rows; Single Play and the standard
+    // size keep the authored layout exactly (ResetOnlineMatchSize puts it back).
+
+    private const int RowsPerColumn = 5;
+    private const float ColumnWidth = 368f, ColumnGap = 8f, FirstRowY = 92f, RowSpacing = 62f, RowHeight = 56f;
+
+    private readonly Dictionary<List<Slot>, int> authoredSlots = new Dictionary<List<Slot>, int>();
+    private int standardTotal = -1, standardHunters;
+
+    /// <summary>This match's seats, from MatchFound. Ends with EndOnline, or the next BeginOnline.</summary>
+    public void SetOnlineMatchSize(int total, int hunters)
+    {
+        EnsureBuilt();
+        if (standardTotal < 0)
+        {
+            standardTotal = totalPlayers;
+            standardHunters = hunterSlots;
+        }
+
+        totalPlayers = total;
+        hunterSlots = hunters;
+        FitColumn(fugSlots, total - hunters);
+        FitColumn(hunSlots, hunters);
+        UpdateBarAndCounter();
+    }
+
+    private void ResetOnlineMatchSize()
+    {
+        if (standardTotal < 0) return;
+
+        totalPlayers = standardTotal;
+        hunterSlots = standardHunters;
+        standardTotal = -1;
+        FitColumn(fugSlots, totalPlayers - hunterSlots);
+        FitColumn(hunSlots, hunterSlots);
+    }
+
+    private void FitColumn(List<Slot> column, int count)
+    {
+        if (column.Count == 0) return;
+        if (!authoredSlots.TryGetValue(column, out int authored)) authoredSlots[column] = authored = column.Count;
+
+        Transform box = column[0].go.transform.parent;
+        while (column.Count < count)
+        {
+            GameObject go = Instantiate(column[0].go, box, false);
+            go.name = "Slot" + column.Count;
+            go.SetActive(false);
+            Transform nameT = go.transform.Find("Name");
+            column.Add(new Slot { go = go, bg = go.GetComponent<Image>(), label = nameT != null ? nameT.GetComponent<Text>() : null });
+        }
+
+        while (column.Count > Mathf.Max(count, authored))
+        {
+            Destroy(column[column.Count - 1].go);
+            column.RemoveAt(column.Count - 1);
+        }
+
+        int columns = Mathf.Max(1, Mathf.CeilToInt(count / (float)RowsPerColumn));
+        float width = (ColumnWidth - (columns - 1) * ColumnGap) / columns;
+
+        for (int i = 0; i < column.Count; i++)
+        {
+            var rt = (RectTransform)column[i].go.transform;
+            rt.sizeDelta = new Vector2(width, RowHeight);
+            rt.anchoredPosition = new Vector2(-ColumnWidth * 0.5f + width * 0.5f + i / RowsPerColumn * (width + ColumnGap),
+                                              FirstRowY - i % RowsPerColumn * RowSpacing);
+
+            Text label = column[i].label;
+            if (label == null) continue;
+            label.resizeTextForBestFit = columns > 1;   // narrower rows: long names shrink to fit
+            label.resizeTextMinSize = 14;
+            label.resizeTextMaxSize = label.fontSize;
+        }
+    }
+
     public void BeginOnline(bool hunter, string hint)
     {
         EnsureBuilt();
+        ResetOnlineMatchSize();
         playerIsHunter = hunter;
         onReady = null;
         state = 0;
@@ -298,6 +377,7 @@ public class MatchmakingUI : MonoBehaviour
 
     public void EndOnline()
     {
+        ResetOnlineMatchSize();
         state = 0;
         onReady = null;
         if (canvasGO != null) canvasGO.SetActive(false);

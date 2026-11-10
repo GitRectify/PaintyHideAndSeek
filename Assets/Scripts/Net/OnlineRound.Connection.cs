@@ -74,6 +74,7 @@ public partial class OnlineRound
 
         resumeDeadline = 0f;
         offlineSince = -1f;
+        StopHostingBots();      // their bodies are gone; the server says if the job is still ours
         ClearCanvases();
         QueuePaintReplay(since);
         ResendPaintMaterial();

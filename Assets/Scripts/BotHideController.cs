@@ -158,6 +158,31 @@ public class BotHideController : MonoBehaviour
         }
     }
 
+    // ====================== ONLINE ======================
+
+    // This player's game is hosting an online match's bots (OnlineRound.Bots.cs): the same spot
+    // choice and camouflage as Single Play, on the bodies of the empty seats. Nothing here runs
+    // unless HideOnline is called. The server's clock and win rules apply, not this script's.
+    public bool OnlineHidingDone { get; private set; }
+
+    public void HideOnline(string[] names)
+    {
+        OnlineHidingDone = false;
+        SetBots(names);
+        BuildHideObjects();
+        BuildClimbSurfaces();
+        EnsureRoomColliders();
+        StartHiding();
+    }
+
+    public void EndOnline()
+    {
+        StopAllCoroutines();
+        bots.Clear();
+        triggered = false;
+        OnlineHidingDone = false;
+    }
+
     // ====================== SETUP ======================
 
     // Hiders never carry a gun: any "BotGun" left from seeker mode is destroyed and the "Gun"
@@ -391,6 +416,8 @@ public class BotHideController : MonoBehaviour
                 TeleportAndHide(bot, kv.Value);
             }
         }
+
+        OnlineHidingDone = true;
     }
 
     // ====================== HIDING ======================

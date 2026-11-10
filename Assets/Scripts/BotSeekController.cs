@@ -85,7 +85,19 @@ public class BotSeekController : MonoBehaviour
         public Vector3 seenVel;              // 0x140
         public bool seenHasVel;              // 0x14C
         public float backupTimer;            // 0x150
+
+        // Online only (see IOnlineBotGame).
+        public Transform onlineSpot;         // the human hider this bot has spotted
+        public float onlineSpotUntil;
+        public readonly Dictionary<Transform, Vector2> onlineCamo = new Dictionary<Transform, Vector2>();   // camo, next refresh
     }
+
+    // Set while this game hosts an online match's bots (OnlineRound.Bots.cs); null in Single Play.
+    // The controller then hunts everyone in SetTargets, and tells the server what its bots do
+    // instead of deciding anything itself.
+    private IOnlineBotGame online;
+    private float onlineHuntSeconds;
+    private bool chasePlayerBeforeOnline;
 
     [Header("Scene")]
     public string roomRootName = "Room";
@@ -320,6 +332,85 @@ public class BotSeekController : MonoBehaviour
     public int HuntersLeft => bots.Count;
 
     public int BotCount => bots.Count;
+
+    // ====================== ONLINE ======================
+
+    // Colliders and the NavMesh, ahead of the seek: baking takes a moment on a phone.
+    public void PrepareOnlineRoom(string roomName)
+    {
+        roomRootName = roomName;
+        EnsureColliders();
+        EnsureNavMesh();
+    }
+
+    public void BeginOnline(IOnlineBotGame game, string[] names, float huntSeconds)
+    {
+        online = game;
+        onlineHuntSeconds = Mathf.Max(1f, huntSeconds);
+        chasePlayerBeforeOnline = chasePlayer;
+        chasePlayer = false;
+        SetBots(names);
+        StartSeeking();
+        timeLeft = onlineHuntSeconds;
+    }
+
+    public void EndOnline()
+    {
+        if (online == null) return;
+        online = null;
+        state = State.Idle;
+        chasePlayer = chasePlayerBeforeOnline;
+        bots.Clear();
+        targets.Clear();
+        targetRagdoll.Clear();
+        _isCharacterCache.Clear();
+    }
+
+    // How well a human hider's paint matches what is behind them from this eye, the rule CanSee
+    // applies to the player in Single Play. Throttled like it is.
+    private float OnlineCamo(SeekBot b, Transform t, Vector3 eye)
+    {
+        if (!camoAffectsVision) return 0f;
+        if (b.onlineCamo.TryGetValue(t, out Vector2 known) && Time.time < known.y) return known.x;
+
+        Bounds playerBoundsBefore = playerBounds;
+        Color playerColorBefore = playerAvgColor;
+        playerBounds = online.BoundsOf(t);
+        playerAvgColor = online.ColorOf(t);
+        float camo = ComputeCamo01(eye);
+        playerBounds = playerBoundsBefore;
+        playerAvgColor = playerColorBefore;
+
+        b.onlineCamo[t] = new Vector2(camo, Time.time + camoRefresh);
+        return camo;
+    }
+
+    // The bot holds still and faces the hider it spotted until the server's shot has come.
+    private bool UpdateOnlineSpot(SeekBot b)
+    {
+        if (b.onlineSpot == null) return false;
+
+        if (Time.time >= b.onlineSpotUntil || !targets.Contains(b.onlineSpot) || TargetIsCorpse(b.onlineSpot))
+        {
+            b.onlineSpot = null;
+            return false;
+        }
+
+        if (b.anim != null) b.anim.SetFloat(SpeedHash, 0f);
+
+        Vector3 flat = b.onlineSpot.position - b.tf.position;
+        flat.y = 0f;
+        if (flat.sqrMagnitude > 0.01f)
+            b.tf.rotation = Quaternion.Slerp(b.tf.rotation, Quaternion.LookRotation(flat.normalized), Time.deltaTime * 8f);
+
+        if (b.look != null)
+        {
+            Vector3 aim = b.onlineSpot.position + Vector3.up * 3f;
+            b.look.LookAt(aim);
+            b.look.AimAt(aim);
+        }
+        return true;
+    }
 
     // ====================== SETUP / LIFECYCLE ======================
 
@@ -571,13 +662,14 @@ public class BotSeekController : MonoBehaviour
             {
                 b.fireTimer -= Time.deltaTime;
             }
+            if (online != null && UpdateOnlineSpot(b)) continue;
             StepBot(b, Time.deltaTime);
             Detect(b, Time.deltaTime);
             UpdateLookTarget(b, Time.deltaTime);
             if (state == State.Over) return;
         }
 
-        if (timeLeft <= 0f)
+        if (timeLeft <= 0f && online == null)
         {
             Win();
         }
@@ -1135,7 +1227,7 @@ public class BotSeekController : MonoBehaviour
     {
         if (b.tf == null) return;
 
-        Vector3 home = ValidRoomHome(b.originPos, bots.IndexOf(b));
+        Vector3 home = online != null ? online.RescuePoint(b.tf, bots.IndexOf(b)) : ValidRoomHome(b.originPos, bots.IndexOf(b));
         if (b.targetIdx >= 0)
         {
             MarkChecked(b.targetIdx);
@@ -1240,6 +1332,9 @@ public class BotSeekController : MonoBehaviour
     // near origin (origin's own y kept), then origin itself.
     private Vector3 ValidRoomHome(Vector3 origin, int seed)
     {
+        // Single Play's seekers start around the player; online they stay on their own spawns.
+        if (online != null) return origin;
+
         Transform t = playerTf != null ? playerTf : transform;
         Vector3 c = t.position;
         NavMeshHit hit;
@@ -1368,12 +1463,26 @@ public class BotSeekController : MonoBehaviour
 
         b.sightTimer += dt;
         float dist = HorizDist(b.tf.position, target.position);
-        float reach = (isPlayer && camoAffectsVision)
+        bool onlineHuman = online != null && online.IsHuman(target);
+        if (onlineHuman)
+        {
+            b.camo01 = OnlineCamo(b, target, b.smr != null ? b.smr.bounds.center : b.tf.position + Vector3.up * 8f);
+        }
+        float reach = ((isPlayer || onlineHuman) && camoAffectsVision)
             ? catchRange + (minCatchRange - catchRange) * Mathf.Clamp01(b.camo01)
             : catchRange;
 
         if (sniffed || b.sightTimer >= spotHold || dist < reach)
         {
+            if (onlineHuman)
+            {
+                // Single Play's BeginSpot: the server freezes them and fires after the delay.
+                online.BotSpot(b.tf, target);
+                b.onlineSpot = target;
+                b.onlineSpotUntil = Time.time + spotShootDelay + 1.5f;
+                return;
+            }
+
             if (!isPlayer || !chasePlayer)
             {
                 FireAtTarget(b, target, isPlayer);
@@ -1390,7 +1499,7 @@ public class BotSeekController : MonoBehaviour
     private float SearchHeat()
     {
         if (!searchEscalation || state != State.Searching) return 0f;
-        float total = chasePlayer ? roundTime : seekerHuntTime;
+        float total = online != null ? onlineHuntSeconds : chasePlayer ? roundTime : seekerHuntTime;
         return Mathf.Clamp01((total - timeLeft) / Mathf.Max(1f, escalationFullTime));
     }
 
@@ -1520,7 +1629,13 @@ public class BotSeekController : MonoBehaviour
         float heat = _searchHeat;
         float camo = Mathf.Clamp01(b.camo01 * (1f - heat * escalationCamoErode));
         float need = Mathf.Max(0.25f, sniffTime);
-        if (isPlayer && camoAffectsVision)
+        bool onlineHuman = online != null && online.IsHuman(t);
+        if (onlineHuman)
+        {
+            b.camo01 = OnlineCamo(b, t, eye);
+            camo = Mathf.Clamp01(b.camo01 * (1f - heat * escalationCamoErode));
+        }
+        if ((isPlayer || onlineHuman) && camoAffectsVision)
         {
             need /= Mathf.Max(0.05f, Mathf.Lerp(1f, sniffCamoMul, camo));
         }
@@ -1776,6 +1891,14 @@ public class BotSeekController : MonoBehaviour
 
             Vector3 c = t.position + Vector3.up * 6f;
             float range = visionRange;
+            float near = catchRange;
+            if (online != null && online.IsHuman(t))
+            {
+                // A real hider's paint counts, as CanSee counts the player's.
+                float camo = Mathf.Clamp01(OnlineCamo(b, t, eye) * (1f - _searchHeat * escalationCamoErode));
+                range = (_searchHeat * escalationRangeBoost + 1f) * Mathf.Lerp(visionRange, minVisionRange, camo);
+                near = Mathf.Lerp(catchRange, minCatchRange, camo);
+            }
             if (highExposureBoost && c.y - floorY > exposedHeightAboveFloor)
             {
                 range = Mathf.Max(range, highVisionRange);
@@ -1787,7 +1910,7 @@ public class BotSeekController : MonoBehaviour
 
             Vector3 flat = new Vector3(d.x, 0f, d.z);
             bool inCone = flat.sqrMagnitude > 0.0001f && Vector3.Dot(fwd, flat.normalized) >= cosHalf;
-            if (!inCone && dist > catchRange) continue;
+            if (!inCone && dist > near) continue;
 
             if (LineClear(eye, d / Mathf.Max(dist, 0.001f), dist - 1.5f))
             {
@@ -1842,6 +1965,17 @@ public class BotSeekController : MonoBehaviour
         if (b.fireTimer > 0f) return;
 
         b.fireTimer = Mathf.Max(0.05f, fireInterval);
+
+        if (online != null)
+        {
+            // The server judges it; the animation, sound and tracer come back with its Shot.
+            Vector3 onlineAim = HiderAimPoint(target);
+            Vector3 onlineMuzzle = SeekerMuzzle(b, onlineAim);
+            Vector3 onlineDir = onlineAim - onlineMuzzle;
+            online.BotFire(b.tf, onlineMuzzle, onlineDir.sqrMagnitude < 0.0001f ? b.tf.forward : onlineDir.normalized);
+            return;
+        }
+
         if (b.anim != null)
         {
             b.anim.SetTrigger(GunFireHash);
@@ -2063,7 +2197,8 @@ public class BotSeekController : MonoBehaviour
             }
             if (hand == null) continue;
 
-            Transform existing = hand.Find("BotGun");
+            // Online, the body already carries the gun other players are drawn with.
+            Transform existing = online != null ? hand.Find("NetGun") ?? hand.Find("BotGun") : hand.Find("BotGun");
             if (existing != null)
             {
                 b.gunTf = existing;
@@ -2577,7 +2712,7 @@ public class BotSeekController : MonoBehaviour
     // and camo sampling is spread across bots.
     public void ResetBots()
     {
-        ClearSpot();
+        if (online == null) ClearSpot();
 
         int seed = 0;
         foreach (SeekBot b in bots)
