@@ -145,7 +145,7 @@ public class OnlineLobby : MonoBehaviour
     {
         // The lobby bar says when the connection is gone; the SDK is already reconnecting.
         if (lobbyBar.activeSelf && Net != null)
-            lobbyMessage.text = Net.IsConnected || Net.IsChangingServer ? lobbyText : "Connection lost. Reconnecting...";
+            lobbyMessage.text = Net.IsConnected ? lobbyText : "Connection lost. Reconnecting...";
 
         if (step == Step.Rejoin && rejoinDeadline > 0f && Time.unscaledTime > rejoinDeadline)
         {
@@ -762,8 +762,6 @@ public class OnlineLobby : MonoBehaviour
             case FindMatchError.LeaveCooldown: return "You left too many matches early. Try again in a few minutes.";
             case FindMatchError.PaidRoomsUnavailable: return "Paid rooms are closed on this server.";
             case FindMatchError.UnknownMap: return "That map isn't available online yet. Pick another map.";
-            case FindMatchError.NoServerAvailable: return "All servers are busy. Try again in a moment.";
-            case FindMatchError.TicketRefused: return "That took too long. Please try again.";
             default: return "The server refused the request.";
         }
     }

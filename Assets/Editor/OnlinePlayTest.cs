@@ -77,7 +77,7 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Done }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, SinglePlay, Done }
 
     private static Step step;
     private static float stepStarted, startedAt, nextAction;
@@ -312,23 +312,6 @@ public static class OnlinePlayTest
                     .ToList();
                 Check(owned > 0 && badges.Any(b => b == $"Own {owned}"),
                       $"shop's special bullet 2 cards show the owned count (owned {owned}; ribbons: {string.Join(", ", badges.Select(b => b ?? "-"))}; catalog {(catalog != null ? "loaded" : "missing")})");
-                Go(Again ? Step.Again : SinglePlay ? Step.SinglePlay : Step.Done);
-                return;
-
-            case Step.Again:
-                // Against a cluster: the join ticket is long stale, so this goes back to the
-                // matchmaker and on to a game process again, with no game code involved.
-                if (nextAction == 0f)
-                {
-                    nextAction = 1f;
-                    matchesAtAgain = matchesFound;
-                    Net.FindMatch(Seeker ? RolePreference.Seeker : RolePreference.Hider, "practice", 0, "Room");
-                    return;
-                }
-                if (matchesFound == matchesAtAgain) return;
-                // The lobby screen is closed by now, so it gives the seat up (OnlineLobby.HandleMatchFound).
-                Check(Net.IsConnected, $"a second match found after the first, {InStep:F1} s after asking");
-                Net.LeaveMatch();
                 Go(SinglePlay ? Step.SinglePlay : Step.Done);
                 return;
 
@@ -399,10 +382,6 @@ public static class OnlinePlayTest
                 return;
         }
     }
-
-    // -playtestAgain: ask for another match after the first (the path every returning player takes).
-    private static bool Again => System.Environment.GetCommandLineArgs().Contains("-playtestAgain");
-    private static int matchesFound, matchesAtAgain;
 
     private static bool signedIn, bought, boughtAnswered, submittedName, reboughtAnswered;
     private static bool lobbyLaidOut;
@@ -822,7 +801,6 @@ public static class OnlinePlayTest
         Net.OnEliminated += (_, _, cause) => { eliminations++; if (cause == EliminationCause.Caught) catches++; };
         Net.OnMatchEnd += _ => matchEnds++;
         Net.OnSpotAlert += _ => spotAlerts++;
-        Net.OnMatchFound += _ => matchesFound++;
         Net.OnBotHost += bots =>
         {
             if (bots.Length == 0) return;
