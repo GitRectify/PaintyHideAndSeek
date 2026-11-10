@@ -302,8 +302,12 @@ public partial class OnlineRound : IOnlineBotGame
 
     public Bounds BoundsOf(Transform human)
     {
-        SkinnedMeshRenderer mesh = human.GetComponentInChildren<SkinnedMeshRenderer>(true);
-        return mesh != null ? mesh.bounds : new Bounds(human.position, Vector3.one * 4f);
+        SkinnedMeshRenderer[] meshes = human.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        if (meshes.Length == 0) return new Bounds(human.position, Vector3.one * 4f);
+
+        Bounds bounds = meshes[0].bounds;                 // a character can be several meshes
+        for (int i = 1; i < meshes.Length; i++) bounds.Encapsulate(meshes[i].bounds);
+        return bounds;
     }
 
     public void BotFire(Transform bot, Vector3 origin, Vector3 direction)

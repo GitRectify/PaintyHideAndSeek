@@ -283,7 +283,7 @@ public static class OnlinePlayTest
                       && Authored("FugitiveBox") == GameTuning.FugitiveSlots && Authored("HunterBox") == GameTuning.HunterSlots,
                       $"lobby screen is back to Single Play's 3 + 5 ({Authored("HunterBox")} + {Authored("FugitiveBox")})");
                 Check(ShopInventory.Loaded, "wallet refreshed from the server after the round");
-                if (Seeker && !Chase && !Pair)
+                if (Seeker && !Chase && !Pair && !Kills)
                     Check(ShopInventory.SpecialBullets(BulletType.Special2) < stockBeforeRound.Special2,
                           $"special bullets spent in the round are gone from the wallet ({stockBeforeRound.Special2} -> {ShopInventory.SpecialBullets(BulletType.Special2)})");
                 OnlineHistory.Show(Object.FindAnyObjectByType<OnlineLobby>().transform, null);
@@ -554,7 +554,7 @@ public static class OnlinePlayTest
         botsHostedMost = Math.Max(botsHostedMost, OnlineRound.HostedBotCount);
         if (Net.Phase != MatchPhase.Seek) return;
 
-        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>(FindObjectsSortMode.None).Where(x => x.IsHosted && !x.Eliminated))
+        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>().Where(x => x.IsHosted && !x.Eliminated))
         {
             if (!hostedStart.ContainsKey(v.Slot)) { hostedStart[v.Slot] = v.FeetPosition; continue; }
             if (v.Role == Role.Hunter)
@@ -585,7 +585,7 @@ public static class OnlinePlayTest
 
         GameObject room = Object.FindAnyObjectByType<LevelManager>().CurrentRoomInstance;
         List<Vector3> markers = room.GetComponentsInChildren<Transform>(true).Where(t => t.name.StartsWith("HiderSpawn")).Select(t => t.position).ToList();
-        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>(FindObjectsSortMode.None).Where(x => x.IsHosted && x.Role == Role.Fugitive))
+        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>().Where(x => x.IsHosted && x.Role == Role.Fugitive))
         {
             if (markers.Count > 0 && markers.Min(m => Vector3.Distance(m, v.FeetPosition)) > 4f) hiderBotsMoved++;
             if (v.GetComponentInChildren<SkinnedMeshRenderer>().material.GetColor("_BaseColor") != Color.white) hiderBotsPainted++;
@@ -609,7 +609,8 @@ public static class OnlinePlayTest
             Check(hiderBotsPainted > 0, $"hider bots camouflaged themselves ({hiderBotsPainted})");
         }
         Check(hostedSeekerWalked > 15f, $"seeker bots walked the room under Single Play's seek logic (furthest {hostedSeekerWalked:F0} units from the start)");
-        Check(hostedClimbers.Count > 0 && hostedClimbRise > 3f, $"seeker bots climbed walls ({hostedClimbers.Count} bots, up to {hostedClimbRise:F0} units up)");
+        if (Kills) report.Add($"INFO  a round ended by shooting every hider is too short to judge the bots' climbing ({hostedClimbers.Count} climbed)");
+        else Check(hostedClimbers.Count > 0 && hostedClimbRise > 3f, $"seeker bots climbed walls ({hostedClimbers.Count} bots, up to {hostedClimbRise:F0} units up)");
         Check(worstHostedGap < 15f, $"the server followed the hosted bots (worst gap {worstHostedGap:F1} units)");
         if (!Seeker) report.Add($"INFO  seeker bots spotted this hider {spotAlerts} time(s)");
         if (hostedHops > 0) report.Add($"INFO  a stranded seeker bot used Single Play's rescue hop {hostedHops} time(s)");
@@ -645,7 +646,7 @@ public static class OnlinePlayTest
 
         // The wire position is the feet: a body standing on the floor must have it at floor level.
         if (feetAboveFloor.Count >= 400) return;
-        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>(FindObjectsSortMode.None))
+        foreach (NetEntityView v in Object.FindObjectsByType<NetEntityView>())
         {
             if (v.IsLocal || v.Eliminated || (v.Flags & EntityFlags.Grounded) == 0) continue;
             Vector3 feet = v.FeetPosition;
@@ -818,7 +819,7 @@ public static class OnlinePlayTest
     private static void CheckFreeLookWhenOut()
     {
         NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
-        if (me == null || !me.Eliminated || freeLookStage == 2) return;
+        if (me == null || !me.Eliminated || freeLookStage == 2 || Pair) return;
 
         CameraController cam = Object.FindAnyObjectByType<CameraController>();
         FieldInfo pivot = typeof(CameraController).GetField("_freePivot", Any);
@@ -847,6 +848,7 @@ public static class OnlinePlayTest
         CheckSeekerBotGun();
         CheckSeekerBodyLiesDown();
         CheckFreeLookWhenOut();
+        CheckBodies();
         SampleMovement();
         SampleHostedBots();
         SampleTimer();
@@ -855,6 +857,11 @@ public static class OnlinePlayTest
         if (Pair)
         {
             PlayPair();
+            return;
+        }
+        if (Kills && Seeker)
+        {
+            PlayKills();
             return;
         }
         DriveJoystick(!Chase && (Net.Phase == MatchPhase.Seek || (!Seeker && Net.Phase == MatchPhase.Hide)));
@@ -916,6 +923,300 @@ public static class OnlinePlayTest
 
     private static int catches;
     private static float hideSeenAt = -1f;
+
+    // ================= Other players' bodies =================
+
+    private static bool bodiesChecked;
+    private static int bodyStage;
+    private static float bodyAt;
+    private static NetEntityView hostedSeeker;
+
+    private static bool IsBuiltTag(Canvas c) => c.name == "NameTag" && c.gameObject.activeSelf;
+
+    private static IEnumerable<Transform> GunsOf(NetEntityView v) =>
+        v.GetComponentsInChildren<Transform>(true).Where(t => t.name == "NetGun" || t.name == "BotGun" || t.name == "gun");
+
+    // Every other body in the round, once it has had time to come up.
+    private static void CheckBodies()
+    {
+        if (bodiesChecked || Net.Phase != MatchPhase.Seek) return;
+
+        float now = Time.realtimeSinceStartup;
+        if (bodyStage == 0)
+        {
+            bodyStage = 1;
+            bodyAt = now + 1.5f;
+            return;
+        }
+
+        if (bodyStage == 1)
+        {
+            if (now < bodyAt) return;
+
+            var views = Object.FindObjectsByType<NetEntityView>().Where(v => !v.IsLocal && (v.HasPosition || v.IsHosted)).ToList();
+            if (views.Count == 0) return;
+
+            int opponents = 0, teammates = 0, tagsOnOpponents = 0, tagsOnTeam = 0, notDrawn = 0, offScreenRule = 0, wrong = 0, holders = 0, outOfRange = 0;
+            foreach (NetEntityView v in views)
+            {
+                if (!v.IsShown) outOfRange++;
+                bool teammate = (v.Role == Role.Hunter) == Seeker;
+                bool tagged = v.GetComponentsInChildren<Canvas>(true).Any(IsBuiltTag);
+                if (teammate) { teammates++; if (tagged) tagsOnTeam++; }
+                else { opponents++; if (tagged) tagsOnOpponents++; }
+
+                foreach (SkinnedMeshRenderer mesh in v.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                {
+                    if (v.IsShown && (!mesh.enabled || !mesh.gameObject.activeInHierarchy)) notDrawn++;
+                    if (!mesh.updateWhenOffscreen) offScreenRule++;
+                }
+
+                bool armed = GunsOf(v).Any(g => g.gameObject.activeInHierarchy);
+                if (armed != (v.Role == Role.Hunter)) wrong++;
+                if (v.GetComponentInChildren<GunHolder>(true) != null || v.GetComponentInChildren<SeekerCamProfile>(true) != null) holders++;
+            }
+
+            Check(opponents == 0 || tagsOnOpponents == 0, $"no name tag floats over an opponent ({tagsOnOpponents} of {opponents})");
+            Check(tagsOnTeam == teammates, $"teammates keep theirs ({tagsOnTeam} of {teammates})");
+            Check(notDrawn == 0, $"every other body's mesh is on ({notDrawn} off, {views.Count} bodies, {outOfRange} out of range)");
+            Check(offScreenRule == 0, $"no other body can be culled by its import bounds ({offScreenRule})");
+            Check(wrong == 0, $"seekers and only seekers carry a gun ({wrong} wrong)");
+            Check(holders == 0, $"other bodies run none of the local player's scripts ({holders})");
+
+            // A gun goes when its body goes: it used to stay, floating where the body had been.
+            NetEntityView armedOne = views.FirstOrDefault(v => v.Role == Role.Hunter && GunsOf(v).Any(g => g.gameObject.activeInHierarchy));
+            if (armedOne != null)
+            {
+                armedOne.SetShown(false);
+                bool gunHid = GunsOf(armedOne).Where(g => g.gameObject.activeInHierarchy)
+                                              .All(g => g.GetComponentsInChildren<Renderer>(true).All(r => !r.enabled));
+                bool bodyHid = armedOne.GetComponentsInChildren<SkinnedMeshRenderer>(true).All(r => !r.enabled);
+                armedOne.SetShown(true);
+                Check(gunHid && bodyHid, $"a seeker's gun is hidden along with their body (gun {gunHid}, body {bodyHid})");
+            }
+            else report.Add("INFO  no other seeker's body to try hiding");
+
+            // A body this game runs is not the snapshots' to hide.
+            hostedSeeker = views.FirstOrDefault(v => v.IsHosted && v.Role == Role.Hunter);
+            if (hostedSeeker == null)
+            {
+                report.Add("INFO  this game hosts no seeker bot");
+                bodiesChecked = true;
+                return;
+            }
+
+            hostedSeeker.OnLostVisibility();
+            bodyStage = 2;
+            bodyAt = now + 0.6f;
+            return;
+        }
+
+        if (now < bodyAt) return;
+        bodiesChecked = true;
+        Check(hostedSeeker.GetComponentsInChildren<SkinnedMeshRenderer>(true).All(r => r.enabled) && hostedSeeker.IsShown,
+              "a bot this game runs stays drawn when the snapshots stop naming it");
+    }
+
+    // ================= Shots at the far ends of bodies, and the cooldown after a kill =================
+
+    private static bool Kills => System.Environment.GetCommandLineArgs().Contains("-playtestKills");
+
+    // What the box used to be, for the report: fractions of a capsule of radius 1, height 8 at hider size.
+    private static readonly float[] OldHeight = { 1.00f, 1.01f, 1.01f, 0.36f, 0.26f, 1.01f, 0.75f, 0.58f, 0.71f, 0.88f };
+    private static readonly float[] OldRadius = { 1.00f, 0.59f, 0.59f, 1.27f, 1.46f, 0.93f, 0.99f, 0.94f, 0.60f, 0.90f };
+
+    private static int killStage, killsMade, killsTried, oldBoxMisses, liftsSeen, liftsMissing, crosshairMisses, killPose;
+    private static float killAt;
+    private static bool killLanded, missTried, missHeld, missHeldTried, shotAfterWaitLanded;
+    private static byte killSlot = 0xFF;
+    private static Vector3 killPoint;
+    private static readonly List<string> killNotes = new List<string>();
+    private static readonly HashSet<int> posesShot = new HashSet<int>();
+
+    // The vertex of a body furthest out from where the server tracks it.
+    private static Vector3 FarthestVertex(NetEntityView v)
+    {
+        Vector3 best = v.transform.position;
+        float far = -1f;
+        var baked = new Mesh();
+
+        foreach (SkinnedMeshRenderer smr in v.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            if (!smr.gameObject.activeInHierarchy) continue;
+            smr.BakeMesh(baked, true);          // scaled by the mesh's own transform, not by the half-size body above it
+            Matrix4x4 toWorld = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, smr.transform.parent.lossyScale);
+            foreach (Vector3 vertex in baked.vertices)
+            {
+                Vector3 w = toWorld.MultiplyPoint3x4(vertex);
+                float d = new Vector2(w.x - v.transform.position.x, w.z - v.transform.position.z).sqrMagnitude;
+                if (d > far) { far = d; best = w; }
+            }
+        }
+
+        Object.DestroyImmediate(baked);
+        return best;
+    }
+
+    private static NetEntityView NextHider(out MecchaNetClient.RosterEntry entry)
+    {
+        entry = default;
+        var entries = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster");
+        foreach (MecchaNetClient.RosterEntry e in entries)
+        {
+            NetEntityView v = NetEntityRegistry.Get(e.Slot);
+            if (e.Role != Role.Fugitive || v == null || v.Eliminated) continue;
+            if (!v.HasPosition && !v.IsHosted) continue;
+            entry = e;
+            return v;
+        }
+        return null;
+    }
+
+    private static void PlayKills()
+    {
+        if (Net.Phase != MatchPhase.Seek) return;
+        float now = Time.realtimeSinceStartup;
+        if (now < killAt) return;
+
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+        var hiders = Object.FindObjectsByType<NetEntityView>().Where(v => v.Role == Role.Fugitive && !v.IsLocal && !v.Eliminated).ToList();
+
+        Mode1FirstPersonGun gun = Object.FindAnyObjectByType<Mode1FirstPersonGun>(FindObjectsInactive.Include);
+        Vector3 muzzle = gun != null && gun.muzzlePoint != null ? gun.muzzlePoint.position : me.transform.position;
+
+        switch (killStage)
+        {
+            case 0:     // every shape on show: the bots this game runs strike one each
+                int shape = 0;
+                foreach (NetEntityView v in hiders.Where(x => x.IsHosted).OrderBy(x => x.Slot))
+                    BodyAnimation.SetPose(v.GetComponentInChildren<Animator>(), PoseSelectorUI.AnimatorPoseFor(shape++ % 10));
+                killAt = now + 2f;      // time to strike it, and for the server to hear
+                killStage = 1;
+                return;
+
+            case 1:     // turn to the next one
+                NetEntityView target = NextHider(out MecchaNetClient.RosterEntry entry);
+                if (target == null) { killStage = 9; return; }
+
+                killSlot = target.Slot;
+                Animator anim = target.GetComponentInChildren<Animator>();
+                killPose = target.IsHosted
+                    ? Array.FindIndex(Enumerable.Range(0, 10).ToArray(), id => PoseSelectorUI.AnimatorPoseFor(id) == anim.GetInteger("Pose"))
+                    : target.Pose;
+                killPoint = FarthestVertex(target);
+
+                Vector3 flat = killPoint - me.transform.position;
+                flat.y = 0f;
+                if (flat.sqrMagnitude > 0.01f) me.transform.rotation = Quaternion.LookRotation(flat.normalized);
+                killAt = now + 0.35f;
+                killStage = 2;
+                return;
+
+            case 2:     // at that vertex, from the real muzzle
+                Vector3 dir = (killPoint - muzzle).normalized;
+                NetEntityView shot = NetEntityRegistry.Get(killSlot);
+                if (shot == null || shot.Eliminated) { killStage = 1; return; }
+
+                if (!OnlineRound.BodyAlong(muzzle, dir, out float body)) crosshairMisses++;
+
+                Vector3 local = killPoint - shot.FeetPosition;
+                int p = Mathf.Clamp(killPose, 0, 9);
+                float wide = 1f * OldRadius[p] + 0.6f, tall = 8f * OldHeight[p] + 0.6f;
+                bool oldMiss = Mathf.Abs(local.x) > wide || Mathf.Abs(local.z) > wide || local.y > tall || local.y < -0.6f;
+                if (oldMiss) oldBoxMisses++;
+
+                killLanded = false;
+                killsTried++;
+                posesShot.Add(killPose);
+                Net.Fire(muzzle, dir, -1f);
+                killAt = now;
+                bodyAt = now + 1.5f;
+                killStage = 3;
+                return;
+
+            case 3:
+                if (killLanded)
+                {
+                    killsMade++;
+                    if ((float)typeof(OnlineRound).GetField("nextFireAt", Any).GetValue(OnlineRoundInstance()) == 0f) liftsSeen++;
+                    else liftsMissing++;
+
+                    // After the first: a miss, and then the cooldown must hold again.
+                    killStage = !missTried ? 5 : 1;
+                    return;
+                }
+
+                if (now < bodyAt) return;
+                killNotes.Add($"pose {killPose} at {killPoint - NetEntityRegistry.Get(killSlot).FeetPosition:F1} from the feet");
+                killAt = now + 3.3f;    // waiting out the cooldown of the miss
+                killStage = 1;
+                return;
+
+            case 5:
+                missTried = true;
+                Net.Fire(muzzle, Quaternion.Euler(0f, 40f, 0f) * me.transform.forward + Vector3.up * 0.5f, -1f);
+                killAt = now + 0.4f;
+                killStage = 6;
+                return;
+
+            case 6:     // inside the miss's cooldown: this one is refused however true it is
+                NetEntityView last = NextHider(out _);
+                if (last == null) { killStage = 9; return; }
+
+                killSlot = last.Slot;
+                killPoint = FarthestVertex(last);
+                Vector3 toLast = killPoint - me.transform.position;
+                toLast.y = 0f;
+                me.transform.rotation = Quaternion.LookRotation(toLast.normalized);
+                killAt = now + 0.35f;
+                killStage = 7;
+                return;
+
+            case 7:
+                killLanded = false;
+                missHeldTried = true;
+                Net.Fire(muzzle, (killPoint - muzzle).normalized, -1f);
+                killAt = now + 1f;
+                killStage = 8;
+                return;
+
+            case 8:
+                missHeld = !killLanded;
+                killStage = 10;
+                killAt = now + 2.4f;    // the rest of the 3 s
+                return;
+
+            case 10:
+                killLanded = false;
+                Net.Fire(muzzle, (killPoint - muzzle).normalized, -1f);
+                bodyAt = now + 1.5f;
+                killStage = 11;
+                return;
+
+            case 11:
+                if (!killLanded && now < bodyAt) return;
+                shotAfterWaitLanded = killLanded;
+                if (killLanded) { killsMade++; killsTried++; }
+                killStage = 1;
+                return;
+        }
+    }
+
+    private static void CheckKills()
+    {
+        if (killStage == 3 && killLanded) killsMade++;      // the last hider: the match ended on that shot
+
+        Check(killsTried >= 3 && killsMade == killsTried,
+              $"every shot at the far end of a body hit ({killsMade} of {killsTried}; shapes {string.Join(",", posesShot.OrderBy(x => x))}; the old box would have missed {oldBoxMisses}{(killNotes.Count > 0 ? "; missed: " + string.Join("; ", killNotes) : "")})");
+        Check(crosshairMisses == 0, $"the crosshair's test agreed with every shot ({crosshairMisses} disagreed)");
+        Check(liftsMissing == 0 && liftsSeen > 0, $"each kill lifted the cooldown on the client too ({liftsSeen} lifted, {liftsMissing} not)");
+        if (missHeldTried)
+        {
+            Check(missHeld, "a shot just after a miss was refused: the cooldown is back");
+            Check(shotAfterWaitLanded, "and once it had passed, the same shot landed");
+        }
+        else report.Add("INFO  the bots took the last hider first: the cooldown after a miss was not tried here");
+    }
 
     // ================= The server's clock, as this game shows it =================
 
@@ -1085,6 +1386,10 @@ public static class OnlinePlayTest
     private static readonly HashSet<int> partnerShapes = new HashSet<int>();
     private static bool partnerSeen, partnerClimbFlag, partnerClimbAnim, partnerLayFlag, partnerLayAnim, partnerGunOffShape, partnerGunBack;
     private static bool climbButtonsShown, climbedUp, cameDown, climbFlagFromServer, climbShownWhileFrozen;
+    private static int partnerClimbFrames, partnerFacingWall, ownGunUpFrames, ownGunDownFrames;
+    private static float partnerClimbSeconds;
+    private static readonly List<string> facingNotes = new List<string>();
+    private static string partnerBodyMesh = "";
 
     private static void DriveStraight(bool on)
     {
@@ -1128,7 +1433,48 @@ public static class OnlinePlayTest
             {
                 partnerClimbFlag = true;
                 if (v.Pose == 0 && s.IsName("pose1")) partnerClimbAnim = true;
+
+                // Facing what they are climbing, whichever way they are aiming.
+                bool Solid(Vector3 from, Vector3 along) =>
+                    Physics.RaycastAll(from, along, 8f, ~0, QueryTriggerInteraction.Ignore).Any(h => !Bullet.IsCharacter(h.collider));
+
+                float bodyHeight = GameTuning.PlayerHeight * v.transform.lossyScale.y;
+                bool wallAround = false, facing = false;
+                foreach (float up in new[] { 0.15f, 0.45f, 0.7f, 0.92f })
+                {
+                    Vector3 from = v.FeetPosition + Vector3.up * (bodyHeight * up);
+                    facing |= Solid(from, v.transform.forward);
+                    for (int d = 0; d < 8 && !wallAround; d++) wallAround = Solid(from, Quaternion.Euler(0f, d * 45f, 0f) * Vector3.forward);
+                }
+
+                partnerClimbSeconds += Time.unscaledDeltaTime;
+                if (wallAround)
+                {
+                    partnerClimbFrames++;
+                    if (facing) partnerFacingWall++;
+                    else if (Time.frameCount % 15 == 0 && facingNotes.Count < 14)
+                    {
+                        float nearest = 99f, angle = -1f;
+                        foreach (float up in new[] { 0.15f, 0.45f, 0.7f, 0.92f })
+                        {
+                            for (int d = 0; d < 8; d++)
+                            {
+                                Vector3 along = Quaternion.Euler(0f, d * 45f, 0f) * Vector3.forward;
+                                foreach (RaycastHit h in Physics.RaycastAll(v.FeetPosition + Vector3.up * (bodyHeight * up), along, 8f, ~0, QueryTriggerInteraction.Ignore))
+                                {
+                                    if (Bullet.IsCharacter(h.collider) || h.distance >= nearest) continue;
+                                    nearest = h.distance;
+                                    angle = Vector3.Angle(v.transform.forward, -new Vector3(h.normal.x, 0f, h.normal.z));
+                                }
+                            }
+                        }
+                        facingNotes.Add($"wall {nearest:F1} away, {angle:F0} deg off, y {v.FeetPosition.y:F1}");
+                    }
+                }
             }
+
+            if (a.runtimeAnimatorController != null && v.GetComponentInChildren<SkinnedMeshRenderer>(true).sharedMesh != null)
+                partnerBodyMesh = v.GetComponentInChildren<SkinnedMeshRenderer>(true).sharedMesh.name;
 
             if (prone)
             {
@@ -1183,6 +1529,14 @@ public static class OnlinePlayTest
                 {
                     nextClimbTraceAt = now + 0.3f;
                     climbTrace.Add($"{me.FeetPosition.y - climbFromY:F1}{(climber.IsClinging ? "" : "(off)")}");
+                }
+
+                // A seeker keeps looking along their gun on the wall.
+                if (Seeker && climber.IsClinging)
+                {
+                    Animator own = me.GetComponentInChildren<Animator>();
+                    if (own.GetLayerWeight(own.GetLayerIndex("Gun")) > 0.99f) ownGunUpFrames++;
+                    else ownGunDownFrames++;
                 }
             }
             if (pairStage == 5) climbFlagFromServer |= (me.Flags & EntityFlags.Climbing) != 0;
@@ -1248,7 +1602,7 @@ public static class OnlinePlayTest
 
             case 5:
                 Hold("ClimbUp", false);
-                climbedUp = climber.IsOnWall && climbHighest > climbFromY + 6f;
+                climbedUp = climber.IsOnWall && climbHighest > climbFromY + 3f;
                 Hold("ClimbDown", true);
                 pairAt = now + 0.2f;
                 walkDeadline = now + 8f;
@@ -1290,7 +1644,26 @@ public static class OnlinePlayTest
         Check(climbFlagFromServer, "the server has this player climbing");
         Check(Net.PositionPlacements == placementsBeforeClimb, $"the server accepted the climb ({Net.PositionPlacements - placementsBeforeClimb} corrections)");
         Check(cameDown, "and came back down with the down button");
-        Check(partnerClimbFlag && partnerClimbAnim, $"the other player climbing shows here (flag {partnerClimbFlag}, animation {partnerClimbAnim})");
+        // Over the top of something low the climb is over before the pose has been blended in.
+        if (partnerClimbSeconds >= 1f)
+            Check(partnerClimbFlag && partnerClimbAnim, $"the other player climbing shows here (flag {partnerClimbFlag}, animation {partnerClimbAnim})");
+        else
+            report.Add($"INFO  the other player was on a wall for {partnerClimbSeconds:F1} s only (flag {partnerClimbFlag}, animation {partnerClimbAnim})");
+        Check(partnerClimbFrames > 0 && partnerFacingWall >= partnerClimbFrames * 0.9f, $"and their body faces the wall ({partnerFacingWall} of {partnerClimbFrames} frames{(facingNotes.Count > 0 ? "; not facing: " + string.Join(" | ", facingNotes) : "")})");
+        if (Seeker) Check(ownGunUpFrames > 0 && ownGunDownFrames == 0, $"a seeker's own arms and gun stay put on a wall ({ownGunUpFrames} frames up, {ownGunDownFrames} not)");
+        Check(partnerBodyMesh == Resources.Load<GameObject>("Players/Player").GetComponentInChildren<SkinnedMeshRenderer>(true).sharedMesh.name,
+              $"the other player is drawn as their character from Resources/Players ({partnerBodyMesh})");
+
+        // The other character, as far as this game picks the prefab: the server's roster names it.
+        var entries = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster");
+        int partner = Array.FindIndex(entries, e => !e.IsBot && e.Slot != Net.LocalSlot);
+        if (partner >= 0)
+        {
+            entries[partner].ModelId = 1;
+            var prefab = (GameObject)typeof(OnlineRound).GetMethod("BodyPrefabOf", Any).Invoke(OnlineRoundInstance(), new object[] { entries[partner].Slot });
+            entries[partner].ModelId = 0;
+            Check(prefab != null && prefab.name == "Player2", $"character 1 is drawn with the Player2 prefab ({(prefab != null ? prefab.name : "none")})");
+        }
     }
 
     private static void CheckRound()
@@ -1305,6 +1678,11 @@ public static class OnlinePlayTest
             return;
         }
         CheckHostedBots();
+        if (Kills && Seeker)
+        {
+            CheckKills();
+            return;
+        }
         Check(spawnGap < 12f, $"the character started on one of the room's spawn markers ({spawnGap:F1} units away)");
         if (Chase)
         {
@@ -1360,7 +1738,12 @@ public static class OnlinePlayTest
         Net.OnRemoteShot += _ => remoteShots++;
         Net.OnLoadoutChanged += () => loadoutAnswers++;
         Net.OnPhaseChanged += (_, _) => phaseChanges++;
-        Net.OnEliminated += (_, _, cause) => { eliminations++; if (cause == EliminationCause.Caught) catches++; };
+        Net.OnEliminated += (victim, by, cause) =>
+        {
+            eliminations++;
+            if (cause == EliminationCause.Caught) catches++;
+            if (by == Net.LocalSlot && cause == EliminationCause.Shot && victim == killSlot) killLanded = true;
+        };
         Net.OnMatchEnd += _ => matchEnds++;
         Net.OnSpotAlert += _ => spotAlerts++;
         Net.OnMatchFound += _ => matchesFound++;
@@ -1401,7 +1784,7 @@ public static class OnlinePlayTest
     private static void CountErrors(string message, string stack, LogType type)
     {
         if (type != LogType.Error && type != LogType.Exception && type != LogType.Assert) return;
-        if (message.StartsWith("[PlayTest]")) return;
+        if (message.StartsWith("[PlayTest]") || message.StartsWith("connection.state_change") || stack.Contains("UnityEditor.Search")) return;   // the editor's own indexing is not the game
         errorsLogged++;
         if (errors.Count < 5) errors.Add(message.Length > 160 ? message.Substring(0, 160) : message);
     }

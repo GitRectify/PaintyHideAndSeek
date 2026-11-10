@@ -16,7 +16,8 @@ using UnityEngine.UI;
 //     started, and the timer, counters and seeker freeze come from here.
 //   * NetEntityRegistry.ViewFactory makes characters as snapshots name them: the local player gets
 //     NetEntityView (server corrections) and NetInputAdapter (joystick/camera/buttons -> input
-//     stream); every other player is a Bot prefab body placed by interpolation.
+//     stream); every other player is the character they chose (Resources/Players), and a bot the
+//     Bot prefab, placed by interpolation.
 //     NetBodyAnimator plays their prone and climbing from the replicated flags, and each remote
 //     shot (OnRemoteShot: real aim and bullet type) its gun animation, sound and a visual-only
 //     tracer.
@@ -61,7 +62,7 @@ public partial class OnlineRound : MonoBehaviour
 
     private static MecchaNetClient Net => MecchaNetClient.Instance;
 
-    [Tooltip("Resources path of the body used for other players.")]
+    [Tooltip("Resources path of the body used for bots. Real players are the character they chose (CharacterSelect's prefabs).")]
     [SerializeField] private string remotePrefabPath = "GameObjects/Bot";
 
     [Tooltip("Brush radius (texels) of the dabs a one-tap body fill is sent as. Max 126.")]
@@ -87,6 +88,7 @@ public partial class OnlineRound : MonoBehaviour
     private PoseSelectorUI poses;
     private GunHolder gunHolder;
     private GameObject remotePrefab;
+    private CharacterSelect characterSelect;
 
     private bool active;
     private bool hunter;
@@ -131,6 +133,17 @@ public partial class OnlineRound : MonoBehaviour
     {
         if (!Active) return true;
         return _instance.CanFire();
+    }
+
+    /// <summary>
+    /// How far along this shot it would meet a hider, by the very test the server will judge it
+    /// with. The bodies of other players have no colliders online, so this is how the crosshair
+    /// lands on them rather than on the wall behind.
+    /// </summary>
+    public static bool BodyAlong(Vector3 origin, Vector3 direction, out float distance)
+    {
+        distance = float.MaxValue;
+        return Active && _instance.hunter && _instance.NearestHider(origin, direction, ref distance);
     }
 
     /// <summary>The drawn bullet's size against the default one: the type the last shot used (1 offline).</summary>
@@ -201,6 +214,7 @@ public partial class OnlineRound : MonoBehaviour
         poses = FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include);
         gunHolder = FindAnyObjectByType<GunHolder>(FindObjectsInactive.Include);
         camCtrl = FindAnyObjectByType<CameraController>();
+        characterSelect = FindAnyObjectByType<CharacterSelect>(FindObjectsInactive.Include);
         if (remotePrefab == null) remotePrefab = Resources.Load<GameObject>(remotePrefabPath);
 
         active = true;
@@ -384,32 +398,46 @@ public partial class OnlineRound : MonoBehaviour
             return localView;
         }
 
-        if (remotePrefab == null)
+        GameObject prefab = BodyPrefabOf(slot);
+        if (prefab == null)
         {
             Debug.LogWarning($"[Online] Resources/{remotePrefabPath} not found; other players are invisible.");
             return null;
         }
 
         GameObject parent = GameObject.Find("Characters");
-        GameObject body = Instantiate(remotePrefab, Vector3.down * 500f, Quaternion.identity,
+        GameObject body = Instantiate(prefab, Vector3.down * 500f, Quaternion.identity,
                                       parent != null ? parent.transform : null);
         body.name = "Net_" + slot;
         body.SetActive(true);
 
+        // The Players prefabs are built to be the local player: nothing of that may run here,
+        // and the scene's lookups for "the" gun or camera profile must keep finding the local one.
+        foreach (GunHolder holder in body.GetComponentsInChildren<GunHolder>(true)) DestroyImmediate(holder);
+        foreach (SeekerCamProfile profile in body.GetComponentsInChildren<SeekerCamProfile>(true)) DestroyImmediate(profile);
+
+        // Before the view is set up: it collects the renderers it shows and hides, and a gun left
+        // out of them went on floating in the air after the body had been hidden.
+        if (role == Role.Hunter) AttachRemoteGun(body);
+
+        // The body's posed limbs reach well outside the bounds its meshes were imported with, so
+        // a body could be left undrawn while on screen.
+        foreach (SkinnedMeshRenderer mesh in body.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            mesh.updateWhenOffscreen = true;
+
         NetEntityView view = body.AddComponent<NetEntityView>();
         view.Initialise(slot, role, false);
 
-        // Name tags only over teammates: a name floating above a camouflaged hider would give
-        // the whole game away.
+        // Name tags only over teammates, never an opponent: a name floating above a camouflaged
+        // hider would give the whole game away.
+        bool teammate = (role == Role.Hunter) == hunter;
         BotNameTag tag = body.GetComponentInChildren<BotNameTag>(true);
+        if (teammate && tag == null) tag = body.AddComponent<BotNameTag>();
         if (tag != null)
         {
-            bool teammate = (role == Role.Hunter) == hunter;
-            tag.SetName(NameOf(slot));
-            tag.SetVisible(teammate);
+            tag.enabled = teammate;     // it builds itself on Start: off, it never exists
+            if (teammate) tag.SetName(NameOf(slot));
         }
-
-        if (role == Role.Hunter) AttachRemoteGun(body);
 
         // Their prone, climbing and gunfire, from the replicated flags (walking speed is the
         // view's own); and a shot's sound and tracer, as Single Play's seeker bots fire.
@@ -422,6 +450,24 @@ public partial class OnlineRound : MonoBehaviour
 
         if (canvases.TryGetValue(slot, out RemoteCanvas canvas)) canvas.AppliedTo = null;   // re-applied next frame
         return view;
+    }
+
+    // A real player is drawn as the character they chose; a bot, and anyone whose character this
+    // version of the game doesn't have, as the Bot prefab.
+    private GameObject BodyPrefabOf(byte slot)
+    {
+        if (roster == null || characterSelect == null || characterSelect.characterPrefabs == null) return remotePrefab;
+
+        foreach (MecchaNetClient.RosterEntry e in roster)
+        {
+            if (e.Slot != slot) continue;
+            if (e.IsBot || e.ModelId >= characterSelect.characterPrefabs.Length) break;
+
+            GameObject prefab = Resources.Load<GameObject>(characterSelect.characterPrefabs[e.ModelId]);
+            return prefab != null ? prefab : remotePrefab;
+        }
+
+        return remotePrefab;
     }
 
     // Another player's (or a server bot's) shot, when its body is drawn firing (OnRemoteShot
@@ -549,6 +595,41 @@ public partial class OnlineRound : MonoBehaviour
         firedBullet = Net.NextBullet;
         nextFireAt = Time.unscaledTime + MecchaNetClient.CooldownAfter(firedBullet);
         return true;
+    }
+
+    private bool NearestHider(Vector3 origin, Vector3 direction, ref float nearest)
+    {
+        if (roster == null) return false;
+
+        bool found = false;
+        float pad = BulletSpecs.Of(Net.NextBullet).Radius;
+
+        foreach (MecchaNetClient.RosterEntry e in roster)
+        {
+            if (e.Role != Role.Fugitive || eliminated.Contains(e.Slot)) continue;
+
+            NetEntityView view = NetEntityRegistry.Get(e.Slot);
+            if (view == null || view.Eliminated || !view.IsShown) continue;
+            if (!view.HasPosition && !view.IsHosted) continue;
+
+            // A bot this game runs isn't told its own pose by the snapshots.
+            int pose = view.IsHosted && hostedBots.TryGetValue(e.Slot, out HostedBot bot) && bot.Animator != null
+                ? PoseIdFor(bot.Animator.GetInteger(PoseHash))
+                : view.Pose;
+
+            Vector3 feet = view.FeetPosition;
+            bool climbing = (view.Flags & EntityFlags.Climbing) != 0;
+
+            if (BodyHitBoxes.Raycast(origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, feet.x, feet.y, feet.z,
+                                     view.transform.eulerAngles.y, GameTuning.HiderScale, e.ModelId, pose, climbing, pad, out float t) &&
+                t < nearest)
+            {
+                nearest = t;
+                found = true;
+            }
+        }
+
+        return found;
     }
 
     private void DoFire(Vector3 worldOrigin, Vector3 worldDirection)
@@ -742,6 +823,9 @@ public partial class OnlineRound : MonoBehaviour
         }
         else if (by == Net.LocalSlot)
         {
+            // A hit that took someone out asks no wait of the next shot; the server has lifted it too.
+            if (cause == EliminationCause.Shot) nextFireAt = 0f;
+
             ShowBanner($"You got {NameOf(victim)}!", 2.5f);
         }
         else

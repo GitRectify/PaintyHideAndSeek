@@ -239,10 +239,10 @@ public class Mode1FirstPersonGun : MonoBehaviour
         }
     }
 
-    // The "Gun" animator layer is on in gun mode; BodyAnimation takes it off while a pose shows.
+    // The "Gun" animator layer is on in gun mode, wall or no wall; only lying down takes it off.
     private void RefreshGunLayerWeight()
     {
-        BodyAnimation.SetCarriesGun(playerAnim, gunModeOn);
+        BodyAnimation.SetCarriesGun(playerAnim, gunModeOn, firstPerson: true);
     }
 
     /// <summary>Gets up, when something else needs the body (climbing).</summary>
@@ -685,6 +685,12 @@ public class Mode1FirstPersonGun : MonoBehaviour
                 best = i;
             }
         }
+        // Online a hider's body has no collider: this is the server's own test of it.
+        if (OnlineRound.BodyAlong(ray.origin, ray.direction, out float body) && (best < 0 || body < bestDist))
+        {
+            return ray.GetPoint(body);
+        }
+
         if (best >= 0)
         {
             hitGo = _aimHits[best].collider.gameObject;

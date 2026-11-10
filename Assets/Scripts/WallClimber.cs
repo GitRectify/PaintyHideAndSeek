@@ -61,6 +61,11 @@ public class WallClimber : MonoBehaviour
     private BotHideController hide;
     private Mode1FirstPersonGun gun;
     private bool clinging;
+    private float lastTouchedWallAt;
+
+    // Walls have gaps (shelves, window frames) and the probes see straight through them. Crossing one
+    // is still the same climb: the body must not let go and take hold again, on anybody's screen.
+    private const float LetGoSeconds = 1f;
     private GameObject climbCanvas;
     private readonly RaycastHit[] _hits = new RaycastHit[16];
     private readonly Vector3[] _probeDirs = new Vector3[4];
@@ -315,6 +320,7 @@ public class WallClimber : MonoBehaviour
 
             state = State.OnWall;
             clinging = true;
+            lastTouchedWallAt = Time.time;
             if (gun != null) gun.StandUp();     // nobody climbs lying down
             BodyAnimation.SetClimbing(anim, true);
             return;
@@ -327,11 +333,12 @@ public class WallClimber : MonoBehaviour
 
         Vector3 camHoriz = CameraHorizontal(joyDir);
         bool stillOnWall = TryGetWall(out Vector3 _);
-        clinging = stillOnWall;
+        if (stillOnWall) lastTouchedWallAt = Time.time;
+        clinging = Time.time - lastTouchedWallAt < LetGoSeconds;
 
         if (down < 1 || stillOnWall)
         {
-            BodyAnimation.SetClimbing(anim, stillOnWall);
+            BodyAnimation.SetClimbing(anim, clinging);
 
             if (!stillOnWall)
             {

@@ -598,6 +598,9 @@ public class OnlineLobby : MonoBehaviour
     {
         if (matchmaking == null || entries == null) return;
 
+        // Real players joining can add seats.
+        matchmaking.SetOnlineMatchSize(Net.MatchSeats, Net.MatchHunterSeats);
+
         var seats = new List<MatchmakingUI.OnlineSeat>(entries.Length);
         foreach (MecchaNetClient.RosterEntry e in entries)
         {

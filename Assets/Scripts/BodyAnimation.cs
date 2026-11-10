@@ -16,8 +16,9 @@ using UnityEngine;
 //   * A shot asked for while the last one is playing was held by the Animator and played again
 //     afterwards. Now the one playing finishes and the extra one is dropped.
 //
-// The "Gun" layer overrides the base layer, so it fades out while a base-layer pose is on and back
-// when the pose ends.
+// The "Gun" layer overrides the base layer, so on a body seen from outside it fades out while a
+// base-layer pose is on and back when the pose ends. The body a seeker looks out of keeps it: the
+// arms and the gun are what they see and aim with, and a pose would swing them round the camera.
 [DisallowMultipleComponent]
 public sealed class BodyAnimation : MonoBehaviour
 {
@@ -69,7 +70,7 @@ public sealed class BodyAnimation : MonoBehaviour
     private int gunLayer = -1;
 
     private HeldState moving, climbing;
-    private bool prone, carriesGun;
+    private bool prone, carriesGun, firstPerson;
     private int struckPose;
 
     // ================= What scripts say about the body =================
@@ -108,11 +109,13 @@ public sealed class BodyAnimation : MonoBehaviour
         body.Apply();
     }
 
-    /// <summary>Whether the body holds a gun: a seeker's "Gun" layer.</summary>
-    public static void SetCarriesGun(Animator animator, bool on)
+    /// <summary>Whether the body holds a gun: a seeker's "Gun" layer. firstPerson: the player looks out of this body.</summary>
+    public static void SetCarriesGun(Animator animator, bool on, bool firstPerson = false)
     {
         BodyAnimation body = Of(animator);
-        if (body != null) body.carriesGun = on;
+        if (body == null) return;
+        body.carriesGun = on;
+        body.firstPerson = firstPerson;
     }
 
     /// <summary>The gun's shot animation, unless one is still playing.</summary>
@@ -194,7 +197,7 @@ public sealed class BodyAnimation : MonoBehaviour
     {
         if (gunLayer < 0) return;
 
-        bool gunUp = carriesGun && !prone && struckPose == 0 && !climbing.On;
+        bool gunUp = carriesGun && !prone && (firstPerson || (struckPose == 0 && !climbing.On));
         float target = gunUp ? 1f : 0f;
         float weight = anim.GetLayerWeight(gunLayer);
         if (!Mathf.Approximately(weight, target))
@@ -208,6 +211,7 @@ public sealed class BodyAnimation : MonoBehaviour
         climbing.Clear();
         prone = false;
         carriesGun = false;
+        firstPerson = false;
         struckPose = 0;
     }
 }

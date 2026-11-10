@@ -11,6 +11,7 @@ public partial class OnlineRound
     // ================= Fields: poses and weapons =================
 
     private const string RemoteGunName = "NetGun";
+    private const string CharacterGunName = "gun";      // the Players prefabs' own, in the hand
     private const string HandBoneName = "mixamorig:RightHand";
     private static readonly int PoseHash = Animator.StringToHash("Pose");
     private const float PoseAnswerSeconds = 1.5f;
@@ -36,18 +37,28 @@ public partial class OnlineRound
         if (view == null) return;
 
         BodyAnimation.SetPose(view.GetComponentInChildren<Animator>(), PoseSelectorUI.AnimatorPoseFor(view.Pose));
-        WeaponSkins.Apply(FindChild(view.transform, RemoteGunName), view.WeaponId);
+        WeaponSkins.Apply(FindChild(view.transform, RemoteGunName) ?? FindChild(view.transform, CharacterGunName), view.WeaponId);
     }
 
-    // Other seekers carry the gun prefab, as Single Play's bot seekers do (SeekerGun), with the
-    // animator's "Gun" layer on.
+    // Other seekers carry a gun with the animator's "Gun" layer on: the one their character was
+    // built with, or on a bot's body the gun prefab, as Single Play's bot seekers do (SeekerGun).
     private void AttachRemoteGun(GameObject body)
     {
+        Animator anim = body.GetComponentInChildren<Animator>();
+
+        Transform own = FindChild(body.transform, CharacterGunName);
+        if (own != null)
+        {
+            own.gameObject.SetActive(true);
+            BodyAnimation.SetCarriesGun(anim, true);
+            return;
+        }
+
         Transform hand = FindChild(body.transform, HandBoneName);
         if (hand == null || hand.Find(RemoteGunName) != null) return;
         if (SeekerGun.Attach(hand, RemoteGunName) == null) return;
 
-        BodyAnimation.SetCarriesGun(body.GetComponentInChildren<Animator>(), true);
+        BodyAnimation.SetCarriesGun(anim, true);
     }
 
     private static Transform FindChild(Transform root, string name)
