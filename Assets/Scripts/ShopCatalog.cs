@@ -22,7 +22,7 @@ public class ShopItem
     public string displayName;
     public Sprite icon;
 
-    [Tooltip("Coin packs: the coins shown until the server's package has loaded.")]
+    [Tooltip("Coin packs: a note of what the pack is meant to hold. The card shows the server's amount only (Wallet:TopUps), never this.")]
     public int coinAmount;
 
     [Header("Presentation")]

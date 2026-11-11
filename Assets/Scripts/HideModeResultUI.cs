@@ -237,7 +237,7 @@ public class HideModeResultUI : MonoBehaviour
         ResultUI rr = won ? victory : defeat;
         SetGoldButtonVisible(false);
 
-        string coins = coinCents % 100 == 0 ? (coinCents / 100).ToString() : (coinCents / 100.0).ToString("0.00");
+        string coins = CoinBalance.Format(coinCents);
         if (rr.value[0] != null) rr.value[0].text = rank;
         if (rr.value[1] != null) rr.value[1].text = score;
         if (rr.value[2] != null) rr.value[2].text = "+" + coins;

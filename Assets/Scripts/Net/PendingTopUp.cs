@@ -45,6 +45,12 @@ public sealed class PendingTopUp : MonoBehaviour
     /// <summary>A payment the server settled: Credited, Failed or Expired.</summary>
     public static event Action<Entry, PaymentState> Settled;
 
+    /// <summary>
+    /// How a wallet page is opened: the device's browser. One place for it, so the play test can
+    /// stand in for the browser instead of opening one.
+    /// </summary>
+    public static Action<string> OpenUrl = Application.OpenURL;
+
     private static PendingTopUp instance;
     private static List<Entry> entries;
 
@@ -152,8 +158,9 @@ public sealed class PendingTopUp : MonoBehaviour
     {
         if (string.IsNullOrEmpty(entry.checkoutUrl)) return;
 
-        // The development wallet (FakeWalletProvider) has no page to open: it is paid with
-        // Tools/Pay-FakeTopUp.ps1, which signs the callback the real provider would send.
+        // The mock wallet ("Provider": "mock") has a real page: it opens like any provider's.
+        // The older fake provider has none: it is paid with Tools/Pay-FakeTopUp.ps1, which signs
+        // the callback the real provider would send.
         if (Uri.TryCreate(entry.checkoutUrl, UriKind.Absolute, out Uri uri) &&
             uri.Host.EndsWith(".invalid", StringComparison.OrdinalIgnoreCase))
         {
@@ -165,7 +172,7 @@ public sealed class PendingTopUp : MonoBehaviour
             return;
         }
 
-        Application.OpenURL(entry.checkoutUrl);
+        OpenUrl(entry.checkoutUrl);
         Kick();
     }
 

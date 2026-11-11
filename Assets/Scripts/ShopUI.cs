@@ -4,6 +4,7 @@ using UnityEngine;
 
 // Shop screen: left category tabs, 3x2 item grid, coin balance and close button. Everything it
 // shows and sells is the server's, through ShopInventory; the Home menu signs in before opening it.
+// The balance label is bound to the server's balance (CoinBalance) and opens the wallet when tapped.
 public class ShopUI : MonoBehaviour
 {
     [Header("Data")]
@@ -48,13 +49,15 @@ public class ShopUI : MonoBehaviour
             int index = i;
             if (tabButtons[i] != null) tabButtons[i].onClick.AddListener(() => SelectTab(index));
         }
+
+        CoinBalance.Bind(coinText);
+        OnlineWallet.MakeOpener(coinText);
     }
 
     private void OnEnable()
     {
         ShopInventory.Changed += HandleChanged;
         PendingTopUp.Settled += HandleTopUpSettled;
-        RefreshCoins();
         SelectTab((int)_current);
         if (ToastObject != null) ToastObject.SetActive(false);
     }
@@ -160,16 +163,7 @@ public class ShopUI : MonoBehaviour
         }
     }
 
-    private void HandleChanged()
-    {
-        RefreshCoins();
-        RefreshCards();
-    }
-
-    private void RefreshCoins()
-    {
-        if (coinText != null) coinText.text = ShopInventory.CoinsText(ShopInventory.CoinCents);
-    }
+    private void HandleChanged() => RefreshCards();
 
     private void ShowToast(string message)
     {

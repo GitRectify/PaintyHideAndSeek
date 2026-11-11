@@ -1,5 +1,6 @@
-// Copied unchanged from the Meccha Client SDK sample "Online integration" (v1.0.0). Don't import
-// the sample's own copy of this file as well, or OnlineUI is defined twice.
+// From the Meccha Client SDK sample "Online integration" (v1.0.0); CoinsText now writes amounts the
+// way the rest of the game does (CoinBalance.Format). Don't import the sample's own copy of this
+// file as well, or OnlineUI is defined twice.
 
 using System;
 using System.Reflection;
@@ -166,12 +167,8 @@ public static class OnlineUI
         return "";
     }
 
-    /// <summary>"1 coin", "5 coins", "0.50 coins": the server counts in cents.</summary>
-    public static string CoinsText(long cents)
-    {
-        string amount = cents % 100 == 0 ? (cents / 100).ToString() : (cents / 100.0).ToString("0.00");
-        return amount + (cents == 100 ? " coin" : " coins");
-    }
+    /// <summary>"1 coin", "5 coins", "0.50 coins", "1,250 coins": the server counts in cents.</summary>
+    public static string CoinsText(long cents) => CoinBalance.Format(cents) + (cents == 100 ? " coin" : " coins");
 
     public static void Place(RectTransform rt, Vector2 pos, Vector2 size)
     {

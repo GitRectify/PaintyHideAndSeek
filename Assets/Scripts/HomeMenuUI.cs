@@ -4,7 +4,9 @@ using Meccha.Shared.Protocol;
 using UnityEngine;
 
 // Main home menu: Play / Multiplayer / Shop buttons plus the coin balance. The one currency is the
-// server wallet: the balance shows once signed in ("-" before), and the Shop signs in first.
+// server wallet: the label is bound to the server's balance (CoinBalance: "-" until signed in, never
+// a number of its own), and tapping it signs in and opens the wallet (OnlineWallet). The Shop signs
+// in first too.
 // Play opens the role-selection screen (the original home canvas: PlayNow = Hider,
 // SeekerMode = Seeker, both still wired to HomeUI.BeginMatch). Multiplayer signs in and opens the
 // same role screen for the online match (OnlineLobby).
@@ -41,6 +43,16 @@ public class HomeMenuUI : MonoBehaviour
         if (multiplayerButton != null) multiplayerButton.onClick.AddListener(OnMultiplayer);
         if (shopButton != null) shopButton.onClick.AddListener(OnShop);
         if (roleSelectBackButton != null) roleSelectBackButton.onClick.AddListener(ShowHome);
+
+        CoinBalance.Bind(coinText);
+        OnlineWallet.MakeOpener(coinText);
+
+        // The role screen (Single Play's and Multiple Play's) has a coin pill of its own, which
+        // nothing updated: it showed the number it was saved with in the scene.
+        if (roleSelectCanvas != null)
+        {
+            foreach (UnityEngine.UI.Text label in CoinBalance.BindNamed(roleSelectCanvas.transform)) OnlineWallet.MakeOpener(label);
+        }
     }
 
     // Once per launch (the menu scene also reloads on a character switch): an online round that
@@ -56,15 +68,12 @@ public class HomeMenuUI : MonoBehaviour
 
     private void OnEnable()
     {
-        ShopInventory.Changed += RefreshCoins;
         PendingTopUp.Settled += HandleTopUpSettled;
-        RefreshCoins();
         if (ToastObject != null) ToastObject.SetActive(false);
     }
 
     private void OnDisable()
     {
-        ShopInventory.Changed -= RefreshCoins;
         PendingTopUp.Settled -= HandleTopUpSettled;
         toast = null;
     }
@@ -112,26 +121,12 @@ public class HomeMenuUI : MonoBehaviour
         OnlineSignIn.Open(OnSignedIn, null);
     }
 
-    private void OnSignedIn(MetaProfile profile)
-    {
-        RefreshCoins();
-        OnlineLobby.Open(profile, null);
-    }
+    private void OnSignedIn(MetaProfile profile) => OnlineLobby.Open(profile, null);
 
     // The shop sells for server coins, so it signs in first (at once when already signed in).
     private void OnShop()
     {
         if (shopUI == null) return;
-        OnlineSignIn.Open(_ =>
-        {
-            RefreshCoins();
-            shopUI.Open();
-        }, null);
-    }
-
-    private void RefreshCoins()
-    {
-        if (coinText == null) return;
-        coinText.text = ShopInventory.SignedIn ? ShopInventory.CoinsText(ShopInventory.CoinCents) : "-";
+        OnlineSignIn.Open(_ => shopUI.Open(), null);
     }
 }

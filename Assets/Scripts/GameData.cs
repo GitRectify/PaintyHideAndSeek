@@ -41,12 +41,6 @@ public static class GameData
         set => UtilGame.SetDataInt("IsSession1", value, Category);
     }
 
-    public static int Coin
-    {
-        get => UtilGame.GetDataInt("Coin", 100, Category);
-        set => UtilGame.SetDataInt("Coin", value, Category);
-    }
-
     // NOTE: after saving, the original calls through a cached static delegate field on GameData
     // (read via a raw vtable-style invoke in the decompiled code) if one is set — almost certainly a
     // notification hook other systems (AudioManager?) subscribe to so they can react immediately to

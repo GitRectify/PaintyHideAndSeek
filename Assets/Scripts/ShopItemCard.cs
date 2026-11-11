@@ -64,7 +64,8 @@ public class ShopItemCard : MonoBehaviour
         bool labelOnTop = item.category == ShopCategory.Poses
                           || item.category == ShopCategory.Weapons
                           || item.category == ShopCategory.Bullets;
-        string label = item.category == ShopCategory.Coins ? item.coinAmount.ToString("N0") : item.displayName;
+        // A coin pack's amount is the server's (RefreshState), so nothing is written before it is known.
+        string label = item.category == ShopCategory.Coins ? "" : item.displayName;
         if (topLabel != null)
         {
             topLabel.gameObject.SetActive(labelOnTop);

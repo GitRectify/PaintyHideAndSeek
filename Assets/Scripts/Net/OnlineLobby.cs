@@ -327,7 +327,6 @@ public class OnlineLobby : MonoBehaviour
         HideScreens();
         if (home != null) home.SetHomeVisible(true);
         roomScreen.SetActive(true);
-        roomBalance.text = $"Your coins: {OnlineUI.CoinsText(Net.CoinCents)}";
         roomError.text = error ?? "Loading rooms...";
 
         for (int i = roomList.childCount - 1; i >= 0; i--) Destroy(roomList.GetChild(i).gameObject);
@@ -463,7 +462,6 @@ public class OnlineLobby : MonoBehaviour
         {
             matchmaking.BeginOnline(role == RolePreference.Seeker, "Searching for players...");
             matchmaking.SetMapLabel(string.IsNullOrEmpty(chosenMap) ? "Server picks the map" : MapTitle(chosenMap));
-            matchmaking.SetCoinText((Net.CoinCents / 100).ToString());
         }
 
         lobbyBar.SetActive(true);
@@ -558,11 +556,7 @@ public class OnlineLobby : MonoBehaviour
         {
             HideScreens();
             if (home != null) home.SetHomeVisible(false);
-            if (matchmaking != null)
-            {
-                matchmaking.BeginOnline(info.YourRole == Role.Hunter, "");
-                matchmaking.SetCoinText((Net.CoinCents / 100).ToString());
-            }
+            if (matchmaking != null) matchmaking.BeginOnline(info.YourRole == Role.Hunter, "");
             lobbyBar.SetActive(true);
         }
 
@@ -680,6 +674,18 @@ public class OnlineLobby : MonoBehaviour
         });
     }
 
+    // Deposits, withdrawals and the coin ledger (OnlineWallet), over the room screen.
+    private void ShowWallet()
+    {
+        AudioManager.ButtonTap();
+        int version = flowVersion;
+        roomScreen.SetActive(false);
+        OnlineWallet.Show(() =>
+        {
+            if (version == flowVersion && step == Step.Room) roomScreen.SetActive(true);
+        });
+    }
+
     // ================= UI =================
 
     private void BuildUI()
@@ -694,13 +700,15 @@ public class OnlineLobby : MonoBehaviour
         OnlineUI.NewLabel(p, "Choose a room", 52, new Vector2(0f, 340f), new Vector2(980f, 80f), TextAnchor.MiddleCenter, true);
         roomBalance = OnlineUI.NewLabel(p, "", 32, new Vector2(0f, 275f), new Vector2(980f, 50f));
         roomBalance.color = OnlineUI.Muted;
+        CoinBalance.Bind(roomBalance, "Your coins: {0}");   // the server's balance, kept up to date
         roomList = (RectTransform)new GameObject("RoomList", typeof(RectTransform)).transform;
         roomList.SetParent(p, false);
         OnlineUI.Place(roomList, Vector2.zero, new Vector2(1000f, 600f));
         roomError = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -260f), new Vector2(980f, 70f));
         roomError.color = OnlineUI.Warning;
-        OnlineUI.NewButton(p, "BACK", new Vector2(-170f, -345f), new Vector2(280f, 80f), OnlineUI.Gray, ShowRoleScreen);
-        OnlineUI.NewButton(p, "HISTORY", new Vector2(170f, -345f), new Vector2(280f, 80f), OnlineUI.Blue, ShowHistory);
+        OnlineUI.NewButton(p, "BACK", new Vector2(-330f, -345f), new Vector2(300f, 80f), OnlineUI.Gray, ShowRoleScreen);
+        OnlineUI.NewButton(p, "WALLET", new Vector2(0f, -345f), new Vector2(300f, 80f), OnlineUI.Green, ShowWallet);
+        OnlineUI.NewButton(p, "HISTORY", new Vector2(330f, -345f), new Vector2(300f, 80f), OnlineUI.Blue, ShowHistory);
 
         // Lobby: a bar under MatchmakingUI's panel (this canvas sorts above it).
         Image bar = OnlineUI.NewImage("LobbyBar", canvas, OnlineUI.PanelColor);

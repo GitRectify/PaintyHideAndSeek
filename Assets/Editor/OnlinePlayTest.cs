@@ -78,7 +78,7 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Done }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Done }
 
     private static Step step;
     private static float stepStarted, startedAt, nextAction;
@@ -168,6 +168,7 @@ public static class OnlinePlayTest
                 if (Pair) net.AuthToken = "pair-test-" + System.Diagnostics.Process.GetCurrentProcess().Id;   // one PC, two players
                 Meta.Configure(MetaPort, false, "");
                 Hook();
+                walletHomeBefore = HomeCoinLabel()?.text;      // what Home shows before anyone has signed in
                 OnlineSignIn.Open(p => { signedIn = true; profile = p; }, null);
                 Go(Step.SignIn);
                 return;
@@ -176,7 +177,7 @@ public static class OnlinePlayTest
                 if (signedIn)
                 {
                     Check(true, "signed in (Multiplayer -> OnlineSignIn)");
-                    Go(Step.Shop);
+                    Go(Wallet ? Step.Wallet : Step.Shop);
                     return;
                 }
                 OnlineSignIn signIn = Object.FindAnyObjectByType<OnlineSignIn>();
@@ -187,6 +188,10 @@ public static class OnlinePlayTest
                     Call(signIn, "SubmitProfile");
                     Check(true, "first-run profile screen shown and submitted");
                 }
+                return;
+
+            case Step.Wallet:
+                PlayWallet();
                 return;
 
             case Step.Shop:
@@ -2133,6 +2138,305 @@ public static class OnlinePlayTest
             hostAssignments++;
             hostingBeganLate |= bots.All(b => b.SpawnIndex == Snapshot.NoSpawn);
         };
+    }
+
+    // ================= -playtestWallet: the wallet screen and every coin label =================
+    //
+    // Against a server running the mock wallet and giving new accounts no coins: a deposit paid on
+    // the wallet's own page (this test presses its Pay button over HTTP, as the browser would), a
+    // withdrawal and a shop purchase. After each, every label that shows coins has to show the
+    // server's balance without anyone refreshing it by hand, and none may show a number of its own.
+    private static bool Wallet => System.Environment.GetCommandLineArgs().Contains("-playtestWallet");
+
+    private static int walletStage, walletStageSeen = -1;
+    private static string walletHomeBefore, walletOpenedUrl;
+    private static float walletWaitUntil, walletNotBefore;
+    private static System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> walletPay;
+    private static bool walletBought;
+    private static readonly System.Net.Http.HttpClient walletHttp = new System.Net.Http.HttpClient();
+
+    private static Text HomeCoinLabel()
+    {
+        HomeMenuUI menu = Object.FindAnyObjectByType<HomeMenuUI>(FindObjectsInactive.Include);
+        return menu != null ? Get<Text>(menu, "coinText") : null;
+    }
+
+    private static OnlineWallet WalletScreen() => Object.FindAnyObjectByType<OnlineWallet>();
+
+    private static string WalletField(string field)
+    {
+        OnlineWallet screen = WalletScreen();
+        return screen != null ? Get<Text>(screen, field)?.text ?? "" : "";
+    }
+
+    /// <summary>Every text showing on the wallet screen, joined: what the player can read there now.</summary>
+    private static string WalletShown()
+    {
+        GameObject root = FindByName("WalletScreen");
+        if (root == null || !root.activeInHierarchy) return "";
+        return string.Join(" | ", root.GetComponentsInChildren<Text>(false).Select(t => t.text));
+    }
+
+    /// <summary>True once <paramref name="done"/>; after the wait runs out it fails the check and goes on.</summary>
+    private static bool Awaited(bool done, float seconds, string what)
+    {
+        if (walletWaitUntil == 0f) walletWaitUntil = Time.realtimeSinceStartup + seconds;
+        if (!done && Time.realtimeSinceStartup < walletWaitUntil) return false;
+
+        walletWaitUntil = 0f;
+        Check(done, done ? what : $"{what} (not within {seconds:F0} s)");
+        return true;
+    }
+
+    /// <summary>The coin pill of a scene canvas (they are all called CoinText), shown or hidden.</summary>
+    private static Text CoinPillOf(string canvas)
+    {
+        GameObject root = FindByName(canvas);
+        return root == null ? null : root.GetComponentsInChildren<Text>(true).FirstOrDefault(t => t.gameObject.name == "CoinText");
+    }
+
+    private static void PlayWallet()
+    {
+        // A player's pace, near enough: a moment between one step and the next. Without it this
+        // test taps faster than the server lets any one connection ask.
+        if (walletStage != walletStageSeen)
+        {
+            walletStageSeen = walletStage;
+            walletNotBefore = Time.realtimeSinceStartup + 0.8f;
+        }
+        if (Time.realtimeSinceStartup < walletNotBefore) return;
+
+        OnlineLobby lobby = Object.FindAnyObjectByType<OnlineLobby>();
+        OnlineWallet screen = WalletScreen();
+
+        switch (walletStage)
+        {
+            case 0:
+            {
+                Text home = HomeCoinLabel();
+                Check(walletHomeBefore == CoinBalance.Unknown, $"before signing in, Home shows no number of its own ('{walletHomeBefore}')");
+                Check(CoinBalance.Known && CoinBalance.Cents == Net.CoinCents, "signed in: the balance is the server's");
+                Check(Net.CoinCents == 0, $"a new account starts with what the server gives it, here nothing ({Net.CoinCents})");
+                Check(home != null && home.text == CoinBalance.Text, $"Home shows it ('{home?.text}')");
+                Check(home != null && home.GetComponent<Button>() != null, "tapping the Home balance opens the wallet");
+
+                PendingTopUp.OpenUrl = url => walletOpenedUrl = url;     // this test is the browser
+                OnlineLobby.Open(profile, null);                         // shows the role screen
+                lobby = Object.FindAnyObjectByType<OnlineLobby>();
+
+                // The role screen's own coin pill: saved in the scene with "1000" typed into it.
+                Text rolePill = CoinPillOf("RoleSelectCanvas");
+                Check(rolePill != null && rolePill.gameObject.activeInHierarchy && rolePill.text == CoinBalance.Text,
+                      $"the role screen's coin pill shows the server's balance, not the scene's number ('{rolePill?.text}')");
+
+                typeof(OnlineLobby).GetMethod("ShowRoomScreen", Any).Invoke(lobby, new object[] { null });
+                walletStage = 1;
+                return;
+            }
+
+            case 1:
+            {
+                Button open = FindButton("RoomScreen", "WALLET");
+                if (!Awaited(open != null, 8f, "the room screen has a WALLET button")) return;
+                Check(Get<Text>(lobby, "roomBalance")?.text == "Your coins: 0", $"the room screen shows the same balance ('{Get<Text>(lobby, "roomBalance")?.text}')");
+                if (open != null) open.onClick.Invoke();
+                walletStage = 2;
+                return;
+            }
+
+            case 2:
+            {
+                if (!Awaited(WalletField("account").Contains("XTS"), 15f, "the wallet screen shows the wallet account")) return;
+                Text testBanner = Get<Text>(screen, "banner");
+                Check(testBanner != null && testBanner.gameObject.activeInHierarchy && testBanner.text.Contains("TEST"), $"it says it is a test wallet ('{testBanner?.text}')");
+                Check(WalletField("account").Contains("100.00 XTS"), $"the account holds test currency ('{WalletField("account")}')");
+                Check(WalletShown().Contains("Coins: <b>0</b>"), "and the coins are the server's 0");
+                walletStage = 3;
+                return;
+            }
+
+            case 3:
+            {
+                Button pack = FindButton("WalletScreen", "550 coins");
+                if (!Awaited(pack != null, 10f, "DEPOSIT lists the server's coin packs")) return;
+                Check(WalletShown().Contains("4.99 XTS"), "priced in test currency");
+                if (pack != null) pack.onClick.Invoke();
+                walletStage = pack != null ? 4 : 99;
+                return;
+            }
+
+            case 4:
+            {
+                if (!Awaited(walletOpenedUrl != null, 10f, "the deposit opens the wallet's checkout page")) return;
+                if (walletOpenedUrl == null) { walletStage = 99; return; }
+
+                Check(walletOpenedUrl.Contains("/checkout/"), $"at {walletOpenedUrl}");
+                Check(Net.CoinCents == 0, "nothing is credited for opening a payment");
+                walletPay = walletHttp.PostAsync(walletOpenedUrl.Replace("localhost", "127.0.0.1") + "/pay", new System.Net.Http.StringContent(""));
+                walletStage = 5;
+                return;
+            }
+
+            case 5:
+                if (!Awaited(walletPay.IsCompleted, 10f, "the wallet's Pay button answered")) return;
+                Check(walletPay.IsCompleted && !walletPay.IsFaulted && walletPay.Result.IsSuccessStatusCode, "paid on the wallet's page");
+                walletStage = 6;
+                return;
+
+            case 6:
+                // Nothing here told the game it was paid: the wallet told the server, and the game asked.
+                if (!Awaited(Net.CoinCents == 55000, 25f, "the deposit reached the balance")) return;
+                Check(WalletShown().Contains("Coins: <b>550</b>"), $"the wallet screen shows 550 coins ({Net.CoinCents})");
+                Check(WalletField("status").Contains("Added 550"), $"and says so ('{WalletField("status")}')");
+                walletStage = 7;
+                return;
+
+            case 7:
+            {
+                if (!Awaited(WalletField("account").Contains("95.01 XTS"), 10f, $"the wallet account is down by the price ('{WalletField("account")}')")) return;
+                Button history = FindButton("WalletScreen", "HISTORY");
+                if (history != null) history.onClick.Invoke();
+                walletStage = 8;
+                return;
+            }
+
+            case 8:
+            {
+                if (!Awaited(WalletShown().Contains("Deposit (coins-550)"), 10f, "HISTORY lists the deposit")) return;
+                Check(WalletShown().Contains("+550"), "with its amount");
+                Button withdrawTab = FindButton("WalletScreen", "WITHDRAW");
+                if (withdrawTab != null) withdrawTab.onClick.Invoke();
+                walletStage = 9;
+                return;
+            }
+
+            case 9:
+            {
+                GameObject controls = Get<GameObject>(screen, "withdrawControls");
+                if (!Awaited(controls != null && controls.activeInHierarchy, 5f, "WITHDRAW offers withdrawals")) return;
+
+                InputField amount = Get<InputField>(screen, "amountInput");
+                Button withdraw = Get<Button>(screen, "withdrawButton");
+
+                amount.text = "99999";
+                Check(!withdraw.interactable && WalletField("quoteLabel").Contains("You have 550"), $"more than the balance cannot be asked for ('{WalletField("quoteLabel")}')");
+
+                amount.text = "250";
+                Check(withdraw.interactable && WalletField("quoteLabel").Contains("2.00 XTS"), $"250 coins are quoted at the server's rate ('{WalletField("quoteLabel")}')");
+                withdraw.onClick.Invoke();
+                walletStage = 10;
+                return;
+            }
+
+            case 10:
+                if (!Awaited(WalletField("status").Contains("Withdrew"), 25f, $"the withdrawal was paid ('{WalletField("status")}')")) return;
+                Check(Net.CoinCents == 30000, $"250 coins left the balance ({Net.CoinCents})");
+                Check(WalletShown().Contains("Coins: <b>300</b>"), "and the screen shows 300");
+                walletStage = 11;
+                return;
+
+            case 11:
+                if (!Awaited(WalletField("account").Contains("97.01 XTS"), 10f, $"the wallet account is up by 2.00 ('{WalletField("account")}')")) return;
+
+                // A purchase made elsewhere in the game while the wallet is open.
+                Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "bullets-2", Quantity = 3 } }, receipt =>
+                {
+                    bool done = !receipt.TimedOut && receipt.Error == MetaError.None && receipt.Status == PurchaseStatus.Completed;
+                    Check(done, $"bought 3 special bullets ({(receipt.Error == MetaError.None ? receipt.Status.ToString() : receipt.Error.ToString())})");
+                    walletBought = true;
+                });
+                walletStage = 12;
+                return;
+
+            case 12:
+            {
+                if (!Awaited(walletBought, 10f, "the purchase was answered")) return;
+                Check(Net.CoinCents == 29970, $"the purchase took its price ({Net.CoinCents})");
+                Check(WalletShown().Contains("Coins: <b>299.70</b>"), "the open wallet followed, with no refresh asked for");
+                Button close = FindButton("WalletScreen", "CLOSE");
+                if (close != null) close.onClick.Invoke();
+                walletStage = 13;
+                return;
+            }
+
+            case 13:
+            {
+                GameObject rooms = FindByName("RoomScreen");
+                if (!Awaited(rooms != null && rooms.activeInHierarchy, 5f, "closing the wallet goes back to the room screen")) return;
+                Check(Get<Text>(lobby, "roomBalance")?.text == "Your coins: 299.70", $"which shows the balance now ('{Get<Text>(lobby, "roomBalance")?.text}')");
+
+                Call(lobby, "GoHome");
+                walletStage = 14;
+                return;
+            }
+
+            case 14:
+            {
+                Text home = HomeCoinLabel();
+                if (!Awaited(home != null && home.gameObject.activeInHierarchy, 5f, "back on Home")) return;
+                Check(home != null && home.text == "299.70", $"Home shows it ('{home?.text}')");
+
+                // The role screen again, as Single Play's Play button shows it.
+                HomeUI homeUi = Object.FindAnyObjectByType<HomeUI>();
+                if (homeUi != null) homeUi.ShowRoleSelect();
+                Text rolePill = CoinPillOf("RoleSelectCanvas");
+                Check(rolePill != null && rolePill.gameObject.activeInHierarchy && rolePill.text == "299.70",
+                      $"the role screen shows it too ('{rolePill?.text}')");
+                HomeMenuUI menu = Object.FindAnyObjectByType<HomeMenuUI>(FindObjectsInactive.Include);
+                if (menu != null) menu.ShowHome();
+
+                ShopUI shop = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+                if (shop != null) shop.Open();
+                walletStage = 15;
+                return;
+            }
+
+            case 15:
+            {
+                ShopUI shop = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+                if (!Awaited(shop != null && ShopInventory.TopUpsLoaded && ShopInventory.Loaded && InStep > 1f, 10f, "the shop loaded its listing")) return;
+
+                Text shopCoins = shop != null ? Get<Text>(shop, "coinText") : null;
+                Check(shopCoins != null && shopCoins.text == "299.70", $"the shop shows it ('{shopCoins?.text}')");
+                Check(shopCoins != null && shopCoins.GetComponent<Button>() != null, "and its balance opens the wallet too");
+
+                // The coin pack cards: the server's amounts or nothing, never the card's own number.
+                ShopItemCard[] cards = shop != null ? shop.GetComponentsInChildren<ShopItemCard>(false) : new ShopItemCard[0];
+                var amounts = cards.Select(c => Get<Text>(c, "bottomLabel")?.text ?? "").ToList();
+                Check(amounts.Count > 0 && amounts.All(a => a == "" || a == "100" || a == "550" || a == "1,200"),
+                      $"coin pack cards show the server's amounts only ({string.Join(", ", amounts.Select(a => a == "" ? "(none)" : a))})");
+                if (shop != null) shop.Close();
+
+                MatchmakingUI matchmaking = Object.FindAnyObjectByType<MatchmakingUI>(FindObjectsInactive.Include);
+                if (matchmaking != null)
+                {
+                    matchmaking.BeginOnline(false, "");
+                    Text pill = Get<Text>(matchmaking, "coinLabelText");
+                    string during = pill?.text;
+                    bool shown = pill != null && pill.gameObject.activeInHierarchy;
+                    matchmaking.EndOnline();
+                    Check(pill != null && pill.GetComponent<CoinLabel>() != null && during == "299.70" && pill.text == "299.70",
+                          $"the matchmaking screen's coin pill is the server's balance, online and after ('{during}', '{pill?.text}')");
+                    if (!shown) report.Add("INFO  the matchmaking screen's coin pill is switched off in the scene; it is bound for when it is shown");
+                }
+                else report.Add("INFO  no matchmaking screen in the scene");
+
+                // Nothing left on any screen with the number the scene was saved with.
+                var stale = Resources.FindObjectsOfTypeAll<Text>()
+                    .Where(t => t.gameObject.scene.IsValid() && t.gameObject.name == "CoinText" && t.GetComponent<CoinLabel>() == null)
+                    .Select(t => UiFind.PathOf(t.transform)).ToList();
+                Check(stale.Count == 0, $"every coin pill in the scene follows the server's balance ({(stale.Count == 0 ? "none left out" : string.Join(", ", stale))})");
+
+                walletStage = 99;
+                return;
+            }
+
+            default:
+                PendingTopUp.OpenUrl = Application.OpenURL;
+                Check(errorsLogged == 0, $"no errors logged ({errorsLogged}{(errors.Count > 0 ? ": " + string.Join(" | ", errors) : "")})");
+                Finish();
+                return;
+        }
     }
 
     // ================= Finish =================

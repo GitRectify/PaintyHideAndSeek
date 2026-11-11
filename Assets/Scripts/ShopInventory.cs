@@ -18,7 +18,8 @@ using UnityEngine;
 //     (PreferredBullet), then sent with SelectBullet at the start of the next round.
 // Coin packs are the server's top-up packages (ListTopUps): coins and price come from the server,
 // paid at the wallet provider's checkout and credited by the provider's callback to the server.
-// PendingTopUp watches each one until the server says how it ended.
+// PendingTopUp watches each one until the server says how it ended. The balance itself is
+// CoinBalance's: this class only passes it on, and never keeps a number of its own.
 public static class ShopInventory
 {
     private const string Category = "none";
@@ -50,11 +51,17 @@ public static class ShopInventory
         }
     }
 
-    /// <summary>The server balance in cents (1/100 coin), as last reported.</summary>
-    public static long CoinCents => MecchaNetClient.Instance != null ? MecchaNetClient.Instance.CoinCents : 0;
+    // A card that says what can be afforded, or shows a price, follows the balance too.
+    static ShopInventory()
+    {
+        CoinBalance.Changed += () => Changed?.Invoke();
+    }
 
-    public static string CoinsText(long cents) =>
-        cents % 100 == 0 ? (cents / 100).ToString("N0") : (cents / 100.0).ToString("N2");
+    /// <summary>The server balance in cents (1/100 coin), as last reported (CoinBalance).</summary>
+    public static long CoinCents => CoinBalance.Cents;
+
+    /// <summary>An amount of coins as every screen writes it (CoinBalance.Format).</summary>
+    public static string CoinsText(long cents) => CoinBalance.Format(cents);
 
     // ================= Listing =================
 
@@ -162,9 +169,12 @@ public static class ShopInventory
                packages.TryGetValue(item.serverId, out package);
     }
 
-    /// <summary>The coins a pack card gives: the server's amount, or the card's own before it is listed.</summary>
+    /// <summary>
+    /// The coins a pack card gives: the server's amount, and nothing until the server has listed
+    /// it — a number from the card itself could differ from what the server sells.
+    /// </summary>
     public static string PackCoinsText(ShopItem item) =>
-        TryPackage(item, out MetaTopUpPackage package) ? CoinsText(package.CoinCents) : item.coinAmount.ToString("N0");
+        TryPackage(item, out MetaTopUpPackage package) ? CoinsText(package.CoinCents) : "";
 
     /// <summary>A pack's real-money price as the server has it, e.g. "$4.99"; empty when it is not on sale.</summary>
     public static string PackPriceText(ShopItem item) =>
@@ -175,10 +185,11 @@ public static class ShopInventory
 
     public static string MoneyText(long minor, string currency)
     {
+        // The same digits on every phone, whatever its language.
         currency = (currency ?? "").ToUpperInvariant();
         string amount = WholeUnitCurrencies.Contains(currency)
-            ? minor.ToString("N0")
-            : (minor / 100m).ToString("N2");
+            ? minor.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)
+            : (minor / 100m).ToString("N2", System.Globalization.CultureInfo.InvariantCulture);
 
         switch (currency)
         {
@@ -186,7 +197,8 @@ public static class ShopInventory
             case "EUR": return "€" + amount;
             case "GBP": return "£" + amount;
             case "JPY": return "¥" + amount;
-            default: return amount + " " + currency;
+            // XTS is the code kept for testing: the development wallet's currency, no real money.
+            default: return currency.Length > 0 ? amount + " " + currency : amount;
         }
     }
 
@@ -207,6 +219,19 @@ public static class ShopInventory
         if (!TryPackage(item, out MetaTopUpPackage package))
         {
             done?.Invoke(false, "Coin top-ups aren't available yet");
+            return;
+        }
+
+        StartTopUp(package, done);
+    }
+
+    /// <summary>The same for a package the server listed: what the wallet screen's DEPOSIT uses.</summary>
+    public static void StartTopUp(MetaTopUpPackage package, Action<bool, string> done)
+    {
+        MetaClient meta = MetaClient.Instance;
+        if (meta == null || !SignedIn)
+        {
+            done?.Invoke(false, "Sign in to use the shop.");
             return;
         }
 

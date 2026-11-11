@@ -23,7 +23,6 @@ public class MatchmakingUI : MonoBehaviour
     [SerializeField] private Font font;
     [SerializeField] public int hunterSlots = 3;
     [SerializeField] public int totalPlayers = 8;
-    [SerializeField] private int coinAmount = 10000;
     [SerializeField] private float fillSeconds = 4.5f;
     [SerializeField] private float readyPause = 0.8f;
 
@@ -346,11 +345,6 @@ public class MatchmakingUI : MonoBehaviour
         if (mapLabelText != null) mapLabelText.text = text;
     }
 
-    public void SetCoinText(string text)
-    {
-        if (coinLabelText != null) coinLabelText.text = text;
-    }
-
     /// <summary>Shows these seats (null or empty = nobody yet) and the joined count.</summary>
     public void SetOnlineRoster(IList<OnlineSeat> seats)
     {
@@ -382,9 +376,9 @@ public class MatchmakingUI : MonoBehaviour
         onReady = null;
         if (canvasGO != null) canvasGO.SetActive(false);
 
-        // Back to what the offline fake fill shows.
+        // Back to what the offline fake fill shows. The coin label is the server's balance either
+        // way (CoinBalance): Single Play has no coins of its own.
         SetMapLabel("Map game");
-        SetCoinText(coinAmount.ToString());
     }
 
     private void SetSlot(Slot s, string name, bool highlight)
@@ -483,7 +477,10 @@ public class MatchmakingUI : MonoBehaviour
             BindColumn(UiFind.Require(panel, "HunterBox"), hunSlots);
         }
 
-        coinLabelText = UiFind.Require<Text>(canvasT, "CoinText");
+        // The coin pill: its text sits inside CoinPanel in the scene, and beside it in the canvas
+        // BuildUI makes. Either way it shows the server's balance, never a number of its own.
+        List<Text> coinLabels = CoinBalance.BindNamed(canvasT);
+        coinLabelText = coinLabels.Count > 0 ? coinLabels[0] : null;
 
         canvasGO.SetActive(false);
     }
@@ -651,9 +648,10 @@ public class MatchmakingUI : MonoBehaviour
         coinIconImg.preserveAspect = true;
         PlaceTR(coinIconImg, -466f, -26f, 74f, 76f, new Vector2(0f, 1f));
 
-        Text coinText = NewText("CoinText", canvasT, coinAmount.ToString(), 34, Color.white, TextAnchor.MiddleCenter, true);
+        Text coinText = NewText("CoinText", canvasT, CoinBalance.Text, 34, Color.white, TextAnchor.MiddleCenter, true);
         PlaceTR(coinText, -386f, -38f, 200f, 50f, new Vector2(0f, 1f));
         coinLabelText = coinText;
+        CoinBalance.Bind(coinLabelText);
 
         Image plusBtn = NewImage("PlusBtn", canvasT, plusIcon, Color.white);
         plusBtn.preserveAspect = true;
