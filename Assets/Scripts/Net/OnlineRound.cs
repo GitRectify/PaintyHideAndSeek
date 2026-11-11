@@ -416,9 +416,7 @@ public partial class OnlineRound : MonoBehaviour
         foreach (GunHolder holder in body.GetComponentsInChildren<GunHolder>(true)) DestroyImmediate(holder);
         foreach (SeekerCamProfile profile in body.GetComponentsInChildren<SeekerCamProfile>(true)) DestroyImmediate(profile);
 
-        // Before the view is set up: it collects the renderers it shows and hides, and a gun left
-        // out of them went on floating in the air after the body had been hidden.
-        if (role == Role.Hunter) AttachRemoteGun(body);
+        Transform carried = role == Role.Hunter ? AttachRemoteGun(body) : null;
 
         // The body's posed limbs reach well outside the bounds its meshes were imported with, so
         // a body could be left undrawn while on screen.
@@ -427,6 +425,10 @@ public partial class OnlineRound : MonoBehaviour
 
         NetEntityView view = body.AddComponent<NetEntityView>();
         view.Initialise(slot, role, false);
+
+        // The gun goes when the body goes (left out, it floated in the air where the body had been)
+        // but it is not the body: painted with it, it wore the body's blank canvas and turned white.
+        view.Carry(carried);
 
         // Name tags only over teammates, never an opponent: a name floating above a camouflaged
         // hider would give the whole game away.

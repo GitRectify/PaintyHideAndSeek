@@ -240,6 +240,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
     }
 
     // The "Gun" animator layer is on in gun mode, wall or no wall; only lying down takes it off.
+    // It is also what tells BodyAnimation this body is a seeker's, which takes no wall pose.
     private void RefreshGunLayerWeight()
     {
         BodyAnimation.SetCarriesGun(playerAnim, gunModeOn, firstPerson: true);

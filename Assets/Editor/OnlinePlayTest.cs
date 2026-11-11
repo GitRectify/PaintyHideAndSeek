@@ -540,6 +540,7 @@ public static class OnlinePlayTest
     private static readonly Dictionary<byte, Vector3> hostedStart = new Dictionary<byte, Vector3>();
     private static float hostedSeekerWalked, worstHostedGap, hostedClimbRise;
     private static readonly HashSet<byte> hostedClimbers = new HashSet<byte>();
+    private static int botWallShapeFrames, botWallStraightFrames;
 
     // Single Play's last-resort rescue hops a stranded seeker across the room. The server lets the
     // body catch up at running speed, so it is left out of the gap until it has.
@@ -563,6 +564,13 @@ public static class OnlinePlayTest
                 {
                     hostedClimbers.Add(v.Slot);
                     hostedClimbRise = Mathf.Max(hostedClimbRise, v.FeetPosition.y - hostedStart[v.Slot].y);
+
+                    Animator a = v.GetComponentInChildren<Animator>();
+                    if (a != null && !a.GetBool("Nam"))
+                    {
+                        bool straight = a.GetInteger("Pose") == 1 || a.GetCurrentAnimatorStateInfo(0).IsName("pose1") || a.GetLayerWeight(a.GetLayerIndex("Gun")) < 0.5f;
+                        if (straight) botWallStraightFrames++; else botWallShapeFrames++;
+                    }
                 }
 
                 hostedSeekerWalked = Mathf.Max(hostedSeekerWalked, Vector3.Distance(hostedStart[v.Slot], v.FeetPosition));
@@ -611,6 +619,8 @@ public static class OnlinePlayTest
         Check(hostedSeekerWalked > 15f, $"seeker bots walked the room under Single Play's seek logic (furthest {hostedSeekerWalked:F0} units from the start)");
         if (Kills) report.Add($"INFO  a round ended by shooting every hider is too short to judge the bots' climbing ({hostedClimbers.Count} climbed)");
         else Check(hostedClimbers.Count > 0 && hostedClimbRise > 3f, $"seeker bots climbed walls ({hostedClimbers.Count} bots, up to {hostedClimbRise:F0} units up)");
+        if (botWallShapeFrames + botWallStraightFrames > 0)
+            Check(botWallStraightFrames == 0, $"and went up as they stand, gun in hand ({botWallShapeFrames} frames, {botWallStraightFrames} straightened)");
         Check(worstHostedGap < 15f, $"the server followed the hosted bots (worst gap {worstHostedGap:F1} units)");
         if (!Seeker) report.Add($"INFO  seeker bots spotted this hider {spotAlerts} time(s)");
         if (hostedHops > 0) report.Add($"INFO  a stranded seeker bot used Single Play's rescue hop {hostedHops} time(s)");
@@ -936,6 +946,54 @@ public static class OnlinePlayTest
     private static IEnumerable<Transform> GunsOf(NetEntityView v) =>
         v.GetComponentsInChildren<Transform>(true).Where(t => t.name == "NetGun" || t.name == "BotGun" || t.name == "gun");
 
+    private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
+    private static MaterialPropertyBlock probe;
+
+    // The body's paint canvas, when this renderer has been given one in place of its own texture.
+    private static bool WearsCanvas(Renderer r)
+    {
+        if (!r.HasPropertyBlock()) return false;
+        probe ??= new MaterialPropertyBlock();
+        r.GetPropertyBlock(probe);
+        return probe.GetTexture(BaseMapId) != null;
+    }
+
+    // Other seekers' guns as they are drawn here: with the material the gun prefab gives them, and
+    // not the body's paint canvas, which is blank on a seeker and made the gun white.
+    private static void CheckGunMaterials(List<NetEntityView> views, string when)
+    {
+        Material gunMaterial = Resources.Load<GameObject>("GameObjects/gun").GetComponentInChildren<Renderer>(true).sharedMaterial;
+        int guns = 0, painted = 0, otherMaterial = 0, bodiesWithCanvas = 0, bots = 0;
+
+        foreach (NetEntityView v in views.Where(v => v != null && v.Role == Role.Hunter))
+        {
+            if (v.GetComponentsInChildren<SkinnedMeshRenderer>(true).Any(WearsCanvas)) bodiesWithCanvas++;
+
+            foreach (Renderer r in GunsOf(v).Where(g => g.gameObject.activeInHierarchy).SelectMany(g => g.GetComponentsInChildren<Renderer>(true)))
+            {
+                guns++;
+                if (IsBotSlot(v.Slot)) bots++;
+                if (WearsCanvas(r)) painted++;
+                if (r.sharedMaterial != gunMaterial || gunMaterial.GetTexture(BaseMapId) == null) otherMaterial++;
+            }
+        }
+
+        if (guns == 0)
+        {
+            report.Add($"INFO  no other seeker's gun to look at {when}");
+            return;
+        }
+
+        Check(painted == 0 && otherMaterial == 0,
+              $"other seekers' guns keep their own material {when} ({guns} guns, {bots} on bots; {painted} wear the body's paint canvas, {otherMaterial} another material; {bodiesWithCanvas} of their bodies wear a canvas)");
+    }
+
+    private static bool IsBotSlot(byte slot)
+    {
+        var entries = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster");
+        return entries != null && entries.Any(e => e.Slot == slot && e.IsBot);
+    }
+
     // Every other body in the round, once it has had time to come up.
     private static void CheckBodies()
     {
@@ -996,16 +1054,27 @@ public static class OnlinePlayTest
             }
             else report.Add("INFO  no other seeker's body to try hiding");
 
+            // Guns as they are, and then with a paint canvas on every other seeker: the server's
+            // paint snapshot of a join or a reconnect gives one to everybody it names.
+            CheckGunMaterials(views, "as the round stands");
+            MethodInfo paintMaterial = typeof(OnlineRound).GetMethod("HandleRemoteMaterial", Any);
+            foreach (NetEntityView v in views.Where(v => v.Role == Role.Hunter))
+                paintMaterial.Invoke(OnlineRoundInstance(), new object[] { v.Slot, 0f, 1f });
+            bodyViews = views;
+
             // A body this game runs is not the snapshots' to hide.
             hostedSeeker = views.FirstOrDefault(v => v.IsHosted && v.Role == Role.Hunter);
-            if (hostedSeeker == null)
+            if (hostedSeeker == null) report.Add("INFO  this game hosts no seeker bot");
+            else
             {
-                report.Add("INFO  this game hosts no seeker bot");
-                bodiesChecked = true;
-                return;
+                hostedSeeker.OnLostVisibility();
+
+                // ...and on a wall it keeps its shape, as BotSeekController puts it there.
+                Animator a = hostedSeeker.GetComponentInChildren<Animator>();
+                forcedClimb = a != null && a.GetInteger("Pose") == 0 && !a.GetBool("Nam");
+                if (forcedClimb) BodyAnimation.SetClimbing(a, true);
             }
 
-            hostedSeeker.OnLostVisibility();
             bodyStage = 2;
             bodyAt = now + 0.6f;
             return;
@@ -1013,9 +1082,32 @@ public static class OnlinePlayTest
 
         if (now < bodyAt) return;
         bodiesChecked = true;
+
+        int canvases = bodyViews.Count(v => v != null && v.Role == Role.Hunter && v.GetComponentsInChildren<SkinnedMeshRenderer>(true).Any(WearsCanvas));
+        int seekers = bodyViews.Count(v => v != null && v.Role == Role.Hunter);
+        if (seekers > 0) Check(canvases == seekers, $"the paint canvas reaches every other seeker's body ({canvases} of {seekers})");
+        CheckGunMaterials(bodyViews, "with a paint canvas on every other seeker's body");
+
+        if (hostedSeeker == null) return;
         Check(hostedSeeker.GetComponentsInChildren<SkinnedMeshRenderer>(true).All(r => r.enabled) && hostedSeeker.IsShown,
               "a bot this game runs stays drawn when the snapshots stop naming it");
+
+        if (!forcedClimb)
+        {
+            report.Add("INFO  the seeker bot this game runs was not standing, so not tried on a wall");
+            return;
+        }
+
+        Animator bot = hostedSeeker.GetComponentInChildren<Animator>();
+        float gunWeight = bot.GetLayerWeight(bot.GetLayerIndex("Gun"));
+        bool straight = bot.GetInteger("Pose") == 1 || bot.GetCurrentAnimatorStateInfo(0).IsName("pose1");
+        Check(!straight && gunWeight > 0.99f, $"a seeker bot on a wall keeps its shape and its gun up (wall pose {straight}, gun layer {gunWeight:F2})");
+        BodyAnimation.SetClimbing(bot, false);
     }
+
+    private static List<NetEntityView> bodyViews;
+    private static Vector3? walkFrom;
+    private static bool forcedClimb;
 
     // ================= Shots at the far ends of bodies, and the cooldown after a kill =================
 
@@ -1387,6 +1479,7 @@ public static class OnlinePlayTest
     private static bool partnerSeen, partnerClimbFlag, partnerClimbAnim, partnerLayFlag, partnerLayAnim, partnerGunOffShape, partnerGunBack;
     private static bool climbButtonsShown, climbedUp, cameDown, climbFlagFromServer, climbShownWhileFrozen;
     private static int partnerClimbFrames, partnerFacingWall, ownGunUpFrames, ownGunDownFrames;
+    private static int partnerShapeKeptFrames, partnerShapeLostFrames, ownWallPoseFrames;
     private static float partnerClimbSeconds;
     private static readonly List<string> facingNotes = new List<string>();
     private static string partnerBodyMesh = "";
@@ -1432,7 +1525,15 @@ public static class OnlinePlayTest
             if (climbing)
             {
                 partnerClimbFlag = true;
-                if (v.Pose == 0 && s.IsName("pose1")) partnerClimbAnim = true;
+                bool wallPose = s.IsName("pose1") || a.GetInteger("Pose") == 1;
+                if (v.Pose == 0 && wallPose) partnerClimbAnim = true;
+
+                // A seeker goes up as they stand, gun in hand; only a hider flattens against the wall.
+                if (gun >= 0 && v.Pose == 0 && !prone)
+                {
+                    if (wallPose || a.GetLayerWeight(gun) < 0.5f) partnerShapeLostFrames++;
+                    else partnerShapeKeptFrames++;
+                }
 
                 // Facing what they are climbing, whichever way they are aiming.
                 bool Solid(Vector3 from, Vector3 along) =>
@@ -1531,12 +1632,18 @@ public static class OnlinePlayTest
                     climbTrace.Add($"{me.FeetPosition.y - climbFromY:F1}{(climber.IsClinging ? "" : "(off)")}");
                 }
 
-                // A seeker keeps looking along their gun on the wall.
-                if (Seeker && climber.IsClinging)
+                // A seeker keeps their shape and looks along their gun on the wall; a hider flattens.
+                if (climber.IsClinging)
                 {
                     Animator own = me.GetComponentInChildren<Animator>();
-                    if (own.GetLayerWeight(own.GetLayerIndex("Gun")) > 0.99f) ownGunUpFrames++;
-                    else ownGunDownFrames++;
+                    bool wallPose = own.GetInteger("Pose") == 1;
+                    if (wallPose) ownWallPoseFrames++;
+
+                    if (Seeker)
+                    {
+                        if (!wallPose && own.GetLayerWeight(own.GetLayerIndex("Gun")) > 0.99f) ownGunUpFrames++;
+                        else ownGunDownFrames++;
+                    }
                 }
             }
             if (pairStage == 5) climbFlagFromServer |= (me.Flags & EntityFlags.Climbing) != 0;
@@ -1593,10 +1700,19 @@ public static class OnlinePlayTest
                     pairStage = 5;
                     return;
                 }
+                if (walkFrom == null) walkFrom = me.FeetPosition;
                 if (now > walkDeadline)
                 {
                     DriveStraight(false);
                     pairStage = 9;
+
+                    // Why no wall came up: how far the walk got and what stands in front of the body.
+                    Transform body = me.transform;
+                    Vector3 chest = me.FeetPosition + Vector3.up * (GameTuning.PlayerHeight * body.lossyScale.y * 0.5f);
+                    string ahead = string.Join(", ", Physics.RaycastAll(chest, body.forward, 12f, ~0, QueryTriggerInteraction.Ignore)
+                        .Where(h => !h.transform.IsChildOf(body)).OrderBy(h => h.distance).Take(3)
+                        .Select(h => $"{h.collider.name} [{h.collider.tag}] at {h.distance:F1}, {Vector3.Angle(h.normal, Vector3.up):F0} deg{(Bullet.IsCharacter(h.collider) ? ", a character" : "")}"));
+                    report.Add($"INFO  no wall in 16 s of walking: went {Vector3.Distance(walkFrom.Value, me.FeetPosition):F1} units from {walkFrom.Value} to {me.FeetPosition}; ahead: {(ahead.Length > 0 ? ahead : "nothing within 12")}");
                 }
                 return;
 
@@ -1645,12 +1761,16 @@ public static class OnlinePlayTest
         Check(Net.PositionPlacements == placementsBeforeClimb, $"the server accepted the climb ({Net.PositionPlacements - placementsBeforeClimb} corrections)");
         Check(cameDown, "and came back down with the down button");
         // Over the top of something low the climb is over before the pose has been blended in.
-        if (partnerClimbSeconds >= 1f)
-            Check(partnerClimbFlag && partnerClimbAnim, $"the other player climbing shows here (flag {partnerClimbFlag}, animation {partnerClimbAnim})");
-        else
+        if (partnerClimbSeconds < 1f)
             report.Add($"INFO  the other player was on a wall for {partnerClimbSeconds:F1} s only (flag {partnerClimbFlag}, animation {partnerClimbAnim})");
+        else if (Seeker)
+            Check(partnerClimbFlag && !partnerClimbAnim && partnerShapeKeptFrames > 0 && partnerShapeLostFrames == 0,
+                  $"the other seeker on a wall keeps their shape and gun here (flag {partnerClimbFlag}, {partnerShapeKeptFrames} frames as they stand, {partnerShapeLostFrames} straightened)");
+        else
+            Check(partnerClimbFlag && partnerClimbAnim, $"the other hider climbing shows here, flat against the wall (flag {partnerClimbFlag}, animation {partnerClimbAnim})");
         Check(partnerClimbFrames > 0 && partnerFacingWall >= partnerClimbFrames * 0.9f, $"and their body faces the wall ({partnerFacingWall} of {partnerClimbFrames} frames{(facingNotes.Count > 0 ? "; not facing: " + string.Join(" | ", facingNotes) : "")})");
-        if (Seeker) Check(ownGunUpFrames > 0 && ownGunDownFrames == 0, $"a seeker's own arms and gun stay put on a wall ({ownGunUpFrames} frames up, {ownGunDownFrames} not)");
+        if (Seeker) Check(ownGunUpFrames > 0 && ownGunDownFrames == 0 && ownWallPoseFrames == 0, $"a seeker's own shape, arms and gun stay as they are on a wall ({ownGunUpFrames} frames, {ownGunDownFrames} not, {ownWallPoseFrames} in the wall pose)");
+        else Check(ownWallPoseFrames > 0, $"a hider still flattens against the wall ({ownWallPoseFrames} frames in the wall pose)");
         Check(partnerBodyMesh == Resources.Load<GameObject>("Players/Player").GetComponentInChildren<SkinnedMeshRenderer>(true).sharedMesh.name,
               $"the other player is drawn as their character from Resources/Players ({partnerBodyMesh})");
 

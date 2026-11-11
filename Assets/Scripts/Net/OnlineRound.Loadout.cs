@@ -42,23 +42,25 @@ public partial class OnlineRound
 
     // Other seekers carry a gun with the animator's "Gun" layer on: the one their character was
     // built with, or on a bot's body the gun prefab, as Single Play's bot seekers do (SeekerGun).
-    private void AttachRemoteGun(GameObject body)
+    // Returns the gun, with the materials its prefab gives it.
+    private Transform AttachRemoteGun(GameObject body)
     {
         Animator anim = body.GetComponentInChildren<Animator>();
 
-        Transform own = FindChild(body.transform, CharacterGunName);
-        if (own != null)
+        Transform gun = FindChild(body.transform, CharacterGunName);
+        if (gun != null) gun.gameObject.SetActive(true);
+        else
         {
-            own.gameObject.SetActive(true);
-            BodyAnimation.SetCarriesGun(anim, true);
-            return;
+            Transform hand = FindChild(body.transform, HandBoneName);
+            if (hand == null) return null;
+
+            gun = hand.Find(RemoteGunName);
+            if (gun == null) gun = SeekerGun.Attach(hand, RemoteGunName);
+            if (gun == null) return null;
         }
 
-        Transform hand = FindChild(body.transform, HandBoneName);
-        if (hand == null || hand.Find(RemoteGunName) != null) return;
-        if (SeekerGun.Attach(hand, RemoteGunName) == null) return;
-
         BodyAnimation.SetCarriesGun(anim, true);
+        return gun;
     }
 
     private static Transform FindChild(Transform root, string name)

@@ -7,6 +7,9 @@ using UnityEngine;
 //
 //     lying down > struck pose > climbing > standing or running
 //
+// The wall pose is a hider's: they flatten against what they climb. A seeker goes up a wall as they
+// stand, gun in hand; the wall moves and turns them and changes nothing of their shape.
+//
 // What it prevents, all of which replayed an animation from its first frame:
 //   * "Pose" and "Nam" are both entered from Any State, so with both on the body hopped from one
 //     to the other. Only one is ever on here.
@@ -17,7 +20,7 @@ using UnityEngine;
 //     afterwards. Now the one playing finishes and the extra one is dropped.
 //
 // The "Gun" layer overrides the base layer, so on a body seen from outside it fades out while a
-// base-layer pose is on and back when the pose ends. The body a seeker looks out of keeps it: the
+// struck pose is on and back when the pose ends. The body a seeker looks out of keeps it: the
 // arms and the gun are what they see and aim with, and a pose would swing them round the camera.
 [DisallowMultipleComponent]
 public sealed class BodyAnimation : MonoBehaviour
@@ -33,7 +36,7 @@ public sealed class BodyAnimation : MonoBehaviour
     private const float OtherBodyStopSeconds = 0.3f;
     private const float GunFadeSeconds = 0.15f;
     private const float ShotFinishedAt = 0.9f;      // where the controller's shot state leaves for idle
-    private const int ClimbingPose = 1;             // the clip the controller uses for a wall
+    private const int ClimbingPose = 1;             // the clip the controller uses for a hider on a wall
 
     private static readonly int SpeedHash = Animator.StringToHash("Speed");
     private static readonly int PoseHash = Animator.StringToHash("Pose");
@@ -109,7 +112,10 @@ public sealed class BodyAnimation : MonoBehaviour
         body.Apply();
     }
 
-    /// <summary>Whether the body holds a gun: a seeker's "Gun" layer. firstPerson: the player looks out of this body.</summary>
+    /// <summary>
+    /// Whether the body holds a gun, as every seeker does: the "Gun" layer, and no wall pose.
+    /// firstPerson: the player looks out of this body.
+    /// </summary>
     public static void SetCarriesGun(Animator animator, bool on, bool firstPerson = false)
     {
         BodyAnimation body = Of(animator);
@@ -174,7 +180,8 @@ public sealed class BodyAnimation : MonoBehaviour
     {
         if (!Ready) return;
 
-        int pose = prone ? 0 : struckPose != 0 ? struckPose : climbing.On ? ClimbingPose : 0;
+        bool wallPose = climbing.On && !carriesGun;
+        int pose = prone ? 0 : struckPose != 0 ? struckPose : wallPose ? ClimbingPose : 0;
 
         if (hasNam && anim.GetBool(NamHash) != prone) anim.SetBool(NamHash, prone);
         if (hasPose && anim.GetInteger(PoseHash) != pose) anim.SetInteger(PoseHash, pose);
@@ -197,7 +204,7 @@ public sealed class BodyAnimation : MonoBehaviour
     {
         if (gunLayer < 0) return;
 
-        bool gunUp = carriesGun && !prone && (firstPerson || (struckPose == 0 && !climbing.On));
+        bool gunUp = carriesGun && !prone && (firstPerson || struckPose == 0);
         float target = gunUp ? 1f : 0f;
         float weight = anim.GetLayerWeight(gunLayer);
         if (!Mathf.Approximately(weight, target))

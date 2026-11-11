@@ -1169,7 +1169,7 @@ public class BotSeekController : MonoBehaviour
             if (b.anim != null)
             {
                 BodyAnimation.SetSpeed(b.anim, 0f);
-                BodyAnimation.SetClimbing(b.anim, true);     // takes the "Gun" layer off too
+                BodyAnimation.SetClimbing(b.anim, true);     // a seeker keeps its shape and its gun up
             }
             return;
         }
