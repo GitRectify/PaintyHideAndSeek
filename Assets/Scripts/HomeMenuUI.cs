@@ -6,7 +6,8 @@ using UnityEngine;
 // Main home menu: Play / Multiplayer / Shop buttons plus the coin balance. The one currency is the
 // server wallet: the label is bound to the server's balance (CoinBalance: "-" until signed in, never
 // a number of its own), and tapping it signs in and opens the wallet (OnlineWallet). The Shop signs
-// in first too.
+// in first too. A player who has signed in before is signed in quietly when Home first shows
+// (NetBootstrap.QuietSignIn), so the balance is simply there.
 // Play opens the role-selection screen (the original home canvas: PlayNow = Hider,
 // SeekerMode = Seeker, both still wired to HomeUI.BeginMatch). Multiplayer signs in and opens the
 // same role screen for the online match (OnlineLobby).
@@ -64,6 +65,10 @@ public class HomeMenuUI : MonoBehaviour
         if (rejoinOffered) return;
         rejoinOffered = true;
         OnlineLobby.OfferRejoin();
+
+        // A player who has been online before gets their balance without tapping anything. No
+        // screen, and nothing at all for someone who has only ever played Single Play.
+        NetBootstrap.QuietSignIn();
     }
 
     private void OnEnable()

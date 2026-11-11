@@ -43,6 +43,21 @@ public static class OnlinePlayTest
     static OnlinePlayTest()
     {
         if (!SessionState.GetBool(ActiveKey, false)) return;
+
+        // The test signs in when it means to. Only -playtestQuiet lets the game do it by itself at
+        // launch, against the test server and as a player who has been online before.
+        NetBootstrap.QuietSignInEnabled = Quiet;
+        if (Quiet)
+        {
+            OnlineConfig config = OnlineConfig.Load();
+            config.host = Host;
+            config.port = QuietOffline ? Port + 50 : Port;      // -playtestQuietOffline: nothing listens there
+            config.webSocketPort = 0;
+            config.metaPort = MetaPort;
+            NetBootstrap.TestConfig = config;
+            NetBootstrap.TestSignedInBefore = true;
+        }
+
         EditorApplication.update -= Tick;
         EditorApplication.update += Tick;
     }
@@ -78,7 +93,7 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Done }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done }
 
     private static Step step;
     private static float stepStarted, startedAt, nextAction;
@@ -160,6 +175,14 @@ public static class OnlinePlayTest
         switch (step)
         {
             case Step.WaitPlay:
+                if (Quiet)
+                {
+                    // Nothing is asked for here: the game signs in by itself, or does not.
+                    if (Object.FindAnyObjectByType<HomeMenuUI>() == null) return;
+                    Go(Step.Quiet);
+                    return;
+                }
+
                 if (InStep < 3f || Object.FindAnyObjectByType<HomeMenuUI>() == null) return;
 
                 // Point the game at the test server (NetBootstrap reads NetConfig.json).
@@ -192,6 +215,10 @@ public static class OnlinePlayTest
 
             case Step.Wallet:
                 PlayWallet();
+                return;
+
+            case Step.Quiet:
+                PlayQuiet();
                 return;
 
             case Step.Shop:
@@ -2138,6 +2165,53 @@ public static class OnlinePlayTest
             hostAssignments++;
             hostingBeganLate |= bots.All(b => b.SpawnIndex == Snapshot.NoSpawn);
         };
+    }
+
+    // ================= -playtestQuiet: the balance at launch, with nothing tapped =================
+    //
+    // A player who has been online before opens the game and touches nothing. Home has to show the
+    // server's balance by itself, and no online screen may appear. With -playtestQuietOffline the
+    // server cannot be reached: the game has to stop trying, show no number, and stay as it is for
+    // Single Play.
+    private static bool Quiet => System.Environment.GetCommandLineArgs().Any(a => a == "-playtestQuiet" || a == "-playtestQuietOffline");
+    private static bool QuietOffline => System.Environment.GetCommandLineArgs().Contains("-playtestQuietOffline");
+
+    private static bool quietJudged;
+
+    private static void PlayQuiet()
+    {
+        Text home = HomeCoinLabel();
+        bool noScreens = Object.FindAnyObjectByType<OnlineSignIn>() == null && Object.FindAnyObjectByType<OnlineLobby>() == null &&
+                         Object.FindAnyObjectByType<OnlineWallet>() == null;
+
+        if (!QuietOffline)
+        {
+            if (!quietJudged)
+            {
+                if (!Awaited(CoinBalance.Known, 12f, "signed in at launch with nothing tapped")) return;
+                quietJudged = true;
+                Check(home != null && home.text == CoinBalance.Text && home.text != CoinBalance.Unknown, $"Home shows the server's balance ('{home?.text}', {Net?.CoinCents} cents)");
+                Check(noScreens, "no sign-in, lobby or wallet screen appeared");
+                Check(FindByName("HomeCanvas") is { activeInHierarchy: true } && !(FindByName("RoleSelectCanvas") is { activeInHierarchy: true }), "Home is still the screen showing");
+                Check(Net != null && !Net.InMatch && !NetBootstrap.Asked, "nothing online was started beyond signing in");
+                return;
+            }
+
+            // Left alone a little longer: still signed in, still quiet.
+            if (InStep < 6f) return;
+            Check(CoinBalance.Known && noScreens, "and it stays that way");
+        }
+        else
+        {
+            // The quiet sign-in gives up after NetBootstrap.QuietSignInSeconds.
+            if (InStep < NetBootstrap.QuietSignInSeconds + 4f) return;
+            Check(!CoinBalance.Known && home != null && home.text == CoinBalance.Unknown, $"with no server in reach Home shows no number ('{home?.text}')");
+            Check(Net != null && !Net.IsConnected && !Net.IsInvoking("Connect"), "the game stopped trying to connect");
+            Check(noScreens, "and showed no online screen or error");
+        }
+
+        Check(errorsLogged == 0, $"no errors logged ({errorsLogged}{(errors.Count > 0 ? ": " + string.Join(" | ", errors) : "")})");
+        Finish();
     }
 
     // ================= -playtestWallet: the wallet screen and every coin label =================

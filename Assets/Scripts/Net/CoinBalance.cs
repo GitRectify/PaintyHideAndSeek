@@ -12,7 +12,8 @@ using UnityEngine.UI;
 // the label follows when the server says what the balance is now.
 //
 // Before signing in there is no balance to show (Single Play stays offline and has no coins), so
-// a label shows Unknown, never a made-up number.
+// a label shows Unknown, never a made-up number. A returning player is signed in quietly at
+// launch (NetBootstrap.QuietSignIn), so for them that lasts a moment.
 //
 // Use: CoinBalance.Bind(label) once; the label then keeps itself up to date (CoinLabel).
 public static class CoinBalance
