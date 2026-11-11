@@ -331,7 +331,11 @@ public class WallClimber : MonoBehaviour
         int upBefore = up;
         int downBefore = down;
 
-        Vector3 camHoriz = CameraHorizontal(joyDir);
+        // A seeker aims with their body, so off the ground as on it the stick moves them the way
+        // they face and never turns them. The camera sits over their shoulder, pulled about by
+        // the wall they are on, and going by it sent them off at an angle to where they looked.
+        bool facingLed = camCtrl != null && camCtrl.IsFirstPerson;
+        Vector3 camHoriz = facingLed ? FacingHorizontal(joyDir) : CameraHorizontal(joyDir);
         bool stillOnWall = TryGetWall(out Vector3 _);
         if (stillOnWall) lastTouchedWallAt = Time.time;
         clinging = Time.time - lastTouchedWallAt < LetGoSeconds;
@@ -344,7 +348,7 @@ public class WallClimber : MonoBehaviour
             {
                 float moveMag = Mathf.Clamp01(camHoriz.magnitude);
                 BodyAnimation.SetSpeed(anim, moveMag);
-                if (moveMag > 0.01f)
+                if (moveMag > 0.01f && !facingLed)
                 {
                     // CONFIRMED by decoding the two unnamed helpers' ARM64 bytes in libil2cpp.so:
                     // FUN_02349bd8 (RVA 0x2249BD8) takes a Vector3* and normalizes it
@@ -437,6 +441,19 @@ public class WallClimber : MonoBehaviour
 
         float inputMag = Mathf.Clamp01(Mathf.Sqrt(inputSqrMag));
         return result * inputMag;
+    }
+
+    // The stick's direction by the way the character faces, level: forward on the stick is forward
+    // for the body, as JoystickMover walks a seeker on the ground.
+    private Vector3 FacingHorizontal(Vector2 inp)
+    {
+        float inputMag = Mathf.Clamp01(inp.magnitude);
+        if (inputMag < 0.01f) return Vector3.zero;
+
+        Vector3 forwardFlat = FlattenHorizontal(character.forward, Vector3.forward);
+        Vector3 rightFlat = FlattenHorizontal(character.right, Vector3.right);
+        Vector3 result = forwardFlat * inp.y + rightFlat * inp.x;
+        return result.sqrMagnitude > 0.0001f ? result.normalized * inputMag : Vector3.zero;
     }
 
     // NOTE: pulled out for clarity — the decompile inlines this (zero the Y component, normalize,

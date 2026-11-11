@@ -309,8 +309,8 @@ public class Mode1FirstPersonGun : MonoBehaviour
         {
             Vector3 shot = ShotDir();
             SpawnBullet(origin, shot, OnlineRound.ShotRadiusScale);
-            // Online the server judges the hit (rewound to this tick) from this muzzle; nothing
-            // is decided here.
+            // Online the server flies its own bullet from this muzzle, from this tick on, and
+            // says who it reaches; nothing is decided here.
             if (OnlineRound.Active) { OnlineRound.Fire(origin, shot); return; }
             hide.TryShootAim(origin, shot, 1000f, aimAssist);
             return;
@@ -340,20 +340,22 @@ public class Mode1FirstPersonGun : MonoBehaviour
     }
 
     /// <summary>
-    /// Another player's shot online, drawn like this gun's own: a tracer that hits nothing (the
-    /// server judged the shot), ignoring the shooter's body. sizeScale is its bullet type's.
+    /// Another player's shot online, drawn like this gun's own, ignoring the shooter's body: the
+    /// server flies the real bullet and says who it reaches. sizeScale is its bullet type's;
+    /// flownAlready is how far from the muzzle it has got by now (see NetBullet).
     /// </summary>
-    public void SpawnRemoteBullet(Vector3 origin, Vector3 dir, Transform shooter, float sizeScale = 1f)
+    public void SpawnRemoteBullet(Vector3 origin, Vector3 dir, Transform shooter, float sizeScale = 1f, float flownAlready = 0f)
     {
         if (dir.sqrMagnitude < 1E-06f) return;
-        SpawnBullet(origin, dir.normalized, sizeScale, shooter != null ? shooter : transform);
+        SpawnBullet(origin, dir.normalized, sizeScale, shooter != null ? shooter : transform, flownAlready);
     }
 
     // sizeScale: the bullet type's radius against the default one (online special bullets are
     // drawn 0.8x / 1.5x; offline it is always 1). remoteShooter: a visual-only bullet from
     // another player's gun, which must not reach Single Play's hit handling.
-    private void SpawnBullet(Vector3 origin, Vector3 dir, float sizeScale = 1f, Transform remoteShooter = null)
+    private void SpawnBullet(Vector3 muzzle, Vector3 dir, float sizeScale = 1f, Transform remoteShooter = null, float flownAlready = 0f)
     {
+        Vector3 origin = muzzle + dir * flownAlready;
         Quaternion rot = Quaternion.LookRotation(dir);
         Bullet bullet;
         if (bulletPrefab != null)
@@ -420,6 +422,9 @@ public class Mode1FirstPersonGun : MonoBehaviour
         bullet.passThroughProps = true;
         if (remoteShooter != null) bullet.InitShot(remoteShooter, null);
         else bullet.Init(hide, playerTf);
+
+        // Online it flies as the server flies the real one, and stops on the body it reaches.
+        if (OnlineRound.Active) NetBullet.Attach(bullet, muzzle, dir, sizeScale, flownAlready);
     }
 
     private void AddTracer(GameObject go)

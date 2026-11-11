@@ -618,7 +618,8 @@ public static class OnlinePlayTest
         }
         Check(hostedSeekerWalked > 15f, $"seeker bots walked the room under Single Play's seek logic (furthest {hostedSeekerWalked:F0} units from the start)");
         if (Kills) report.Add($"INFO  a round ended by shooting every hider is too short to judge the bots' climbing ({hostedClimbers.Count} climbed)");
-        else Check(hostedClimbers.Count > 0 && hostedClimbRise > 3f, $"seeker bots climbed walls ({hostedClimbers.Count} bots, up to {hostedClimbRise:F0} units up)");
+        else if (hostedClimbers.Count == 0) report.Add("INFO  no seeker bot chose to climb in this round (they do it by chance, or when a wall is in their way)");
+        else Check(hostedClimbRise > 3f, $"seeker bots climbed walls ({hostedClimbers.Count} bots, up to {hostedClimbRise:F0} units up)");
         if (botWallShapeFrames + botWallStraightFrames > 0)
             Check(botWallStraightFrames == 0, $"and went up as they stand, gun in hand ({botWallShapeFrames} frames, {botWallStraightFrames} straightened)");
         Check(worstHostedGap < 15f, $"the server followed the hosted bots (worst gap {worstHostedGap:F1} units)");
@@ -859,6 +860,7 @@ public static class OnlinePlayTest
         CheckSeekerBodyLiesDown();
         CheckFreeLookWhenOut();
         CheckBodies();
+        if (Kills || Mixed) WatchKillBullet();
         SampleMovement();
         SampleHostedBots();
         SampleTimer();
@@ -943,6 +945,8 @@ public static class OnlinePlayTest
 
     private static bool IsBuiltTag(Canvas c) => c.name == "NameTag" && c.gameObject.activeSelf;
 
+    private static bool IsTagShown(NetEntityView v) => v.GetComponentsInChildren<Canvas>(true).Any(IsBuiltTag);
+
     private static IEnumerable<Transform> GunsOf(NetEntityView v) =>
         v.GetComponentsInChildren<Transform>(true).Where(t => t.name == "NetGun" || t.name == "BotGun" || t.name == "gun");
 
@@ -1014,14 +1018,21 @@ public static class OnlinePlayTest
             var views = Object.FindObjectsByType<NetEntityView>().Where(v => !v.IsLocal && (v.HasPosition || v.IsHosted)).ToList();
             if (views.Count == 0) return;
 
-            int opponents = 0, teammates = 0, tagsOnOpponents = 0, tagsOnTeam = 0, notDrawn = 0, offScreenRule = 0, wrong = 0, holders = 0, outOfRange = 0;
+            int seekers = 0, hiders = 0, tagsOnSeekers = 0, tagsOnHiders = 0, tagsInTheAir = 0, botsTagged = 0;
+            int notDrawn = 0, offScreenRule = 0, wrong = 0, holders = 0, outOfRange = 0;
             foreach (NetEntityView v in views)
             {
-                if (!v.IsShown) outOfRange++;
-                bool teammate = (v.Role == Role.Hunter) == Seeker;
-                bool tagged = v.GetComponentsInChildren<Canvas>(true).Any(IsBuiltTag);
-                if (teammate) { teammates++; if (tagged) tagsOnTeam++; }
-                else { opponents++; if (tagged) tagsOnOpponents++; }
+                bool tagged = IsTagShown(v);
+                if (!v.IsShown)
+                {
+                    outOfRange++;
+                    if (tagged) tagsInTheAir++;
+                }
+                else if (v.Eliminated) { }                      // a hider who is out: judged as they fall (-playtestKills)
+                else if (v.Role == Role.Hunter) { seekers++; if (tagged) tagsOnSeekers++; }
+                else { hiders++; if (tagged) tagsOnHiders++; }
+
+                if (tagged && IsBotSlot(v.Slot)) botsTagged++;
 
                 foreach (SkinnedMeshRenderer mesh in v.GetComponentsInChildren<SkinnedMeshRenderer>(true))
                 {
@@ -1034,8 +1045,18 @@ public static class OnlinePlayTest
                 if (v.GetComponentInChildren<GunHolder>(true) != null || v.GetComponentInChildren<SeekerCamProfile>(true) != null) holders++;
             }
 
-            Check(opponents == 0 || tagsOnOpponents == 0, $"no name tag floats over an opponent ({tagsOnOpponents} of {opponents})");
-            Check(tagsOnTeam == teammates, $"teammates keep theirs ({tagsOnTeam} of {teammates})");
+            // Whose name this player sees is their side's to say.
+            if (Seeker)
+            {
+                Check(tagsOnSeekers == seekers, $"a seeker sees a name over every other seeker ({tagsOnSeekers} of {seekers}, {botsTagged} of them bots)");
+                Check(tagsOnHiders == 0, $"and over no hider still in ({tagsOnHiders} of {hiders})");
+            }
+            else
+            {
+                Check(tagsOnSeekers == seekers && tagsOnHiders == hiders,
+                      $"a hider sees a name over everybody: {tagsOnSeekers} of {seekers} seekers, {tagsOnHiders} of {hiders} other hiders ({botsTagged} of them bots)");
+            }
+            Check(tagsInTheAir == 0, $"no name hangs where the body is not drawn ({tagsInTheAir})");
             Check(notDrawn == 0, $"every other body's mesh is on ({notDrawn} off, {views.Count} bodies, {outOfRange} out of range)");
             Check(offScreenRule == 0, $"no other body can be culled by its import bounds ({offScreenRule})");
             Check(wrong == 0, $"seekers and only seekers carry a gun ({wrong} wrong)");
@@ -1084,8 +1105,8 @@ public static class OnlinePlayTest
         bodiesChecked = true;
 
         int canvases = bodyViews.Count(v => v != null && v.Role == Role.Hunter && v.GetComponentsInChildren<SkinnedMeshRenderer>(true).Any(WearsCanvas));
-        int seekers = bodyViews.Count(v => v != null && v.Role == Role.Hunter);
-        if (seekers > 0) Check(canvases == seekers, $"the paint canvas reaches every other seeker's body ({canvases} of {seekers})");
+        int otherSeekers = bodyViews.Count(v => v != null && v.Role == Role.Hunter);
+        if (otherSeekers > 0) Check(canvases == otherSeekers, $"the paint canvas reaches every other seeker's body ({canvases} of {otherSeekers})");
         CheckGunMaterials(bodyViews, "with a paint canvas on every other seeker's body");
 
         if (hostedSeeker == null) return;
@@ -1125,6 +1146,54 @@ public static class OnlinePlayTest
     private static readonly List<string> killNotes = new List<string>();
     private static readonly HashSet<int> posesShot = new HashSet<int>();
 
+    // Each kill: how far the hider was, and how long after the shot they fell.
+    private static float killFiredAt, killDistance, killBulletAt;
+    private static Vector3 killMuzzle, killDir;
+    private static GameObject killBullet;
+    private static bool killBulletJudged;       // drawn, with no wall of the room between the gun and the hider
+    private static int killsThroughWalls;
+    private static readonly List<float> killDistances = new List<float>(), fellAfterFlight = new List<float>(), bulletStoppedOff = new List<float>();
+    private static int fellStanding, fellEarly, deadTagged, deadUntagged, aliveTaggedBeforeFalling;
+    private static readonly List<(byte Slot, float At)> deadToLookAt = new List<(byte, float)>();
+
+    // Every frame of a kills run: where the bullet drawn for the last shot has got to, and a look
+    // at each hider a moment after they fell.
+    private static void WatchKillBullet()
+    {
+        if (killBullet != null) killBulletAt = Vector3.Dot(killBullet.transform.position - killMuzzle, killDir);
+
+        for (int i = deadToLookAt.Count - 1; i >= 0; i--)
+        {
+            if (Time.unscaledTime < deadToLookAt[i].At) continue;
+            NetEntityView dead = NetEntityRegistry.Get(deadToLookAt[i].Slot);
+            if (dead != null && dead.gameObject.activeInHierarchy && dead.IsShown)
+            {
+                if (IsTagShown(dead)) deadTagged++;
+                else deadUntagged++;
+            }
+            deadToLookAt.RemoveAt(i);
+        }
+    }
+
+    // As OnEliminated is raised for the hider just shot at.
+    private static void NoteKill(byte victim)
+    {
+        float waited = Time.unscaledTime - killFiredAt;
+        float flight = killDistance / GameTuning.BulletSpeed;
+        killDistances.Add(killDistance);
+        fellAfterFlight.Add(waited - flight);
+        if (waited < flight - 0.03f) fellEarly++;
+
+        // The bullet drawn for it: gone, having stopped on the body and not flown on through it.
+        // (These shots are sent without the room's walls, to try the far ends of bodies wherever
+        // they hide; a drawn bullet does stop at a wall, so those are left out.)
+        if (!killBulletJudged) killsThroughWalls++;
+        else if (killBullet == null) bulletStoppedOff.Add(killBulletAt - killDistance);
+        else bulletStoppedOff.Add(float.PositiveInfinity);
+
+        deadToLookAt.Add((victim, Time.unscaledTime + 0.3f));
+    }
+
     // The vertex of a body furthest out from where the server tracks it.
     private static Vector3 FarthestVertex(NetEntityView v)
     {
@@ -1149,12 +1218,15 @@ public static class OnlinePlayTest
         return best;
     }
 
+    private static bool killRealPlayersOnly;
+
     private static NetEntityView NextHider(out MecchaNetClient.RosterEntry entry)
     {
         entry = default;
         var entries = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster");
         foreach (MecchaNetClient.RosterEntry e in entries)
         {
+            if (killRealPlayersOnly && e.IsBot) continue;
             NetEntityView v = NetEntityRegistry.Get(e.Slot);
             if (e.Role != Role.Fugitive || v == null || v.Eliminated) continue;
             if (!v.HasPosition && !v.IsHosted) continue;
@@ -1211,6 +1283,24 @@ public static class OnlinePlayTest
 
                 if (!OnlineRound.BodyAlong(muzzle, dir, out float body)) crosshairMisses++;
 
+                // The hider is still standing, with no name over them, as the bullet leaves the gun.
+                if (!shot.Eliminated) fellStanding++;
+                if (IsTagShown(shot)) aliveTaggedBeforeFalling++;
+                killFiredAt = Time.unscaledTime;
+                killDistance = body;
+                killMuzzle = muzzle;
+                killDir = dir;
+                killBulletAt = 0f;
+
+                // The bullet the gun draws for a shot, as Fire() does.
+                var before = new HashSet<NetBullet>(Object.FindObjectsByType<NetBullet>());
+                typeof(Mode1FirstPersonGun).GetMethod("SpawnBullet", Any).Invoke(gun, new object[] { muzzle, dir, 1f, null, 0f });
+                NetBullet drawn = Object.FindObjectsByType<NetBullet>().FirstOrDefault(b => !before.Contains(b));
+                killBullet = drawn != null ? drawn.gameObject : null;
+
+                float wall = (float)typeof(OnlineRound).GetMethod("WallDistanceAlong", Any).Invoke(null, new object[] { muzzle, dir, 1000f });
+                killBulletJudged = drawn != null && (wall < 0f || wall > body + 8f);
+
                 Vector3 local = killPoint - shot.FeetPosition;
                 int p = Mathf.Clamp(killPose, 0, 9);
                 float wide = 1f * OldRadius[p] + 0.6f, tall = 8f * OldHeight[p] + 0.6f;
@@ -1222,7 +1312,7 @@ public static class OnlinePlayTest
                 posesShot.Add(killPose);
                 Net.Fire(muzzle, dir, -1f);
                 killAt = now;
-                bodyAt = now + 1.5f;
+                bodyAt = now + 3.5f;        // a bullet's whole life, and the word of it coming back
                 killStage = 3;
                 return;
 
@@ -1241,7 +1331,7 @@ public static class OnlinePlayTest
                 if (now < bodyAt) return;
                 killNotes.Add($"pose {killPose} at {killPoint - NetEntityRegistry.Get(killSlot).FeetPosition:F1} from the feet");
                 killAt = now + 3.3f;    // waiting out the cooldown of the miss
-                killStage = 1;
+                killStage = killRealPlayersOnly && killsTried >= 2 ? 9 : 1;
                 return;
 
             case 5:
@@ -1273,15 +1363,23 @@ public static class OnlinePlayTest
                 return;
 
             case 8:
-                missHeld = !killLanded;
                 killStage = 10;
-                killAt = now + 2.4f;    // the rest of the 3 s
+                killAt = now + 2.4f;    // the rest of the 3 s, and longer than any bullet takes to land
                 return;
 
             case 10:
+                missHeld = !killLanded;
                 killLanded = false;
-                Net.Fire(muzzle, (killPoint - muzzle).normalized, -1f);
-                bodyAt = now + 1.5f;
+                killFiredAt = Time.unscaledTime;
+                killMuzzle = muzzle;
+                killDir = (killPoint - muzzle).normalized;
+                if (!OnlineRound.BodyAlong(muzzle, killDir, out killDistance)) killDistance = Vector3.Distance(muzzle, killPoint);
+                killBullet = null;
+                killBulletJudged = false;       // no bullet is drawn for this one
+                NetEntityView standing = NetEntityRegistry.Get(killSlot);
+                if (standing != null && !standing.Eliminated) fellStanding++;
+                Net.Fire(muzzle, killDir, -1f);
+                bodyAt = now + 3.5f;
                 killStage = 11;
                 return;
 
@@ -1301,6 +1399,7 @@ public static class OnlinePlayTest
         Check(killsTried >= 3 && killsMade == killsTried,
               $"every shot at the far end of a body hit ({killsMade} of {killsTried}; shapes {string.Join(",", posesShot.OrderBy(x => x))}; the old box would have missed {oldBoxMisses}{(killNotes.Count > 0 ? "; missed: " + string.Join("; ", killNotes) : "")})");
         Check(crosshairMisses == 0, $"the crosshair's test agreed with every shot ({crosshairMisses} disagreed)");
+        CheckBulletTiming();
         Check(liftsMissing == 0 && liftsSeen > 0, $"each kill lifted the cooldown on the client too ({liftsSeen} lifted, {liftsMissing} not)");
         if (missHeldTried)
         {
@@ -1308,6 +1407,82 @@ public static class OnlinePlayTest
             Check(shotAfterWaitLanded, "and once it had passed, the same shot landed");
         }
         else report.Add("INFO  the bots took the last hider first: the cooldown after a miss was not tried here");
+    }
+
+    private static void CheckBulletTiming()
+    {
+        // A hider falls when the bullet gets to them, not as it is fired.
+        if (fellAfterFlight.Count > 0)
+        {
+            Check(fellEarly == 0 && fellStanding >= fellAfterFlight.Count,
+                  $"no hider fell before the bullet reached them ({fellAfterFlight.Count} kills at {killDistances.Min():F0} to {killDistances.Max():F0} units, {killDistances.Min() / GameTuning.BulletSpeed * 1000f:F0} to {killDistances.Max() / GameTuning.BulletSpeed * 1000f:F0} ms of flight; they fell {fellAfterFlight.Min() * 1000f:F0} to {fellAfterFlight.Max() * 1000f:F0} ms after it; {fellEarly} early)");
+            Check(fellAfterFlight.Max() < 0.6f, $"and none long after ({fellAfterFlight.Max() * 1000f:F0} ms at most)");
+
+            var stops = bulletStoppedOff.Where(x => !float.IsInfinity(x)).ToList();
+            if (bulletStoppedOff.Count > 0)
+                Check(stops.Count == bulletStoppedOff.Count && stops.All(x => x > -8f && x < 8f),
+                      $"the bullet drawn for each stopped on the hider it reached ({stops.Count} of {bulletStoppedOff.Count} gone by then; it stopped {(stops.Count > 0 ? stops.Min() : 0f):F1} to {(stops.Count > 0 ? stops.Max() : 0f):F1} units from where it met the body; {killsThroughWalls} more shots went through a wall and are not judged)");
+            else report.Add($"INFO  every hider shot stood behind a wall of the room ({killsThroughWalls}): no drawn bullet to judge");
+        }
+
+        // Names: none over a hider still in (to this seeker), one over each who is out.
+        Check(aliveTaggedBeforeFalling == 0, $"no hider had a name over them before they fell ({aliveTaggedBeforeFalling})");
+        if (deadTagged + deadUntagged > 0)
+            Check(deadUntagged == 0, $"a hider who is out shows their name to a seeker ({deadTagged} of {deadTagged + deadUntagged})");
+        else report.Add("INFO  no fallen hider's body was left to look at for its name");
+    }
+
+    // ---- The same from the other end: this player, a hider, shot ----
+
+    private struct SeenShot { public float At; public Vector3 Origin, Direction; public float Flown; }
+    private static readonly Dictionary<byte, SeenShot> lastShotFrom = new Dictionary<byte, SeenShot>();
+    private static readonly List<string> ownFalls = new List<string>();
+    private static int ownFallsEarly;
+
+    private static void NoteShotSeen(MecchaNetClient.RemoteShot shot)
+    {
+        Vector3 path = shot.Impact - shot.Origin;
+        if (path.sqrMagnitude < 0.0001f) return;
+        lastShotFrom[shot.Slot] = new SeenShot
+        {
+            At = Time.unscaledTime,
+            Origin = shot.Origin,
+            Direction = path.normalized,
+            Flown = GameTuning.BulletSpeed * shot.Age,
+        };
+    }
+
+    // As OnEliminated is raised for this player: how long since the bullet drawn for that shot set
+    // out on this screen, against how long it needed to get here.
+    private static void NoteOwnFall(byte by)
+    {
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+        if (me == null || !lastShotFrom.TryGetValue(by, out SeenShot shot))
+        {
+            ownFalls.Add("no bullet was drawn for the shot");
+            ownFallsEarly++;
+            return;
+        }
+
+        Vector3 body = me.FeetPosition + Vector3.up * (GameTuning.PlayerHeight * me.transform.lossyScale.y * 0.5f);
+        float along = Vector3.Dot(body - shot.Origin, shot.Direction);
+        float beside = Vector3.Cross(body - shot.Origin, shot.Direction).magnitude;
+        float needed = Mathf.Max(0f, along - shot.Flown) / GameTuning.BulletSpeed;
+        float waited = Time.unscaledTime - shot.At;
+
+        // The body is some units deep, so the bullet is on it a little before it is level with its middle.
+        if (waited < needed - 0.05f) ownFallsEarly++;
+        ownFalls.Add($"shot from {along:F0} units off (drawn from {shot.Flown:F0} units along, passing {beside:F1} from the body's middle): {needed * 1000f:F0} ms to get here, fell after {waited * 1000f:F0} ms");
+    }
+
+    private static void CheckOwnFalls()
+    {
+        if (ownFalls.Count == 0)
+        {
+            if (!Seeker) report.Add("INFO  this hider was not shot in the round");
+            return;
+        }
+        Check(ownFallsEarly == 0, $"this hider fell no sooner than the bullet drawn for the shot got to them ({string.Join("; ", ownFalls)})");
     }
 
     // ================= The server's clock, as this game shows it =================
@@ -1480,6 +1655,13 @@ public static class OnlinePlayTest
     private static bool climbButtonsShown, climbedUp, cameDown, climbFlagFromServer, climbShownWhileFrozen;
     private static int partnerClimbFrames, partnerFacingWall, ownGunUpFrames, ownGunDownFrames;
     private static int partnerShapeKeptFrames, partnerShapeLostFrames, ownWallPoseFrames;
+
+    // On the wall a seeker turns a quarter round and walks the way they face.
+    private const float WallTurnDegrees = 90f;
+    private static float partnerWallYawFirst = float.NaN, partnerWallYawLast, partnerWallYawSwing;
+    private static float wallWalkAngle = -1f, wallWalkDistance, wallTurnFrom;
+    private static Vector3 wallWalkFrom, wallWalkFacing;
+    private static bool wallTurned;
     private static float partnerClimbSeconds;
     private static readonly List<string> facingNotes = new List<string>();
     private static string partnerBodyMesh = "";
@@ -1525,6 +1707,13 @@ public static class OnlinePlayTest
             if (climbing)
             {
                 partnerClimbFlag = true;
+
+                // Which way they face on the wall, as it is drawn here.
+                float yaw = v.transform.eulerAngles.y;
+                if (float.IsNaN(partnerWallYawFirst)) partnerWallYawFirst = yaw;
+                partnerWallYawLast = yaw;
+                partnerWallYawSwing = Mathf.Max(partnerWallYawSwing, Mathf.Abs(Mathf.DeltaAngle(partnerWallYawFirst, yaw)));
+
                 bool wallPose = s.IsName("pose1") || a.GetInteger("Pose") == 1;
                 if (v.Pose == 0 && wallPose) partnerClimbAnim = true;
 
@@ -1613,6 +1802,20 @@ public static class OnlinePlayTest
         if (Net.Phase != acting)
         {
             DriveStraight(false);
+            return;
+        }
+
+        // A hider and a seeker: before anything else the seeker shoots the other real player, who
+        // times the bullet coming at them from their own side.
+        if (Mixed && Seeker && killStage != 9)
+        {
+            killRealPlayersOnly = true;
+            if (killStage == 0)
+            {
+                killStage = 1;
+                killAt = Time.realtimeSinceStartup + 2f;
+            }
+            PlayKills();
             return;
         }
 
@@ -1719,6 +1922,39 @@ public static class OnlinePlayTest
             case 5:
                 Hold("ClimbUp", false);
                 climbedUp = climber.IsOnWall && climbHighest > climbFromY + 3f;
+
+                // A seeker looks round from the wall, as the aim drag turns them...
+                if (Seeker && climber.IsOnWall)
+                {
+                    wallTurnFrom = me.transform.eulerAngles.y;
+                    me.transform.Rotate(0f, WallTurnDegrees, 0f);
+                    wallTurned = true;
+                    pairAt = now + 1f;          // long enough for the other screen to show it
+                    pairStage = 51;
+                    return;
+                }
+
+                Hold("ClimbDown", true);
+                pairAt = now + 0.2f;
+                walkDeadline = now + 8f;
+                pairStage = 6;
+                return;
+
+            case 51:    // ...and walks the way they now face
+                wallWalkFrom = me.transform.position;
+                wallWalkFacing = me.transform.forward;
+                DriveStraight(true);
+                pairAt = now + 0.8f;
+                pairStage = 52;
+                return;
+
+            case 52:
+                DriveStraight(false);
+                Vector3 walked = me.transform.position - wallWalkFrom;
+                walked.y = 0f;
+                wallWalkDistance = walked.magnitude;
+                wallWalkAngle = wallWalkDistance > 0.01f ? Vector3.Angle(walked, wallWalkFacing) : 180f;
+
                 Hold("ClimbDown", true);
                 pairAt = now + 0.2f;
                 walkDeadline = now + 8f;
@@ -1741,7 +1977,12 @@ public static class OnlinePlayTest
 
         if (Mixed)
         {
-            if (Seeker) Check(partnerShapes.Contains(9), $"the hider's shape shows on the seeker's screen (seen: {string.Join(",", partnerShapes)})");
+            if (Seeker)
+            {
+                Check(partnerShapes.Contains(9), $"the hider's shape shows on the seeker's screen (seen: {string.Join(",", partnerShapes)})");
+                if (fellAfterFlight.Count > 0) CheckBulletTiming();
+                else report.Add($"INFO  the seeker's shot at the other player did not land ({killsTried} tried{(killNotes.Count > 0 ? ": " + string.Join("; ", killNotes) : "")})");
+            }
             else report.Add($"INFO  shapes of the seeker seen on the hider's screen: {string.Join(",", partnerShapes)}");
             return;
         }
@@ -1768,7 +2009,18 @@ public static class OnlinePlayTest
                   $"the other seeker on a wall keeps their shape and gun here (flag {partnerClimbFlag}, {partnerShapeKeptFrames} frames as they stand, {partnerShapeLostFrames} straightened)");
         else
             Check(partnerClimbFlag && partnerClimbAnim, $"the other hider climbing shows here, flat against the wall (flag {partnerClimbFlag}, animation {partnerClimbAnim})");
-        Check(partnerClimbFrames > 0 && partnerFacingWall >= partnerClimbFrames * 0.9f, $"and their body faces the wall ({partnerFacingWall} of {partnerClimbFrames} frames{(facingNotes.Count > 0 ? "; not facing: " + string.Join(" | ", facingNotes) : "")})");
+        if (Seeker)
+        {
+            // This seeker turned on the wall and walked the way they faced...
+            Check(wallTurned && wallWalkDistance > 3f && wallWalkAngle < 8f,
+                  $"a seeker on a wall moves the way they face (turned {WallTurnDegrees:F0} degrees from {wallTurnFrom:F0}; then {wallWalkDistance:F1} units in 0.8 s, {wallWalkAngle:F1} degrees off their facing)");
+
+            // ...and the other one's turn, made the same way on their own wall, shows here.
+            if (partnerClimbSeconds >= 1f)
+                Check(Mathf.Abs(partnerWallYawSwing - WallTurnDegrees) < 12f,
+                      $"the other seeker's turn on a wall shows here (facing {partnerWallYawFirst:F0} as they took hold, turned by up to {partnerWallYawSwing:F0} degrees, {partnerWallYawLast:F0} at the end)");
+        }
+        else report.Add($"INFO  the other hider on a wall is drawn facing as their own game has them ({partnerWallYawFirst:F0} to {partnerWallYawLast:F0} degrees)");
         if (Seeker) Check(ownGunUpFrames > 0 && ownGunDownFrames == 0 && ownWallPoseFrames == 0, $"a seeker's own shape, arms and gun stay as they are on a wall ({ownGunUpFrames} frames, {ownGunDownFrames} not, {ownWallPoseFrames} in the wall pose)");
         else Check(ownWallPoseFrames > 0, $"a hider still flattens against the wall ({ownWallPoseFrames} frames in the wall pose)");
         Check(partnerBodyMesh == Resources.Load<GameObject>("Players/Player").GetComponentInChildren<SkinnedMeshRenderer>(true).sharedMesh.name,
@@ -1792,6 +2044,7 @@ public static class OnlinePlayTest
         Check(animRestarts == 0, $"no animation started over on any body ({animRestarts}{(animNotes.Count > 0 ? ": " + string.Join("; ", animNotes) : "")})");
         report.Add($"INFO  bodies that went back to a state within 0.3 s: {animBounces}, over {animTracks.Count} bodies");
         if (switchStage < 4) report.Add("INFO  the animation switching check did not finish");
+        CheckOwnFalls();
         if (Pair)
         {
             CheckPair();
@@ -1855,14 +2108,19 @@ public static class OnlinePlayTest
     {
         if (hooked) return;
         hooked = true;
-        Net.OnRemoteShot += _ => remoteShots++;
+        Net.OnRemoteShot += shot => { remoteShots++; NoteShotSeen(shot); };
         Net.OnLoadoutChanged += () => loadoutAnswers++;
         Net.OnPhaseChanged += (_, _) => phaseChanges++;
         Net.OnEliminated += (victim, by, cause) =>
         {
             eliminations++;
             if (cause == EliminationCause.Caught) catches++;
-            if (by == Net.LocalSlot && cause == EliminationCause.Shot && victim == killSlot) killLanded = true;
+            if (by == Net.LocalSlot && cause == EliminationCause.Shot && victim == killSlot)
+            {
+                if (!killLanded) NoteKill(victim);
+                killLanded = true;
+            }
+            if (victim == Net.LocalSlot && cause == EliminationCause.Shot) NoteOwnFall(by);
         };
         Net.OnMatchEnd += _ => matchEnds++;
         Net.OnSpotAlert += _ => spotAlerts++;

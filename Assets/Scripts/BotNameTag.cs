@@ -10,6 +10,7 @@ public class BotNameTag : MonoBehaviour
     public Color textColor = Color.white;
 
     private string pendingName = "Player";
+    private bool visible = true;        // as last asked for, kept for a tag that is not built yet
     private Transform nameTagTransform;
     private Text label;
     private Camera cam;
@@ -25,6 +26,7 @@ public class BotNameTag : MonoBehaviour
 
     public void SetVisible(bool v)
     {
+        visible = v;
         if (nameTagTransform == null) return;
 
         GameObject go = nameTagTransform.gameObject;
@@ -64,6 +66,9 @@ public class BotNameTag : MonoBehaviour
         Stretch(label, 8f);
 
         nameTagTransform = root.transform;
+
+        // Asked to hide before it existed (it is built on Start): it used to come up showing.
+        if (!visible) root.SetActive(false);
     }
 
     private Image NewImage(string name, Transform parent, Color color)

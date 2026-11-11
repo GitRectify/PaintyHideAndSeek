@@ -96,6 +96,7 @@ public partial class OnlineRound : MonoBehaviour
     private bool localOut;
     private MecchaNetClient.RosterEntry[] roster;
     private readonly HashSet<byte> eliminated = new HashSet<byte>();
+    private readonly Dictionary<byte, BotNameTag> nameTags = new Dictionary<byte, BotNameTag>();
 
     private int timerShown = -1;
     private float nextWaitNoticeAt;
@@ -143,7 +144,20 @@ public partial class OnlineRound : MonoBehaviour
     public static bool BodyAlong(Vector3 origin, Vector3 direction, out float distance)
     {
         distance = float.MaxValue;
-        return Active && _instance.hunter && _instance.NearestHider(origin, direction, ref distance);
+        return Active && _instance.hunter &&
+               _instance.NearestHider(origin, direction, BulletSpecs.Of(Net.NextBullet).Radius, 0f, ref distance);
+    }
+
+    /// <summary>
+    /// Whether a bullet of this radius meets a hider's body in the stretch of its flight between
+    /// <paramref name="from"/> and <paramref name="to"/> units from the muzzle, and how far along.
+    /// It is the server's own test of a bullet in the air (Combat.Fly), on the bodies as they are
+    /// drawn here: a drawn bullet stops where the real one does.
+    /// </summary>
+    public static bool HiderBetween(Vector3 muzzle, Vector3 direction, float from, float to, float radius, out float at)
+    {
+        at = to;
+        return Active && _instance.NearestHider(muzzle, direction, radius, from, ref at);
     }
 
     /// <summary>The drawn bullet's size against the default one: the type the last shot used (1 offline).</summary>
@@ -224,6 +238,7 @@ public partial class OnlineRound : MonoBehaviour
         leaveArmed = false;
         roster = entries;
         eliminated.Clear();
+        nameTags.Clear();
         nextFireAt = 0f;
         lastChosen = BulletType.Default;
         firedBullet = BulletType.Default;
@@ -363,6 +378,7 @@ public partial class OnlineRound : MonoBehaviour
         FeedInput();
         PumpBots();
         RefreshCounters();
+        RefreshNameTags();
         ApplyCanvases();
         UpdateSpotView();
         UpdateSpectating();
@@ -430,16 +446,13 @@ public partial class OnlineRound : MonoBehaviour
         // but it is not the body: painted with it, it wore the body's blank canvas and turned white.
         view.Carry(carried);
 
-        // Name tags only over teammates, never an opponent: a name floating above a camouflaged
-        // hider would give the whole game away.
-        bool teammate = (role == Role.Hunter) == hunter;
+        // Every body has its name over it; who gets to see it is RefreshNameTags' to say.
         BotNameTag tag = body.GetComponentInChildren<BotNameTag>(true);
-        if (teammate && tag == null) tag = body.AddComponent<BotNameTag>();
-        if (tag != null)
-        {
-            tag.enabled = teammate;     // it builds itself on Start: off, it never exists
-            if (teammate) tag.SetName(NameOf(slot));
-        }
+        if (tag == null) tag = body.AddComponent<BotNameTag>();
+        tag.enabled = true;
+        tag.SetName(NameOf(slot));
+        tag.SetVisible(false);
+        nameTags[slot] = tag;
 
         // Their prone, climbing and gunfire, from the replicated flags (walking speed is the
         // view's own); and a shot's sound and tracer, as Single Play's seeker bots fire.
@@ -452,6 +465,31 @@ public partial class OnlineRound : MonoBehaviour
 
         if (canvases.TryGetValue(slot, out RemoteCanvas canvas)) canvas.AppliedTo = null;   // re-applied next frame
         return view;
+    }
+
+    // Whose name this player sees, by the side they are on. A hider sees a name over everybody,
+    // seekers and hiders, players and bots. A seeker sees one over the other seekers, and over a
+    // hider only once that hider is out: a name floating above someone camouflaged would give the
+    // whole game away. No name hangs in the air where the body is not drawn.
+    private void RefreshNameTags()
+    {
+        foreach (KeyValuePair<byte, BotNameTag> pair in nameTags)
+        {
+            BotNameTag tag = pair.Value;
+            if (tag == null) continue;      // its body is gone
+
+            NetEntityView view = NetEntityRegistry.Get(pair.Key);
+            if (view == null || !tag.transform.IsChildOf(view.transform))     // the seat has a new body
+            {
+                tag.SetVisible(false);
+                continue;
+            }
+
+            bool drawn = view.IsShown && (view.HasPosition || view.IsHosted);
+            bool isOut = view.Eliminated || eliminated.Contains(pair.Key);
+            bool mayBeSeen = !hunter || view.Role == Role.Hunter || isOut;
+            tag.SetVisible(drawn && mayBeSeen);
+        }
     }
 
     // A real player is drawn as the character they chose; a bot, and anyone whose character this
@@ -472,9 +510,10 @@ public partial class OnlineRound : MonoBehaviour
         return remotePrefab;
     }
 
-    // Another player's (or a server bot's) shot, when its body is drawn firing (OnRemoteShot
-    // waits for the render time). The server has already judged it; this is the gun animation,
-    // the sound and a tracer along the shot's real aim, sized by its bullet type.
+    // Another player's (or a bot's) shot: the gun animation, the sound and the bullet along the
+    // shot's real aim, sized by its bullet type. The server flies the real bullet and says who it
+    // reaches. This one is drawn from where that one has got to (it left the gun at a tick this
+    // screen may already be past), so it reaches a hider here when the server says it did.
     private void HandleRemoteShot(MecchaNetClient.RemoteShot shot)
     {
         if (!active) return;
@@ -485,9 +524,13 @@ public partial class OnlineRound : MonoBehaviour
         AudioManager.WaterGunShot();
 
         if (gun == null) return;
-        gun.SpawnRemoteBullet(shot.Origin, shot.Impact - shot.Origin,
-                              view != null ? view.transform : null,
-                              BulletSpecs.Of(shot.Bullet).RadiusScale);
+
+        Vector3 path = shot.Impact - shot.Origin;
+        float flown = GameTuning.BulletSpeed * shot.Age;
+        if (flown >= path.magnitude) return;        // it has landed already
+
+        gun.SpawnRemoteBullet(shot.Origin, path, view != null ? view.transform : null,
+                              BulletSpecs.Of(shot.Bullet).RadiusScale, flown);
     }
 
     // ================= What the server cannot judge: spawns and walls =================
@@ -599,12 +642,12 @@ public partial class OnlineRound : MonoBehaviour
         return true;
     }
 
-    private bool NearestHider(Vector3 origin, Vector3 direction, ref float nearest)
+    // The nearest hider's body along a line, no nearer than `from` and nearer than `nearest`.
+    private bool NearestHider(Vector3 origin, Vector3 direction, float pad, float from, ref float nearest)
     {
         if (roster == null) return false;
 
         bool found = false;
-        float pad = BulletSpecs.Of(Net.NextBullet).Radius;
 
         foreach (MecchaNetClient.RosterEntry e in roster)
         {
@@ -623,10 +666,11 @@ public partial class OnlineRound : MonoBehaviour
             bool climbing = (view.Flags & EntityFlags.Climbing) != 0;
 
             if (BodyHitBoxes.Raycast(origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, feet.x, feet.y, feet.z,
-                                     view.transform.eulerAngles.y, GameTuning.HiderScale, e.ModelId, pose, climbing, pad, out float t) &&
-                t < nearest)
+                                     view.transform.eulerAngles.y, GameTuning.HiderScale, e.ModelId, pose, climbing, pad,
+                                     out float enters, out float leaves) &&
+                enters < nearest && leaves >= from)
             {
-                nearest = t;
+                nearest = Mathf.Max(enters, from);
                 found = true;
             }
         }
