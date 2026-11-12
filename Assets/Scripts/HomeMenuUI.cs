@@ -56,21 +56,12 @@ public class HomeMenuUI : MonoBehaviour
         }
     }
 
-    // Once per launch (the menu scene also reloads on a character switch): an online round that
-    // was running when the app closed can still be rejoined while the server holds the seat.
+    // Once per launch: an online round that was running when the app closed can still be
+    // rejoined while the server holds the seat.
     private static bool rejoinOffered;
 
     private void Start()
     {
-        // A character picked in Multiple Play reloads the scene; carry on at the room screen.
-        int onlineMode = PlayerPrefs.GetInt(SelectPlayerUI.PendingOnlineModeKey, -1);
-        if (onlineMode >= 0)
-        {
-            PlayerPrefs.SetInt(SelectPlayerUI.PendingOnlineModeKey, -1);
-            PlayerPrefs.Save();
-            OnlineSignIn.Open(profile => OnlineLobby.ResumeAfterCharacterSwitch(profile, onlineMode), null);
-        }
-
         if (rejoinOffered) return;
         rejoinOffered = true;
         OnlineLobby.OfferRejoin();

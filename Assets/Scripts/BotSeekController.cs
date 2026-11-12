@@ -459,6 +459,7 @@ public class BotSeekController : MonoBehaviour
             playerTf = player.transform;
             playerRends = playerTf.GetComponentsInChildren<Renderer>();
         }
+        PlayerRef.Changed += HandlePlayerChanged;
 
         paint = Object.FindAnyObjectByType<ChameleonPaint>();
         resultUI = Object.FindAnyObjectByType<HideModeResultUI>();
@@ -479,8 +480,17 @@ public class BotSeekController : MonoBehaviour
         SetStatusVisible(false);
     }
 
+    // A new character's body (CharacterSelect): the one the bots look for from now on.
+    private void HandlePlayerChanged(Transform body)
+    {
+        playerTf = body;
+        playerRends = body != null ? body.GetComponentsInChildren<Renderer>() : null;
+        playerRagdoll = null;
+    }
+
     private void OnDestroy()
     {
+        PlayerRef.Changed -= HandlePlayerChanged;
         if (navInstance.valid)
         {
             NavMesh.RemoveNavMeshData(navInstance);

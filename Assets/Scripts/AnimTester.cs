@@ -37,10 +37,22 @@ public class AnimTester : MonoBehaviour
         {
             Debug.LogWarning("[AnimTester] No Animator found on '" + characterRootName + "'.");
         }
+        PlayerRef.Changed += HandlePlayerChanged;
 
         EnsureFont();
         EnsureEventSystem();
         BuildUI();
+    }
+
+    // A new character's body (CharacterSelect): its animator from now on.
+    private void HandlePlayerChanged(Transform body)
+    {
+        anim = body != null ? body.GetComponent<Animator>() : null;
+    }
+
+    private void OnDestroy()
+    {
+        PlayerRef.Changed -= HandlePlayerChanged;
     }
 
     public void AuthorUI()

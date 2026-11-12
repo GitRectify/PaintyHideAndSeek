@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 // Re-verified method by method against raw Ghidra output. Fields (names, order, attributes,
@@ -25,24 +24,17 @@ public class SelectPlayerUI : MonoBehaviour
     public string selectChildName = "Select";
     [Tooltip("Back/exit button under the canvas — closes this popup and returns to the previous screen (Home).")]
     public string backButtonName = "BtnExit";
-    [Tooltip("PlayerPrefs flag: match mode to resume after a character-switch reload (-1 = none). Read by HomeUI.")]
-    public string pendingModeKey = "PendingMatchMode";
     private GameObject _canvas;
     private GameObject[] _frames;
     private CharacterSelect _cs;
     private Action _onConfirm;
     private Action _onBack;
-    private int _mode;
     private int _pending;
 
-    // Multiple Play: characters the account does not own online, and where a reload resumes.
+    // Multiple Play: characters the account does not own online.
     private Func<int, bool> _locked;
-    private string _resumeKey;
     private Text[] _lockLabels;
     private Text _message;
-
-    /// <summary>PlayerPrefs flag: the online side to resume at the room screen after a character-switch reload (-1 = none).</summary>
-    public const string PendingOnlineModeKey = "PendingOnlineMatchMode";
 
     public static SelectPlayerUI Instance { get; private set; }
 
@@ -106,21 +98,18 @@ public class SelectPlayerUI : MonoBehaviour
     }
 
     // Opens the picker for a match mode; without the popup, continues straight away.
-    public void Show(int mode, Action onConfirm, Action onBack) => Show(mode, onConfirm, onBack, null, null);
+    public void Show(int mode, Action onConfirm, Action onBack) => Show(mode, onConfirm, onBack, null);
 
     /// <summary>
     /// Multiple Play's use of the same screen: <paramref name="locked"/> marks the characters this
-    /// account cannot play online (Play refuses them, and says where to get them), and a reload
-    /// for a new character comes back to <paramref name="resumeKey"/>'s flow, not Single Play's.
-    /// It opens on the character now chosen.
+    /// account cannot play online (Play refuses them, and says where to get them). It opens on the
+    /// character now chosen.
     /// </summary>
-    public void Show(int mode, Action onConfirm, Action onBack, Func<int, bool> locked, string resumeKey)
+    public void Show(int mode, Action onConfirm, Action onBack, Func<int, bool> locked)
     {
-        _mode = mode;
         _onConfirm = onConfirm;
         _onBack = onBack;
         _locked = locked;
-        _resumeKey = resumeKey;
         _pending = locked != null && _cs != null ? _cs.CurrentIndex : 0;
         if (_canvas == null)
         {
@@ -215,8 +204,8 @@ public class SelectPlayerUI : MonoBehaviour
         RefreshHighlight();
     }
 
-    // Same character: continue. A different one: save it plus the pending match mode and reload
-    // the scene (HomeUI resumes the mode after the reload).
+    // A different character takes the body's place at once (CharacterSelect.Select swaps it in
+    // place, no scene reload), then the flow goes on as it does with the same one.
     public void Confirm()
     {
         // Online, a character the account does not own cannot be played: say so, stay here.
@@ -230,15 +219,9 @@ public class SelectPlayerUI : MonoBehaviour
         {
             _canvas.SetActive(false);
         }
-        int current = _cs != null ? _cs.CurrentIndex : _pending;
-        if (_cs != null && _pending != current)
+        if (_cs != null && _pending != _cs.CurrentIndex)
         {
-            LoadingScreen.ShowInstant();
-            PlayerPrefs.SetInt(_cs.prefsKey, _pending);
-            PlayerPrefs.SetInt(string.IsNullOrEmpty(_resumeKey) ? pendingModeKey : _resumeKey, _mode);
-            PlayerPrefs.Save();
-            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
-            return;
+            _cs.Select(_pending);
         }
         Action cb = _onConfirm;
         _onConfirm = null;

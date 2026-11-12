@@ -94,6 +94,7 @@ public class JoystickMover : MonoBehaviour
             cc = character.GetComponent<CharacterController>();
             anim = character.GetComponent<Animator>();
         }
+        PlayerRef.Changed += HandlePlayerChanged;
         cam = Camera.main;
         if (joystick == null)
         {
@@ -362,6 +363,21 @@ public class JoystickMover : MonoBehaviour
     {
         _vy = 0f;
         _moveVel = Vector3.zero;
+    }
+
+    // A new character's body (CharacterSelect): it is the one moved from now on.
+    private void HandlePlayerChanged(Transform body)
+    {
+        character = body;
+        cc = body != null ? body.GetComponent<CharacterController>() : null;
+        anim = body != null ? body.GetComponent<Animator>() : null;
+        _vy = 0f;
+        _moveVel = Vector3.zero;
+    }
+
+    private void OnDestroy()
+    {
+        PlayerRef.Changed -= HandlePlayerChanged;
     }
 
     /// <summary>A new round: the rotate pair hidden, nothing held, no speed left from before (RoundUiReset).</summary>

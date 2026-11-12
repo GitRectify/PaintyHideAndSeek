@@ -16,7 +16,7 @@ public class ShopUI : MonoBehaviour
     [SerializeField] private UnityEngine.UI.Button closeButton;
     [SerializeField] private UnityEngine.UI.Text coinText;
 
-    [Header("Tabs (order = ShopCategory: Coins, Avatars, Poses, Weapons, Bullets)")]
+    [Header("Tabs (order = ShopCategory: Coins, Avatars, Poses, Weapons, Bullets; Extras is added at runtime)")]
     [SerializeField] private UnityEngine.UI.Button[] tabButtons;
     [SerializeField] private UnityEngine.UI.Image[] tabBackgrounds;
     [SerializeField] private Sprite tabActiveSprite;
@@ -43,6 +43,7 @@ public class ShopUI : MonoBehaviour
 
     private void Awake()
     {
+        EnsureExtrasTab();
         if (closeButton != null) closeButton.onClick.AddListener(Close);
         for (int i = 0; i < tabButtons.Length; i++)
         {
@@ -72,6 +73,30 @@ public class ShopUI : MonoBehaviour
     private void HandleTopUpSettled(PendingTopUp.Entry entry, Meccha.Shared.Game.PaymentState state)
     {
         if (state != Meccha.Shared.Game.PaymentState.Credited) ShowToast(PendingTopUp.MessageFor(entry, state));
+    }
+
+    // The Extras tab (ShopCategory.Extras: Next Player) is a copy of the last of the scene's five,
+    // placed under it; the tab column lays the six out. Its icon is the copied tab's, so it is hidden.
+    private void EnsureExtrasTab()
+    {
+        int extras = (int)ShopCategory.Extras;
+        if (tabButtons == null || tabButtons.Length != extras || tabButtons[extras - 1] == null) return;
+        if (tabBackgrounds == null || tabBackgrounds.Length != extras) return;
+
+        GameObject last = tabButtons[extras - 1].gameObject;
+        GameObject copy = Instantiate(last, last.transform.parent);
+        copy.name = "Tab_Extras";
+        Transform icon = copy.transform.Find("Icon");
+        if (icon != null) icon.gameObject.SetActive(false);
+        OnlineUI.SetAnyText(copy, "Extras");
+
+        System.Array.Resize(ref tabButtons, extras + 1);
+        tabButtons[extras] = copy.GetComponent<UnityEngine.UI.Button>();
+        System.Array.Resize(ref tabBackgrounds, extras + 1);
+        UnityEngine.UI.Image lastBackground = tabBackgrounds[extras - 1];
+        tabBackgrounds[extras] = lastBackground != null && lastBackground.gameObject == last
+            ? copy.GetComponent<UnityEngine.UI.Image>()
+            : null;
     }
 
     public void Open()
@@ -119,8 +144,8 @@ public class ShopUI : MonoBehaviour
 
         if (ShopInventory.CanEquip(item) && ShopInventory.IsOwned(item))
         {
-            bool unequip = ShopInventory.IsEquipped(item);
-            ShopInventory.Equip(item);   // an avatar reloads the scene to swap the character
+            bool unequip = item.category == ShopCategory.Weapons && ShopInventory.IsEquipped(item);
+            ShopInventory.Equip(item);   // an avatar swaps the character's body in place
             ShowToast(unequip ? "Standard gun equipped" : item.displayName + " equipped");
             return;
         }
@@ -152,7 +177,7 @@ public class ShopUI : MonoBehaviour
             if (this == null || !isActiveAndEnabled) return;
 
             // A bought weapon is carried at once, as the local shop did; an avatar waits for
-            // Equip, which reloads the scene.
+            // Equip (a tap on its card), which swaps the body.
             if (bought && item.category == ShopCategory.Weapons) ShopInventory.Equip(item);
             ShowToast(message);
         });

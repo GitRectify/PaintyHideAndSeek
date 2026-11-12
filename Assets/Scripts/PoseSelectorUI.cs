@@ -85,11 +85,20 @@ public class PoseSelectorUI : MonoBehaviour
         BindAll();
         Close();
         ShopInventory.Changed += HandleShopChanged;
+        PlayerRef.Changed += HandlePlayerChanged;
     }
 
     private void OnDestroy()
     {
         ShopInventory.Changed -= HandleShopChanged;
+        PlayerRef.Changed -= HandlePlayerChanged;
+    }
+
+    // A new character's body (CharacterSelect): poses go to its animator, starting from none.
+    private void HandlePlayerChanged(Transform body)
+    {
+        anim = body != null ? body.GetComponentInChildren<Animator>(true) : null;
+        ClearSelection();
     }
 
     // Ownership can arrive after the panel opened (the round asks the server at its start).

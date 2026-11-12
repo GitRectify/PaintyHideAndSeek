@@ -22,11 +22,23 @@ public class HomeShowcaseBots : MonoBehaviour
 
         gmm = Object.FindAnyObjectByType<GameModeManager>();
         botMgr = Object.FindAnyObjectByType<BotManager>();
+        PlayerRef.Changed += HandlePlayerChanged;
 
         if (!RoundActive())
         {
             Spawn();
         }
+    }
+
+    private void OnDestroy()
+    {
+        PlayerRef.Changed -= HandlePlayerChanged;
+    }
+
+    // A new character's body (CharacterSelect) between the buddies strikes the player's pose too.
+    private void HandlePlayerChanged(Transform body)
+    {
+        if (buddies.Count > 0 && body != null) SetPose(body.GetComponentInChildren<Animator>(true), playerPose);
     }
 
     private bool RoundActive()

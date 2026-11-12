@@ -92,6 +92,8 @@ public class GameModeManager : MonoBehaviour
             playerHomeScale = playerTf.localScale;
             playerHomeCaptured = true;
         }
+        // A new character's body (CharacterSelect) takes the old one's place: same home pose.
+        PlayerRef.Changed += HandlePlayerChanged;
 
         homeDecor = FindInSceneByName(homeDecorName);
         homeEnv = FindInSceneByName(homeEnvName);
@@ -426,6 +428,13 @@ public class GameModeManager : MonoBehaviour
     {
         NetworkRound = false;
         NetSeekerFrozen = false;
+    }
+
+    private void HandlePlayerChanged(Transform body) => playerTf = body;
+
+    private void OnDestroy()
+    {
+        PlayerRef.Changed -= HandlePlayerChanged;
     }
 
     // FIX (confirmed): raw throws if playerTf != null but GetComponentsInChildren<Renderer>()

@@ -8,7 +8,10 @@ public enum ShopCategory
     Avatars = 1,
     Poses = 2,
     Weapons = 3,
-    Bullets = 4
+    Bullets = 4,
+    // Features unlocked for good (server kind "feature", gameId = GameFeatures id): Next Player.
+    // ShopUI adds its tab at runtime, under the scene's five.
+    Extras = 5
 }
 
 // One card in the shop. Prices, ownership and coin-pack prices are the server's (ShopInventory);
@@ -34,7 +37,7 @@ public class ShopItem
     [Header("Server (online shop)")]
     [Tooltip("The server catalog's item id (server.json Catalog), or for a coin pack its top-up package id (Wallet:TopUps). Empty = not sold online yet (\"coming soon\"). A bullet pack names its special bullet type's item (bullets, bullets-2, bullets-3).")]
     public string serverId;
-    [Tooltip("The game's own number for the item, the same as the server's GameId: avatar = CharacterSelect index, pose = picker slot + 1, weapon = WeaponSkins id, bullets = special bullet type 1-3 (BulletSpecs).")]
+    [Tooltip("The game's own number for the item, the same as the server's GameId: avatar = CharacterSelect index, pose = picker slot + 1, weapon = WeaponSkins id, bullets = special bullet type 1-3 (BulletSpecs), extras = GameFeatures id (1 = Next Player).")]
     public int gameId;
     [Tooltip("Special bullets bought by this card (bullet packs only).")]
     public int quantity = 1;

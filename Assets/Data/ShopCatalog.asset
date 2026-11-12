@@ -323,3 +323,13 @@ MonoBehaviour:
     serverId: bullets-3
     gameId: 3
     quantity: 50
+  - id: feature_next_player
+    category: 5
+    displayName: Next Player
+    icon: {fileID: 0}
+    coinAmount: 0
+    badge:
+    ownedByDefault: 0
+    serverId: next-player
+    gameId: 1
+    quantity: 1

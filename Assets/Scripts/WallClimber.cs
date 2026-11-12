@@ -148,6 +148,25 @@ public class WallClimber : MonoBehaviour
         BodyAnimation.SetPose(anim, 0);
     }
 
+    // A new character's body (CharacterSelect): the one that climbs from now on. It starts off
+    // any wall (the swap happens at Home).
+    private void HandlePlayerChanged(Transform body)
+    {
+        character = body;
+        charRends = body != null ? body.GetComponentsInChildren<Renderer>() : new Renderer[0];
+        cc = body != null ? body.GetComponent<CharacterController>() : null;
+        anim = body != null ? body.GetComponentInChildren<Animator>(true) : null;
+        up = 0;
+        down = 0;
+        state = State.Grounded;
+        clinging = false;
+    }
+
+    private void OnDestroy()
+    {
+        PlayerRef.Changed -= HandlePlayerChanged;
+    }
+
     /// <summary>A new round: off any wall, the climb buttons released (RoundUiReset).</summary>
     public void ResetControls()
     {
@@ -170,6 +189,7 @@ public class WallClimber : MonoBehaviour
         {
             Debug.LogWarning("[WallClimber] Character '" + characterRootName + "' not found.");
         }
+        PlayerRef.Changed += HandlePlayerChanged;
 
         joystick = UnityEngine.Object.FindAnyObjectByType<Joystick>(FindObjectsInactive.Include);
         cam = Camera.main;

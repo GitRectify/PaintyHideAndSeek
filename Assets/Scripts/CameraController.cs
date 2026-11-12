@@ -166,6 +166,7 @@ public class CameraController : MonoBehaviour
             character = player.transform;
             playerCharacter = character;
         }
+        PlayerRef.Changed += HandlePlayerChanged;
         cam = Camera.main;
         paint = FindAnyObjectByType<ChameleonPaint>();
         gmm = FindAnyObjectByType<GameModeManager>();
@@ -330,6 +331,20 @@ public class CameraController : MonoBehaviour
 
         _proneFloorY = float.IsNegativeInfinity(best) ? pivot.y - 7f : best;
         return _proneFloorY;
+    }
+
+    private void OnDestroy()
+    {
+        PlayerRef.Changed -= HandlePlayerChanged;
+    }
+
+    // A new character's body (CharacterSelect): followed from now on, with its own gun.
+    private void HandlePlayerChanged(Transform body)
+    {
+        if (character == null || character == playerCharacter) character = body;
+        playerCharacter = body;
+        gunHolder = body != null ? body.GetComponentInChildren<GunHolder>(true) : null;
+        heldGunMesh = null;
     }
 
     // SeekerCamProfile of PlayerRef.Active, looked up again only when the active player changes.

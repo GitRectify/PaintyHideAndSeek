@@ -63,7 +63,8 @@ public class ShopItemCard : MonoBehaviour
         // Coins/Avatars put the label under the art; the other tabs put it on top (per mockups).
         bool labelOnTop = item.category == ShopCategory.Poses
                           || item.category == ShopCategory.Weapons
-                          || item.category == ShopCategory.Bullets;
+                          || item.category == ShopCategory.Bullets
+                          || item.category == ShopCategory.Extras;
         // A coin pack's amount is the server's (RefreshState), so nothing is written before it is known.
         string label = item.category == ShopCategory.Coins ? "" : item.displayName;
         if (topLabel != null)

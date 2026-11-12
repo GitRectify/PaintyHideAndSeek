@@ -13,8 +13,11 @@ using UnityEngine.UI;
 // roster -> Game Start: from MatchStart the round itself belongs to OnlineRound. Adapted from the
 // role, room and lobby parts of the SDK sample's OnlineFlow.
 //
-// Only free rooms can be joined until online rounds have been proven: a paid room holds a real
-// entry, and leaving one before the round counts toward the server's early-leave cooldown.
+// Rooms: Practice is free and bots take the empty seats. Standard costs an entry (20 coins on the
+// default server): real players only, no bots, so its lobby waits until every seat is taken, and
+// the server refunds the entry if it does not fill in time. The entry is confirmed before every
+// search (PayScreen), Next after a round included: the server never enters anyone into a paid
+// match they did not ask for. Leaving one before the round counts toward its early-leave cooldown.
 //
 // Drops: a MatchFound for the round on screen is the server giving a held seat back (the round
 // resumes); a search lost with the connection is sent again once signed in; "signed in on another
@@ -56,7 +59,10 @@ public class OnlineLobby : MonoBehaviour
     private string[] serverMaps;          // the maps the server has baked (ListRooms)
 
     // ---- UI ---------------------------------------------------------------------------------
-    private GameObject roomScreen, lobbyBar, noticeScreen, rejoinScreen;
+    private GameObject roomScreen, lobbyBar, noticeScreen, rejoinScreen, payScreen;
+    private Text payTitle, payBody, payStatus;
+    private Button payButton;
+    private Action afterPay;
     private Text roomBalance, roomError, lobbyMessage, noticeText;
     private RectTransform roomList;
 
@@ -99,7 +105,7 @@ public class OnlineLobby : MonoBehaviour
 
     private void OnDestroy()
     {
-        // The menu scene reloads when the player switches character; don't leave a seat behind.
+        // The scene goes (the app is closing); don't leave a seat behind.
         if (Net != null && InQueueOrMatch) Net.LeaveMatch();
         Unhook();
     }
@@ -313,19 +319,6 @@ public class OnlineLobby : MonoBehaviour
     private bool NotOwnedOnline(int character) =>
         profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0 && Array.IndexOf(profile.OwnedAvatars, character) < 0;
 
-    /// <summary>
-    /// After the scene reloaded for a new character picked online (SelectPlayerUI): straight back
-    /// to the room screen, on the side chosen before the reload.
-    /// </summary>
-    public static void ResumeAfterCharacterSwitch(MetaProfile profile, int mode)
-    {
-        OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
-        if (lobby == null) lobby = new GameObject("OnlineLobby").AddComponent<OnlineLobby>();
-        lobby.Begin(profile, null);
-        lobby.role = mode == 1 ? RolePreference.Seeker : RolePreference.Hider;
-        lobby.BodyChosen();
-    }
-
     private static OnlineLobby ChoosingRole()
     {
         OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
@@ -401,12 +394,11 @@ public class OnlineLobby : MonoBehaviour
 
             string detail = free
                 ? "Free - bots fill empty seats"
-                : $"Entry {OnlineUI.CoinsText(r.EntryCents)} - coming soon";
+                : $"Entry {OnlineUI.CoinsText(r.EntryCents)} - real players only";
 
-            Button b = OnlineUI.NewButton(roomList, $"{RoomTitle(r.Id)}\n<size=26>{detail}</size>",
-                                          new Vector2(0f, 140f - i * 130f), new Vector2(820f, 112f),
-                                          free ? OnlineUI.Green : OnlineUI.Gray, () => PickRoom(r));
-            b.interactable = free;
+            OnlineUI.NewButton(roomList, $"{RoomTitle(r.Id)}\n<size=26>{detail}</size>",
+                               new Vector2(0f, 140f - i * 130f), new Vector2(820f, 112f),
+                               free ? OnlineUI.Green : OnlineUI.Blue, () => PickRoom(r));
         }
     }
 
@@ -414,7 +406,41 @@ public class OnlineLobby : MonoBehaviour
     {
         AudioManager.ButtonTap();
         room = picked;
-        PickMap();
+        if (picked.EntryCents > 0) ConfirmEntry(PickMap);
+        else PickMap();
+    }
+
+    // ================= Paid entry =================
+
+    // A paid room: what the entry buys (real players only, refunded if the lobby does not fill),
+    // then onPay. A balance short of the entry is said here, before the server refuses it.
+    private void ConfirmEntry(Action onPay)
+    {
+        string fee = OnlineUI.CoinsText(room.EntryCents);
+        if (CoinBalance.Known && CoinBalance.Cents < room.EntryCents)
+        {
+            ShowRoomScreen($"<color=#FFC759>Not enough coins for this room. The entry is {fee}; top up in WALLET.</color>");
+            return;
+        }
+
+        step = Step.Room;
+        HideScreens();
+        if (home != null) home.SetHomeVisible(true);
+        afterPay = onPay;
+        payTitle.text = RoomTitle(room.Id);
+        payBody.text = $"Entry {fee}. Real players only, no bots: the match starts once all {GameTuning.TotalPlayers} seats are taken " +
+                       $"({GameTuning.HunterSlots} seekers, {GameTuning.FugitiveSlots} hiders).\nIf it does not fill in time, your entry is refunded.";
+        OnlineUI.SetButtonText(payButton, $"PAY {fee}");
+        payScreen.SetActive(true);
+    }
+
+    private void Pay()
+    {
+        AudioManager.ButtonTap();
+        payScreen.SetActive(false);
+        Action next = afterPay;
+        afterPay = null;
+        next?.Invoke();   // the entry is held when the server seats this player, not before
     }
 
     // ================= Map (Single Play's picker) =================
@@ -604,7 +630,9 @@ public class OnlineLobby : MonoBehaviour
                 : "You are a Hider. Hide carefully. Don't let the Seekers find you!");
         }
 
-        SetLobbyMessage("Waiting for players... bots take the empty seats after a few seconds.");
+        SetLobbyMessage(room.EntryCents > 0
+            ? "Waiting for real players... the match starts once every seat is taken. Entry refunded if it does not fill."
+            : "Waiting for players... bots take the empty seats after a few seconds.");
         ShowRoster(info.Roster);
     }
 
@@ -689,7 +717,9 @@ public class OnlineLobby : MonoBehaviour
             return;
         }
 
-        StartSearch();
+        // A paid room's next match is a new entry: confirmed like the first.
+        if (room.EntryCents > 0) ConfirmEntry(StartSearch);
+        else StartSearch();
     }
 
     // ================= Match history =================
@@ -749,6 +779,22 @@ public class OnlineLobby : MonoBehaviour
         lobbyMessage = OnlineUI.NewLabel(bar.transform, "", 30, new Vector2(-170f, 0f), new Vector2(940f, 100f), TextAnchor.MiddleLeft);
         OnlineUI.NewButton(bar.transform, "CANCEL", new Vector2(500f, 0f), new Vector2(260f, 84f), OnlineUI.Red, CancelSearch);
 
+        // A paid room's entry, confirmed before each search (ConfirmEntry).
+        p = OnlineUI.Modal(canvas, "PayScreen", new Vector2(980f, 600f));
+        payScreen = p.parent.gameObject;
+        payTitle = OnlineUI.NewLabel(p, "", 52, new Vector2(0f, 220f), new Vector2(900f, 80f), TextAnchor.MiddleCenter, true);
+        payBody = OnlineUI.NewLabel(p, "", 32, new Vector2(0f, 60f), new Vector2(880f, 220f));
+        payStatus = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -85f), new Vector2(880f, 50f));
+        payStatus.color = OnlineUI.Muted;
+        CoinBalance.Bind(payStatus, "Your coins: {0}");
+        payButton = OnlineUI.NewButton(p, "PAY", new Vector2(-210f, -200f), new Vector2(380f, 100f), OnlineUI.Green, Pay);
+        OnlineUI.NewButton(p, "BACK", new Vector2(210f, -200f), new Vector2(380f, 100f), OnlineUI.Gray, () =>
+        {
+            AudioManager.ButtonTap();
+            afterPay = null;
+            ShowRoomScreen(null);
+        });
+
         // A notice after a round ended on its own (seat ran out, another device).
         p = OnlineUI.Modal(canvas, "NoticeScreen", new Vector2(900f, 440f));
         noticeScreen = p.parent.gameObject;
@@ -771,6 +817,7 @@ public class OnlineLobby : MonoBehaviour
     private void HideScreens()
     {
         roomScreen.SetActive(false);
+        payScreen.SetActive(false);
         lobbyBar.SetActive(false);
         noticeScreen.SetActive(false);
         rejoinScreen.SetActive(false);

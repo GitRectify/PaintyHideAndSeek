@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 public class CharacterSelect : MonoBehaviour
@@ -102,8 +101,7 @@ public class CharacterSelect : MonoBehaviour
         }
     }
 
-    // Saves the new selection and reloads the current scene so it takes effect (Apply() runs again
-    // on Awake next load).
+    // Saves the new selection and swaps the body in place (SwapBody): no scene reload.
     public void Select(int i)
     {
         // CORRECTION: confirmed via trace that Select's clamp does NOT floor maxIndex at 0 the way
@@ -120,8 +118,60 @@ public class CharacterSelect : MonoBehaviour
         PlayerPrefs.SetInt(prefsKey, clamped);
         PlayerPrefs.Save();
 
-        int buildIndex = SceneManager.GetActiveScene().buildIndex;
-        SceneManager.LoadScene(buildIndex);
+        SwapBody(clamped);
+    }
+
+    // The new character's body takes the old one's place, pose, scale and visibility, and the old
+    // one goes. Reloading the whole scene for this (what the game used to do) rebuilt every room,
+    // screen and menu and, online, signed in again; one prefab is all that changes.
+    // PlayerRef.Replace tells the camera, controls, paint, gun and bots about the new body.
+    private void SwapBody(int index)
+    {
+        GameObject prefab = index >= 0 && index < characterPrefabs.Length ? Resources.Load<GameObject>(characterPrefabs[index]) : null;
+        if (prefab == null)
+        {
+            Debug.LogWarning("[CharacterSelect] No character prefab #" + index + "; the body stays.");
+            return;
+        }
+
+        Transform old = PlayerRef.Active;
+        GameObject holder = GameObject.Find("Characters");
+        Transform parent = old != null ? old.parent : (holder != null ? holder.transform : null);
+
+        GameObject body = Instantiate(prefab, parent);
+        body.name = prefab.name;
+        Transform tf = body.transform;
+        if (old != null)
+        {
+            tf.SetPositionAndRotation(old.position, old.rotation);
+            tf.localScale = old.localScale;
+
+            // Shown or hidden as the old body was (GameModeManager hides it at Home).
+            bool shown = false;
+            foreach (Renderer r in old.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r != null && r.enabled) { shown = true; break; }
+            }
+            if (!shown)
+            {
+                foreach (Renderer r in body.GetComponentsInChildren<Renderer>(true)) r.enabled = false;
+            }
+            body.SetActive(old.gameObject.activeSelf);
+
+            // Out of every lookup this frame (FindAnyObjectByType, GameObject.Find), then gone.
+            old.gameObject.SetActive(false);
+            old.name += " (replaced)";
+            Destroy(old.gameObject);
+        }
+        else
+        {
+            tf.SetPositionAndRotation(homePos, Quaternion.Euler(homeEuler));
+            tf.localScale = homeScale;
+        }
+
+        for (int i = 0; i < characters.Length; i++) characters[i] = i == index ? tf : null;
+        PlayerRef.Replace(tf);
+        RefreshHighlight();
     }
 
     private void Start()

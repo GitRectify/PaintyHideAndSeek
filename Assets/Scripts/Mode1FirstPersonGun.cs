@@ -123,6 +123,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
     {
         font = UIFont.Default;
         Resolve();
+        PlayerRef.Changed += BindBody;
         EnsureEventSystem();
         BuildFireButton();
         Apply(false);
@@ -146,14 +147,24 @@ public class Mode1FirstPersonGun : MonoBehaviour
         }
 
         GameObject player = PlayerRef.Resolve(playerName);
-        if (player != null)
-        {
-            playerAnim = player.GetComponentInChildren<Animator>(true);
-            playerTf = player.transform;
-        }
+        BindBody(player != null ? player.transform : null);
+    }
 
-        // The arm that aims and holds the gun (GunAim), found again for a new character.
-        arm = player != null ? GunAim.FindArm(player.transform) : null;
+    // The player's animator, arm (GunAim) and own gun: at Start, and again for a new character's
+    // body (CharacterSelect swaps it in place, PlayerRef.Changed).
+    private void BindBody(Transform body)
+    {
+        playerTf = body;
+        playerAnim = body != null ? body.GetComponentInChildren<Animator>(true) : null;
+        arm = body != null ? GunAim.FindArm(body) : null;
+        GunHolder own = body != null ? body.GetComponentInChildren<GunHolder>(true) : null;
+        if (own != null) gunHolder = own;
+        gunTf = null;
+    }
+
+    private void OnDestroy()
+    {
+        PlayerRef.Changed -= BindBody;
     }
 
     // Gun mode = round running with the player as the seeker; re-applied only when it flips.

@@ -12,6 +12,8 @@ using UnityEngine;
 //   * avatar  = CharacterSelect's character (the server checks ownership at FindMatch);
 //   * weapon  = sent with SelectWeapon at the start of each online round (0 = the standard gun);
 //   * poses are picked in the round itself (PoseSelectorUI);
+//   * features (Extras): unlocked for good, nothing to equip; Next Player (GameFeatures) is what
+//     lets a player knocked out of an online round switch between the players still in;
 //   * bullets: default bullets are free and unlimited; special bullets 1-3 are bought per type
 //     (a bullet card's gameId is the type, as the server's GameId) and spent by shooting. The type
 //     to shoot is switched in the round (tapping the bullet label) and remembered here
@@ -275,6 +277,38 @@ public static class ShopInventory
         return true;    // the shop doesn't sell it, so there is nothing to buy
     }
 
+    // ================= Features =================
+
+    /// <summary>
+    /// The server's listing of a feature (GameFeatures id), as a card the death screen can buy it
+    /// with; null before the listing has arrived and when the server does not sell it.
+    /// </summary>
+    public static ShopItem FeatureItem(int featureId)
+    {
+        foreach (MetaItem item in listing.Values)
+        {
+            if (item.Kind != ItemKind.Feature || (int)item.GameId != featureId) continue;
+            return new ShopItem
+            {
+                id = "feature_" + item.Id,
+                category = ShopCategory.Extras,
+                displayName = featureId == GameFeatures.NextPlayer ? "Next Player" : item.Id,
+                serverId = item.Id,
+                gameId = featureId,
+                quantity = 1,
+            };
+        }
+        return null;
+    }
+
+    /// <summary>Whether this account has unlocked a feature, as the server last listed it.</summary>
+    public static bool OwnsFeature(int featureId)
+    {
+        foreach (MetaItem item in listing.Values)
+            if (item.Kind == ItemKind.Feature && (int)item.GameId == featureId) return item.Owned;
+        return false;
+    }
+
     private static bool OwnsWeapon(int weaponId)
     {
         if (weaponId <= 0) return true;
@@ -326,8 +360,8 @@ public static class ShopInventory
     }
 
     /// <summary>
-    /// Equips an owned avatar or weapon. An avatar is CharacterSelect's character, which reloads
-    /// the scene to swap the body. Equipping the weapon already carried puts the standard gun back.
+    /// Equips an owned avatar or weapon. An avatar is CharacterSelect's character, whose body is
+    /// swapped in place. Equipping the weapon already carried puts the standard gun back.
     /// </summary>
     public static void Equip(ShopItem item)
     {
@@ -337,6 +371,7 @@ public static class ShopInventory
         {
             CharacterSelect characters = UnityEngine.Object.FindAnyObjectByType<CharacterSelect>();
             if (characters != null) characters.Select(item.gameId);
+            Changed?.Invoke();   // the shop shows the new one as equipped
             return;
         }
 

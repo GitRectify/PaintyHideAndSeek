@@ -260,6 +260,7 @@ public class ChameleonPaint : MonoBehaviour
         ringSprite = MakeRing(96, 0.7f);
         lineSprite = MakeSolid();
         FindCharacter();
+        PlayerRef.Changed += HandlePlayerChanged;
         ResolveGoop();
         EnsureCollider();
         StartCoroutine(EnsureRoomCollidersWhenReady());
@@ -1779,8 +1780,26 @@ public class ChameleonPaint : MonoBehaviour
         }
     }
 
+    // A new character's body (CharacterSelect): it is the one painted from now on, wearing the
+    // canvas and sliders as they are. The old body's paint colliders went with it.
+    private void HandlePlayerChanged(Transform body)
+    {
+        if (drawingOn) CloseDrawing(true);
+        EndPaintCollider();
+        skinnedColliders = null;
+        if (bakedColliderMeshes != null)
+        {
+            foreach (Mesh m in bakedColliderMeshes) if (m != null) Destroy(m);
+            bakedColliderMeshes = null;
+        }
+        FindCharacter();
+        EnsureCollider();
+        ApplyCanvasToBody();
+    }
+
     private void OnDestroy()
     {
+        PlayerRef.Changed -= HandlePlayerChanged;
         if (loupeRT != null)
         {
             loupeRT.Release();

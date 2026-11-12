@@ -24,6 +24,20 @@ public static class PlayerRef
         set { activeBacking = value; }
     }
 
+    /// <summary>
+    /// Raised when the player's body is replaced by another character's (CharacterSelect.Select),
+    /// with the new body. Whatever holds the old body, its animator, controller or renderers looks
+    /// them up again here: the scene is not reloaded for a new character.
+    /// </summary>
+    public static event System.Action<Transform> Changed;
+
+    /// <summary>Makes <paramref name="body"/> the player and tells everyone holding the old one (<see cref="Changed"/>).</summary>
+    public static void Replace(Transform body)
+    {
+        Active = body;
+        Changed?.Invoke(body);
+    }
+
     // Prefers the explicitly-set Active transform; otherwise looks up fallbackName via
     // GameObject.Find, then falls back further to a full scene scan if that also misses.
     public static GameObject Resolve(string fallbackName)

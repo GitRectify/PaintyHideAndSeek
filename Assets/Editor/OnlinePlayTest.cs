@@ -43,10 +43,11 @@ public static class OnlinePlayTest
     private const string CharacterPrefsKey = "SelectedCharacter";      // CharacterSelect.prefsKey
 
     // -playtestSwitchBody: the account buys the other character, picks it on SelectPlayerCanvas (the
-    // scene reloads for it) and plays the match with it.
+    // body is swapped in place, no scene reload) and plays the match with it.
     private static bool SwitchBody => System.Environment.GetCommandLineArgs().Contains("-playtestSwitchBody");
     private static int switchedTo = -1;
     private static bool switchChecked, avatarAnswered, profileRefreshed;
+    private static HomeUI sceneMarker;   // HomeUI before the switch: still the same (not destroyed) after it means no reload
 
     private static readonly BindingFlags Any = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
 
@@ -105,7 +106,14 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay }
+
+    // -playtestStandard: the paid room (20 coins, real players only). -playtestLobbyMark <file>:
+    // written once this game sits in a lobby, so a runner can send the other players in after it.
+    private static bool Standard => System.Environment.GetCommandLineArgs().Contains("-playtestStandard");
+    private static string LobbyMark => System.Environment.GetCommandLineArgs().SkipWhile(a => a != "-playtestLobbyMark").Skip(1).FirstOrDefault();
+    private static long standardCoinsBefore;
+    private static bool lobbyMarked, standardLobbyChecked;
 
     private static Step step;
     private static float stepStarted, startedAt, nextAction;
@@ -304,19 +312,67 @@ public static class OnlinePlayTest
                 if (practice == null) return;
                 if (switchedTo >= 0 && !switchChecked)
                 {
-                    // Back from the reload by itself, at the room screen, as the new character.
+                    // Straight on to the room screen, as the new character, in the same scene.
                     switchChecked = true;
                     Transform body = PlayerRef.Active;
                     string expected = switchedTo == 0 ? "Player" : "Player" + (switchedTo + 1);
                     int bodies = Object.FindObjectsByType<SeekerCamProfile>(FindObjectsInactive.Include).Length;
                     Check(body != null && body.name == expected && bodies == 1,
-                          $"after the reload the game came back to the room screen as {expected} ({(body != null ? body.name : "none")}, {bodies} player bodies)");
+                          $"after the switch the game went on to the room screen as {expected} ({(body != null ? body.name : "none")}, {bodies} player bodies)");
+                    HomeUI homeNow = Object.FindAnyObjectByType<HomeUI>(FindObjectsInactive.Include);
+                    Check(homeNow != null && sceneMarker != null && homeNow == sceneMarker, "without reloading the scene");
                     Check(FindByName("SelectPlayerCanvas") is not { activeInHierarchy: true } && FindByName("RoleSelectCanvas") is not { activeInHierarchy: true },
                           "with the side and character screens closed");
-                    Check(PlayerPrefs.GetInt(SelectPlayerUI.PendingOnlineModeKey, -1) == -1, "and nothing left pending for the next launch");
+                    Check(Net != null && Net.IsConnected, "still connected to the server");
+
+                    // Everything that moves, films, paints, climbs, poses or arms the player has the new body.
+                    var holders = new (System.Type type, string field)[]
+                    {
+                        (typeof(JoystickMover), "character"), (typeof(CameraController), "character"),
+                        (typeof(WallClimber), "character"), (typeof(ChameleonPaint), "characterTf"),
+                        (typeof(Mode1FirstPersonGun), "playerTf"), (typeof(GameModeManager), "playerTf"),
+                    };
+                    var stale = new List<string>();
+                    foreach (var (type, field) in holders)
+                    {
+                        Object holder = Object.FindAnyObjectByType(type, FindObjectsInactive.Include);
+                        if (holder != null && Get<Transform>(holder, field) != body) stale.Add(type.Name);
+                    }
+                    Check(stale.Count == 0, "every script follows the new body" + (stale.Count > 0 ? " (stale: " + string.Join(", ", stale) + ")" : ""));
+                    Animator poseAnim = Object.FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include) is PoseSelectorUI ps ? Get<Animator>(ps, "anim") : null;
+                    Check(poseAnim != null && poseAnim.transform.IsChildOf(body), "the pose picker drives the new body's animator");
                 }
                 Check(FindButton("RoomScreen", "HISTORY") != null, "room screen has the HISTORY button");
+                if (Standard)
+                {
+                    // The paid room: open now, real players only, its entry confirmed before the search.
+                    Button standard = FindButton("RoomScreen", "Standard");
+                    string standardText = standard != null ? standard.GetComponentInChildren<Text>(true).text.Replace("\n", " / ") : "none";
+                    Check(standard != null && standard.interactable && standardText.Contains("20 coins") && standardText.Contains("real players only"),
+                          $"the Standard room can be picked: '{standardText}'");
+                    if (standard == null) { Finish(); return; }
+                    standardCoinsBefore = CoinBalance.Cents;
+                    Shot("rooms");
+                    standard.onClick.Invoke();
+                    Go(Step.Pay);
+                    return;
+                }
                 practice.onClick.Invoke();
+                Go(Step.Map);
+                return;
+
+            case Step.Pay:
+                if (InStep < 0.5f) return;
+                GameObject pay = FindByName("PayScreen");
+                string payText = pay != null ? string.Join(" | ", pay.GetComponentsInChildren<Text>(true).Select(t => t.text.Replace("\n", " "))) : "none";
+                Check(pay != null && pay.activeInHierarchy && payText.Contains("Real players only") && payText.Contains("refunded"),
+                      $"the entry is confirmed first, saying what it buys ({payText})");
+                Check(CoinBalance.Cents == standardCoinsBefore, "nothing is taken before PAY");
+                Shot("pay");
+                Button payButton = FindButton("PayScreen", "PAY 20 coins");
+                Check(payButton != null, "its button says PAY 20 coins");
+                if (payButton == null) { Finish(); return; }
+                payButton.onClick.Invoke();
                 Go(Step.Map);
                 return;
 
@@ -340,6 +396,16 @@ public static class OnlinePlayTest
 
             case Step.Match:
                 if (!lobbyLaidOut) { lobbyLaidOut = true; CheckLobbyLayout(); }
+                if (!OnlineRound.Active && Net.LocalSlot != 0xFF && Net.MatchSeats > 0)
+                {
+                    if (!lobbyMarked && !string.IsNullOrEmpty(LobbyMark)) { lobbyMarked = true; File.WriteAllText(LobbyMark, "lobby"); }
+                    if (Standard && !standardLobbyChecked)
+                    {
+                        standardLobbyChecked = true;
+                        string waiting = FindByName("LobbyBar")?.GetComponentsInChildren<Text>(true).FirstOrDefault()?.text ?? "";
+                        Check(waiting.Contains("real players"), $"the paid lobby waits for real players ('{waiting.Replace("\n", " ")}')");
+                    }
+                }
                 if (!homeChecked && FindByName("MatchmakingCanvas") is { activeSelf: true })
                 {
                     homeChecked = true;
@@ -356,6 +422,14 @@ public static class OnlinePlayTest
                 Check(Net.MatchHunterSeats == GameTuning.SeekersFor(Seats),
                       $"{GameTuning.SeekersFor(Seats)} of them seek and {Seats - GameTuning.SeekersFor(Seats)} hide ({Net.MatchHunterSeats} seekers)");
                 Check(Net.LocalRole == (Seeker ? Role.Hunter : Role.Fugitive), $"plays the side picked ({Net.LocalRole})");
+                if (Standard)
+                {
+                    var seated = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster") ?? new MecchaNetClient.RosterEntry[0];
+                    Check(seated.Length == 8 && seated.All(e => !e.IsBot), $"the Standard match is 8 real players, no bots ({seated.Count(e => !e.IsBot)} real, {seated.Count(e => e.IsBot)} bots)");
+                    Check(Net.HostedBots == null || Net.HostedBots.Length == 0, "and this game is given no bots to run");
+                    long held = standardCoinsBefore - CoinBalance.Cents;
+                    Check(held == 20 * GameTuning.CentsPerCoin, $"the 20-coin entry is held from the balance ({held / (double)GameTuning.CentsPerCoin} coins)");
+                }
                 Go(Step.Round);
                 return;
 
@@ -433,6 +507,22 @@ public static class OnlinePlayTest
                     .ToList();
                 Check(owned > 0 && badges.Any(b => b == $"Own {owned}"),
                       $"shop's special bullet 2 cards show the owned count (owned {owned}; ribbons: {string.Join(", ", badges.Select(b => b ?? "-"))}; catalog {(catalog != null ? "loaded" : "missing")})");
+                if (NextPlayerTest && shop != null)
+                {
+                    // The Extras tab, added under the scene's five, sells Next Player: owned by now.
+                    Button[] tabs = Get<Button[]>(shop, "tabButtons");
+                    shop.SelectTab((int)ShopCategory.Extras);
+                    ShopItemCard card = Object.FindObjectsByType<ShopItemCard>(FindObjectsInactive.Exclude)
+                        .FirstOrDefault(c => c.Item != null && c.Item.category == ShopCategory.Extras);
+                    string cardText = card != null ? string.Join(" | ", card.GetComponentsInChildren<Text>(true).Where(t => t.gameObject.activeInHierarchy).Select(t => t.text)) : "none";
+                    Check(tabs != null && tabs.Length == 6 && tabs[5] != null && tabs[5].name == "Tab_Extras" && tabs[5].transform.parent == tabs[4].transform.parent,
+                          $"the shop has an Extras tab under the other five ({(tabs != null ? string.Join(", ", tabs.Select(t => t != null ? t.name : "-")) : "none")})");
+                    // Owned by the player who bought it when knocked out; priced for one who was not.
+                    bool ownsIt = ShopInventory.OwnsFeature(GameFeatures.NextPlayer);
+                    Check(card != null && cardText.Contains("Next Player") && cardText.Contains(ownsIt ? "Owned" : "100"),
+                          $"its Next Player card shows it {(ownsIt ? "owned" : "for sale at 100 coins")} ({cardText})");
+                    Shot("shop_extras");
+                }
                 Go(Again ? Step.Again : SinglePlay ? Step.SinglePlay : Step.Done);
                 return;
 
@@ -944,11 +1034,13 @@ public static class OnlinePlayTest
 
         if (SwitchBody && switchedTo < 0)
         {
-            // The other character, which this account now owns: Play reloads the scene with it.
+            // The other character, which this account now owns: Play swaps the body in place.
             switchedTo = 1 - inUse;
-            report.Add($"INFO  picking character {switchedTo} (was {inUse}): the scene reloads");
+            sceneMarker = Object.FindAnyObjectByType<HomeUI>(FindObjectsInactive.Include);
             picker.PickCharacter(switchedTo);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             picker.Confirm();
+            report.Add($"INFO  picked character {switchedTo} (was {inUse}): body swapped in {watch.Elapsed.TotalMilliseconds:0.0} ms");
             return;
         }
 
@@ -963,7 +1055,7 @@ public static class OnlinePlayTest
         else report.Add("INFO  this account owns every character online: no locked one to try");
 
         picker.PickCharacter(inUse);
-        picker.Confirm();               // the character already in use: no reload
+        picker.Confirm();               // the character already in use: nothing to swap
         Check(!canvas.activeInHierarchy, $"Play on the character in use ({inUse}) goes on to the rooms");
     }
 
@@ -1147,6 +1239,130 @@ public static class OnlinePlayTest
         freeLookStage = 2;
     }
 
+    // ================= Next Player, bought once after being knocked out =================
+
+    // -playtestNextPlayer: out of the round, Next player offers the feature first (a tap opens the
+    // offer and switches nothing; Not now takes nothing), then Unlock buys it for 100 coins and the
+    // button switches between the players still in, there and then.
+    private static bool NextPlayerTest => System.Environment.GetCommandLineArgs().Contains("-playtestNextPlayer");
+
+    // -playtestShots: pictures of the screens these modes open, next to the report.
+    private static bool Shots => System.Environment.GetCommandLineArgs().Contains("-playtestShots");
+
+    private static void Shot(string name)
+    {
+        if (!Shots) return;
+        Camera cam = Camera.main;
+        if (cam == null) cam = Object.FindObjectsByType<Camera>().Where(c => c.enabled && c.gameObject.activeInHierarchy).OrderByDescending(c => c.depth).FirstOrDefault();
+        if (cam == null) return;
+        // Overlay canvases are not drawn by a camera render: put them in front of it for the picture.
+        var overlays = Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude)
+            .Where(c => c.isRootCanvas && c.renderMode == RenderMode.ScreenSpaceOverlay).ToList();
+        foreach (Canvas c in overlays)
+        {
+            c.renderMode = RenderMode.ScreenSpaceCamera;
+            c.worldCamera = cam;
+            c.planeDistance = cam.nearClipPlane + 0.05f + 0.001f * (100 - Mathf.Clamp(c.sortingOrder, -100, 100));
+        }
+        Canvas.ForceUpdateCanvases();
+        var rt = new RenderTexture(1280, 720, 24);
+        RenderTexture before = cam.targetTexture;
+        cam.targetTexture = rt;
+        cam.Render();
+        RenderTexture.active = rt;
+        var tex = new Texture2D(1280, 720, TextureFormat.RGB24, false);
+        tex.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
+        tex.Apply();
+        cam.targetTexture = before;
+        RenderTexture.active = null;
+        File.WriteAllBytes(Path.ChangeExtension(ReportPath, null) + "_" + name + ".png", tex.EncodeToPNG());
+        Object.DestroyImmediate(tex);
+        rt.Release();
+        foreach (Canvas c in overlays) { c.renderMode = RenderMode.ScreenSpaceOverlay; c.worldCamera = null; }
+    }
+    private static int nextStage;
+    private static float nextAt;
+    private static long nextCoinsBefore;
+    private static byte nextWatched;
+
+    private static void CheckNextPlayer()
+    {
+        if (!NextPlayerTest || nextStage >= 9) return;
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+        if (me == null || !me.Eliminated) return;
+
+        OnlineRound round = OnlineRoundInstance();
+        Button next = round != null ? Get<Button>(round, "nextButton") : null;
+        if (next == null || !next.gameObject.activeInHierarchy) return;
+        float now = Time.realtimeSinceStartup;
+        if (now < nextAt) return;
+
+        byte watching = (byte)typeof(OnlineRound).GetField("watching", Any).GetValue(round);
+        string label = next.GetComponentInChildren<Text>(true).text.Replace("\n", " / ");
+        GameObject offer = FindByName("NextPlayerOffer");
+        int stillIn = Object.FindObjectsByType<NetEntityView>().Count(v => !v.IsLocal && !v.Eliminated);
+
+        switch (nextStage)
+        {
+            case 0:
+                Check(label.Contains("Unlock") && label.Contains("100"), $"out of the round, Next player offers the unlock first ('{label}')");
+                Shot("next_locked");
+                Check(!ShopInventory.OwnsFeature(GameFeatures.NextPlayer), "the account does not own Next Player yet");
+                nextCoinsBefore = CoinBalance.Cents;
+                nextWatched = watching;
+                next.onClick.Invoke();
+                nextAt = now + 0.5f;
+                nextStage = 1;
+                return;
+
+            case 1:
+                Check(offer != null && offer.activeInHierarchy && watching == nextWatched, $"a tap opens the offer and switches nothing (watching {nextWatched} -> {watching})");
+                Shot("next_offer");
+                Button notNow = FindButton("NextPlayerOffer", "Not now");
+                if (notNow != null) notNow.onClick.Invoke();
+                nextAt = now + 0.5f;
+                nextStage = 2;
+                return;
+
+            case 2:
+                Check(offer == null && CoinBalance.Cents == nextCoinsBefore, "Not now closes it and takes nothing");
+                next.onClick.Invoke();
+                nextAt = now + 0.5f;
+                nextStage = 3;
+                return;
+
+            case 3:
+                Button unlock = FindButton("NextPlayerOffer", "Unlock for");
+                Check(unlock != null, "the offer has its Unlock button, with the price");
+                if (unlock == null) { nextStage = 9; return; }
+                nextWatched = watching;
+                unlock.onClick.Invoke();
+                nextAt = now + 3f;      // the purchase and the listing after it
+                nextStage = 4;
+                return;
+
+            case 4:
+                long taken = nextCoinsBefore - CoinBalance.Cents;
+                Check(offer == null, "Unlock closes the offer once bought");
+                Check(taken == 100 * GameTuning.CentsPerCoin, $"it cost 100 coins ({taken / (double)GameTuning.CentsPerCoin} taken)");
+                Check(ShopInventory.OwnsFeature(GameFeatures.NextPlayer), "the server lists Next Player as owned");
+                Check(label == "Next player", $"the button now just says Next player ('{label}')");
+                if (stillIn >= 2) Check(watching != nextWatched, $"and the camera moved on to the next player straight away ({nextWatched} -> {watching})");
+                else report.Add($"INFO  {stillIn} player(s) still in when it was bought: nobody else to switch to");
+                Shot("next_unlocked");
+                nextWatched = watching;
+                next.onClick.Invoke();
+                nextAt = now + 0.5f;
+                nextStage = 5;
+                return;
+
+            case 5:
+                if (stillIn >= 2) Check(watching != nextWatched && offer == null, $"each tap switches again, with no offer ({nextWatched} -> {watching})");
+                nextStage = 9;
+                return;
+        }
+    }
+
     private static void PlayRound()
     {
         CheckPlayerPrefab();
@@ -1155,6 +1371,7 @@ public static class OnlinePlayTest
         CheckSeekerBotGun();
         CheckSeekerBodyLiesDown();
         CheckFreeLookWhenOut();
+        CheckNextPlayer();
         CheckBodies();
         if (Kills || Mixed) WatchKillBullet();
         SampleMovement();
@@ -2867,7 +3084,6 @@ public static class OnlinePlayTest
         Application.logMessageReceived -= CountErrors;
         ShopInventory.PreferredBullet = BulletType.Default;   // leave the editor's preference as found
         PlayerPrefs.SetInt(CharacterPrefsKey, SessionState.GetInt(CharacterKey, 0));   // and its character
-        PlayerPrefs.SetInt(SelectPlayerUI.PendingOnlineModeKey, -1);
         PlayerPrefs.Save();
         if (Lan) OnlineConfig.SaveHostOverride("");             // the LAN search remembered what it found
 

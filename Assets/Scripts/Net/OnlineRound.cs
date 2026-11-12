@@ -37,7 +37,8 @@ using UnityEngine.UI;
 //   * The server has no bots of its own either: when it gives this player the empty seats, this
 //     game runs Single Play's bot controllers on them and reports what they do (OnlineRound.Bots.cs).
 //   * Out of the round, the player spectates: the server sends everyone, and the camera follows the
-//     players still in (Next switches) until the result.
+//     players still in until the result. Switching between them (Next player) is Next Player, a
+//     shop feature bought once (OnlineRound.NextPlayer.cs).
 //   * Poses and weapons are the shop's: PoseSelectorUI sends a pick through SendPose (owned poses
 //     only), the equipped weapon is selected at the start (SelectWeapon), and snapshots show every
 //     other player's pose and gun skin. There is no in-round weapon picker, as offline.
@@ -932,7 +933,11 @@ public partial class OnlineRound : MonoBehaviour
         NetEntityView current = watching != 0xFF ? NetEntityRegistry.Get(watching) : null;
         if (current == null || current.Eliminated) Watch(NextToWatch(watching));
 
-        if (nextButton != null) nextButton.gameObject.SetActive(watching != 0xFF);
+        if (nextButton != null)
+        {
+            nextButton.gameObject.SetActive(watching != 0xFF);
+            RefreshNextButton();
+        }
     }
 
     // The next player still in after this slot (in slot order, wrapping), or 0xFF for none.
@@ -965,6 +970,11 @@ public partial class OnlineRound : MonoBehaviour
     private void WatchNext()
     {
         AudioManager.ButtonTap();
+        if (!NextPlayerOpen)
+        {
+            OfferNextPlayer();   // not unlocked yet: offer it, and switch once bought
+            return;
+        }
         if (camCtrl != null) camCtrl.SetFreeLook(false);   // the button means: show me them
         Watch(NextToWatch(watching));
     }
@@ -975,6 +985,7 @@ public partial class OnlineRound : MonoBehaviour
         watching = 0xFF;
         if (camCtrl != null) camCtrl.SetFollowTarget(null);
         if (nextButton != null) nextButton.gameObject.SetActive(false);
+        CloseNextPlayerOffer();
     }
 
     private void HandleIdleWarning(int seconds)
@@ -1092,8 +1103,10 @@ public partial class OnlineRound : MonoBehaviour
         bulletsOutline.effectColor = new Color(0f, 0f, 0f, 0.8f);
         bulletsLabel.gameObject.SetActive(false);
 
-        // Spectating: switch to the next player still in, bottom centre.
-        nextButton = OnlineUI.NewButton(canvas.transform, "Next player", Vector2.zero, new Vector2(360f, 96f),
+        // Spectating: switch to the next player still in, bottom centre (once Next Player is
+        // unlocked; before that the button offers it).
+        roundCanvas = canvas.transform;
+        nextButton = OnlineUI.NewButton(canvas.transform, "Next player", Vector2.zero, new Vector2(400f, 110f),
                                         OnlineUI.Blue, WatchNext);
         RectTransform nrt = (RectTransform)nextButton.transform;
         nrt.anchorMin = nrt.anchorMax = nrt.pivot = new Vector2(0.5f, 0f);

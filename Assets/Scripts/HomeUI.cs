@@ -84,7 +84,7 @@ public class HomeUI : MonoBehaviour
         {
             SetSelectPlayer(false);
             onBack?.Invoke();
-        }, locked, SelectPlayerUI.PendingOnlineModeKey);
+        }, locked);
         return true;
     }
 
@@ -107,8 +107,7 @@ public class HomeUI : MonoBehaviour
     // Resolves references, builds the gameplayUI list (every direct child of the scene's "UI" root
     // except homeCanvas itself and anything IsExcludedFromGameplayUI flags as a separate overlay
     // canvas), builds the hideOnlyUI list from a fixed set of named objects, finds "ModesButton" and
-    // "MenuDim", wires ModesButton to GoHome, and finally resumes a pending match if one was saved
-    // to PlayerPrefs before a scene reload.
+    // "MenuDim", wires ModesButton to GoHome, and finally shows Home.
     private void Start()
     {
         gmm = Object.FindAnyObjectByType<GameModeManager>();
@@ -190,18 +189,9 @@ public class HomeUI : MonoBehaviour
             }
         }
 
-        int mode = PlayerPrefs.GetInt("PendingMatchMode", -1);
-        if (mode < 0)
-        {
-            GoHome();
-        }
-        else
-        {
-            PlayerPrefs.SetInt("PendingMatchMode", -1);
-            PlayerPrefs.Save();
-            GoHome();
-            AfterSelectPlayer(mode);
-        }
+        // A new character no longer reloads the scene (CharacterSelect swaps the body in place),
+        // so there is no match mode to resume here.
+        GoHome();
     }
 
     // Scene-wide named-object lookup (GameObject.Find first, then a fallback scan of every loaded
