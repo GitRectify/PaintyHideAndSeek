@@ -80,6 +80,7 @@ public static class OnlineUI
         label.verticalOverflow = VerticalWrapMode.Overflow;
 
         Place(label.rectTransform, pos, box);
+        UiTranslator.Track(label);      // in the player's language from its first frame
         return label;
     }
 

@@ -35,6 +35,15 @@ public class SelectPlayerUI : MonoBehaviour
     private int _mode;
     private int _pending;
 
+    // Multiple Play: characters the account does not own online, and where a reload resumes.
+    private Func<int, bool> _locked;
+    private string _resumeKey;
+    private Text[] _lockLabels;
+    private Text _message;
+
+    /// <summary>PlayerPrefs flag: the online side to resume at the room screen after a character-switch reload (-1 = none).</summary>
+    public const string PendingOnlineModeKey = "PendingOnlineMatchMode";
+
     public static SelectPlayerUI Instance { get; private set; }
 
     public bool Ready => _canvas != null;
@@ -97,19 +106,94 @@ public class SelectPlayerUI : MonoBehaviour
     }
 
     // Opens the picker for a match mode; without the popup, continues straight away.
-    public void Show(int mode, Action onConfirm, Action onBack)
+    public void Show(int mode, Action onConfirm, Action onBack) => Show(mode, onConfirm, onBack, null, null);
+
+    /// <summary>
+    /// Multiple Play's use of the same screen: <paramref name="locked"/> marks the characters this
+    /// account cannot play online (Play refuses them, and says where to get them), and a reload
+    /// for a new character comes back to <paramref name="resumeKey"/>'s flow, not Single Play's.
+    /// It opens on the character now chosen.
+    /// </summary>
+    public void Show(int mode, Action onConfirm, Action onBack, Func<int, bool> locked, string resumeKey)
     {
         _mode = mode;
         _onConfirm = onConfirm;
         _onBack = onBack;
-        _pending = 0;
+        _locked = locked;
+        _resumeKey = resumeKey;
+        _pending = locked != null && _cs != null ? _cs.CurrentIndex : 0;
         if (_canvas == null)
         {
             onConfirm?.Invoke();
             return;
         }
         _canvas.SetActive(true);
+        ShowMessage("");
+        RefreshLocks();
         RefreshHighlight();
+    }
+
+    private bool IsLocked(int i) => _locked != null && _locked(i);
+
+    // A "LOCKED" ribbon on each character this account cannot play online.
+    private void RefreshLocks()
+    {
+        if (_frames == null) return;
+        if (_lockLabels == null) _lockLabels = new Text[_frames.Length];
+
+        for (int i = 0; i < _frames.Length; i++)
+        {
+            bool locked = IsLocked(i);
+            if (_lockLabels[i] == null && locked)
+            {
+                Transform button = FindUnder(_canvas.transform, buttonNames[i]);
+                if (button == null) continue;
+                _lockLabels[i] = NewLabel(button, "LockLabel", "LOCKED", 44, new Vector2(0f, -150f), new Vector2(360f, 70f));
+                _lockLabels[i].color = new Color(1f, 0.78f, 0.35f, 1f);
+            }
+
+            if (_lockLabels[i] != null) _lockLabels[i].gameObject.SetActive(locked);
+        }
+    }
+
+    private void ShowMessage(string text)
+    {
+        if (_message == null)
+        {
+            if (string.IsNullOrEmpty(text) || _canvas == null) return;
+            Transform play = FindUnder(_canvas.transform, playButtonName);
+            if (play == null || play.parent == null) return;
+            _message = NewLabel(play.parent, "LockMessage", "", 34, ((RectTransform)play).anchoredPosition + new Vector2(0f, 95f), new Vector2(1100f, 60f));
+            _message.color = new Color(1f, 0.78f, 0.35f, 1f);
+        }
+
+        _message.text = text;
+        _message.gameObject.SetActive(!string.IsNullOrEmpty(text));
+    }
+
+    private static Text NewLabel(Transform parent, string name, string text, int size, Vector2 pos, Vector2 box)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = pos;
+        rt.sizeDelta = box;
+
+        Text label = go.AddComponent<Text>();
+        label.font = UIFont.Default;
+        label.text = text;
+        label.fontSize = size;
+        label.fontStyle = FontStyle.Bold;
+        label.alignment = TextAnchor.MiddleCenter;
+        label.raycastTarget = false;
+        label.horizontalOverflow = HorizontalWrapMode.Overflow;
+        label.verticalOverflow = VerticalWrapMode.Overflow;
+        Outline outline = go.AddComponent<Outline>();
+        outline.effectColor = new Color(0f, 0f, 0f, 0.7f);
+        outline.effectDistance = new Vector2(2f, -2f);
+        UiTranslator.Track(label);
+        return label;
     }
 
     public void Back()
@@ -127,6 +211,7 @@ public class SelectPlayerUI : MonoBehaviour
     public void PickCharacter(int i)
     {
         _pending = Mathf.Clamp(i, 0, buttonNames.Length - 1);
+        ShowMessage(IsLocked(_pending) ? "Not unlocked online. Get it in the Shop." : "");
         RefreshHighlight();
     }
 
@@ -134,6 +219,13 @@ public class SelectPlayerUI : MonoBehaviour
     // the scene (HomeUI resumes the mode after the reload).
     public void Confirm()
     {
+        // Online, a character the account does not own cannot be played: say so, stay here.
+        if (IsLocked(_pending))
+        {
+            ShowMessage("Not unlocked online. Get it in the Shop.");
+            return;
+        }
+
         if (_canvas != null)
         {
             _canvas.SetActive(false);
@@ -143,7 +235,7 @@ public class SelectPlayerUI : MonoBehaviour
         {
             LoadingScreen.ShowInstant();
             PlayerPrefs.SetInt(_cs.prefsKey, _pending);
-            PlayerPrefs.SetInt(pendingModeKey, _mode);
+            PlayerPrefs.SetInt(string.IsNullOrEmpty(_resumeKey) ? pendingModeKey : _resumeKey, _mode);
             PlayerPrefs.Save();
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
             return;

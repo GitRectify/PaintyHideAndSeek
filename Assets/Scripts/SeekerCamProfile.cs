@@ -29,4 +29,10 @@ public class SeekerCamProfile : MonoBehaviour
     public float proneLookDrop = 1.8f;
     [Tooltip("When prone, the camera's backward offset uses an absolute value instead of `tpsBack` (not a delta); a negative value positions the camera in front of the character. While standing, `tpsBack` is still used. Smoothly interpolate using `proneLerpSpeed`.")]
     public float proneBack = 0.12f;
+
+    [Header("Lie down — eye level near the floor")]
+    [Tooltip("When lying down, the camera's height above the FLOOR (world units at scale 1), not above the character's pivot: low enough to see and aim under beds and tables. The pivot stays where the standing body had it, so a drop from the pivot left the camera at chest height.")]
+    public float proneEyeHeight = 2.6f;
+    [Tooltip("When lying down, how far in front of the character's pivot the camera sits (world units at scale 1): at the head end of the lying body, so the body itself is not in the way.")]
+    public float proneForward = 6.5f;
 }

@@ -328,7 +328,7 @@ public class OnlineSignIn : MonoBehaviour
         p = OnlineUI.Modal(canvas, "ProfileScreen", new Vector2(1060f, 760f));
         profileScreen = p.parent.gameObject;
         OnlineUI.NewLabel(p, "Choose your player name", 52, new Vector2(0f, 300f), new Vector2(980f, 80f), TextAnchor.MiddleCenter, true);
-        Text rules = OnlineUI.NewLabel(p, $"Everyone sees this name. {UserIds.MinLength}-{UserIds.MaxLength} letters, digits, _ or ., starting with a letter.",
+        Text rules = OnlineUI.NewLabel(p, $"Everyone sees this name. {UserIds.MinLength}-{UserIds.MaxLength} letters (English, Russian or Chinese), digits, _ or ., starting with a letter.",
                                        28, new Vector2(0f, 230f), new Vector2(960f, 70f));
         rules.color = OnlineUI.Muted;
         userIdInput = OnlineUI.NewInput(p, "Player name", new Vector2(0f, 135f), new Vector2(660f, 92f));
@@ -394,6 +394,7 @@ public class OnlineSignIn : MonoBehaviour
                     case UserIdProblem.BadCharacter: return "Use only letters, digits, _ and .";
                     case UserIdProblem.MustStartWithLetter: return "Start with a letter.";
                     case UserIdProblem.Reserved: return "That name is reserved. Try another.";
+                    case UserIdProblem.MixedScripts: return "Don't mix Latin and Cyrillic letters in one name.";
                     default: return "That name isn't allowed.";
                 }
             default: return MetaErrorText(reply.Error, false);

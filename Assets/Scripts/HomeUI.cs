@@ -64,6 +64,30 @@ public class HomeUI : MonoBehaviour
         SetRoleSelect(true);
     }
 
+    /// <summary>
+    /// Multiple Play's body choice: the same SelectPlayerCanvas Single Play shows after the side,
+    /// with the characters this account cannot play online locked. False when the scene has no
+    /// picker (the caller then goes straight on).
+    /// </summary>
+    public bool ShowSelectPlayerOnline(int mode, Action onConfirm, Action onBack, Func<int, bool> locked)
+    {
+        if (SelectPlayerUI.Instance == null || !SelectPlayerUI.Instance.Ready) return false;
+
+        SetHome(false);
+        SetRoleSelect(false);
+        SetSelectPlayer(true);
+        SelectPlayerUI.Instance.Show(mode, () =>
+        {
+            SetSelectPlayer(false);
+            onConfirm?.Invoke();
+        }, () =>
+        {
+            SetSelectPlayer(false);
+            onBack?.Invoke();
+        }, locked, SelectPlayerUI.PendingOnlineModeKey);
+        return true;
+    }
+
     public void HideRoleSelect()
     {
         SetRoleSelect(false);

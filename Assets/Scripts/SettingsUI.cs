@@ -117,6 +117,10 @@ public class SettingsUI : MonoBehaviour
         MakeLabel("LblGfx", parent, "Graphic Quality", -20f);
         MakeStepper(parent, -20f);
 
+        // Language (L): English, Chinese, Russian, with the same arrows as the quality.
+        MakeLabel("LblLang", parent, "Language", -90f);
+        MakeLanguageStepper(parent, -90f);
+
         Button homeBtn = NewButton("HomeBtn", parent, homeBg, new Vector2(0f, -195f), new Vector2(244f, 88f));
         if (homeIcon != null)
         {
@@ -161,6 +165,7 @@ public class SettingsUI : MonoBehaviour
 
     public void Show()
     {
+        RefreshLanguage();
         EnsureBuilt();
         LoadState();
         if (canvasGO != null)
@@ -431,6 +436,41 @@ public class SettingsUI : MonoBehaviour
         {
             nextImg.preserveAspect = true;
         }
+    }
+
+    private Text languageLabel;
+
+    private void MakeLanguageStepper(Transform parent, float y)
+    {
+        Button back = NewButton("LangBack", parent, arrowBack, new Vector2(108f, y), new Vector2(40f, 52f));
+        Image backImg = back.GetComponent<Image>();
+        if (backImg != null) backImg.preserveAspect = true;
+
+        languageLabel = NewText("LangValue", parent, L.NameOf(L.Current), 26, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
+        Place(languageLabel, CenterAnchor, CenterAnchor, new Vector2(192f, y), new Vector2(130f, 44f));
+
+        Button next = NewButton("LangNext", parent, arrowNext, new Vector2(276f, y), new Vector2(40f, 52f));
+        Image nextImg = next.GetComponent<Image>();
+        if (nextImg != null) nextImg.preserveAspect = true;
+
+        back.onClick.RemoveAllListeners();
+        back.onClick.AddListener(() => StepLanguage(-1));
+        next.onClick.RemoveAllListeners();
+        next.onClick.AddListener(() => StepLanguage(1));
+    }
+
+    private void StepLanguage(int dir)
+    {
+        AudioManager.ButtonTap();
+        int count = System.Enum.GetValues(typeof(GameLanguage)).Length;
+        L.Set((GameLanguage)(((int)L.Current + dir + count) % count));
+        RefreshLanguage();
+    }
+
+    // Each language is named in itself, so it can be found whatever the game is in now.
+    private void RefreshLanguage()
+    {
+        if (languageLabel != null) languageLabel.text = L.NameOf(L.Current);
     }
 
     private Button NewButton(string n, Transform parent, Sprite spr, Vector2 pos, Vector2 size)

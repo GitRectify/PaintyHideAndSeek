@@ -1,0 +1,313 @@
+# English	Chinese (Simplified)	Russian
+# The English is the key: the game shows the other two in place of it (L.cs). {0}, {1}: the parts that change.
+Play	开始	Играть
+Multiplayer	多人游戏	Мультиплеер
+Shop	商店	Магазин
+Home	主页	Главная
+Music	音乐	Музыка
+Music/Ambient	音乐/环境音	Музыка/фон
+Sound Effects	音效	Звуковые эффекты
+Graphic Quality	画质	Качество графики
+Language	语言	Язык
+Low	低	Низкое
+Medium	中	Среднее
+High	高	Высокое
+On	开	Вкл
+Off	关	Выкл
+Restore	恢复	Восстановить
+Loading	加载中	Загрузка
+Rate Now	立即评分	Оценить
+Late	稍后	Позже
+Thank you!	谢谢！	Спасибо!
+I like this game.	我喜欢这个游戏。	Мне нравится эта игра.
+OK	确定	ОК
+NO	否	НЕТ
+BACK	返回	НАЗАД
+CLOSE	关闭	ЗАКРЫТЬ
+CANCEL	取消	ОТМЕНА
+CONFIRM	确认	ПОДТВЕРДИТЬ
+RETRY	重试	ПОВТОРИТЬ
+Coming soon	即将推出	Скоро
+You	你	Вы
+Player	玩家	Игрок
+Player {0}	玩家 {0}	Игрок {0}
+Bot	机器人	Бот
+a bot	一个机器人	бот
+Avatar	角色	Аватар
+Avatar {0}	角色 {0}	Аватар {0}
+Room	房间	Комната
+Room {0}	房间 {0}	Комната {0}
+Map game	地图	Карта
+Map: {0}	地图：{0}	Карта: {0}
+Rotate view	旋转视角	Повернуть камеру
+Seeker	寻找者	Искатель
+Hider	躲藏者	Прячущийся
+Start	开始	Старт
+Next	下一局	Далее
+Give up	放弃	Сдаться
+Revive	复活	Возродиться
+Rank	排名	Место
+Paint Score	涂装得分	Очки окраски
+Gold	金币	Золото
+X2 Gold	双倍金币	Золото x2
+FIRE	射击	ОГОНЬ
+Size	大小	Размер
+Metallic	金属感	Металл
+Roughness	粗糙度	Шероховатость
+Fill	填充	Заливка
+BRUSH	画笔	КИСТЬ
+ERASE	擦除	ЛАСТИК
+FILL	填充	ЗАЛИВКА
+PICK	取色	ПИПЕТКА
+PAINT: click / drag on the character	涂色：在角色上点击或拖动	КРАСКА: нажмите или проведите по персонажу
+ERASER: drag over the character to erase	橡皮擦：在角色上拖动以擦除	ЛАСТИК: проведите по персонажу, чтобы стереть
+EYEDROPPER: click a surface to sample	取色器：点击表面吸取颜色	ПИПЕТКА: нажмите на поверхность, чтобы взять цвет
+ZOOM x{0}	放大 x{0}	УВЕЛ. x{0}
+Watch an ad to get 30 extra seconds.	观看广告可额外获得 30 秒。	Посмотрите рекламу, чтобы получить ещё 30 секунд.
+Watch an ad to get one more chance.	观看广告可再获得一次机会。	Посмотрите рекламу, чтобы получить ещё один шанс.
+Find the fugitives and catch them before the round ends.	在回合结束前找到并抓住躲藏者。	Найдите беглецов и поймайте их до конца раунда.
+Hide carefully. Don't let the Seeker find you!	小心躲藏，别让寻找者找到你！	Прячьтесь хорошо. Не дайте искателю найти вас!
+WAIT! Hiders are hiding... {0}s	等待！躲藏者正在躲藏…… {0} 秒	ЖДИТЕ! Прячущиеся прячутся... {0} с
+ALL FOUND!  You win.	全部找到！你赢了。	ВСЕ НАЙДЕНЫ! Вы победили.
+TIME'S UP!	时间到！	ВРЕМЯ ВЫШЛО!
+HIDE! Seekers search in {0}s	快躲！寻找者将在 {0} 秒后开始搜寻	ПРЯЧЬТЕСЬ! Искатели начнут поиск через {0} с
+SPOTTED!	被发现了！	ВАС ЗАМЕТИЛИ!
+Found by {0}.	被 {0} 找到了。	Вас нашёл {0}.
+YOU STAYED HIDDEN!	你成功躲过了！	ВАС НЕ НАШЛИ!
+You win.	你赢了。	Вы победили.
+Searching for players...	正在寻找玩家……	Поиск игроков...
+<color=#3FC522>{0}</color>/{1} Player	<color=#3FC522>{0}</color>/{1} 名玩家	<color=#3FC522>{0}</color>/{1} игроков
+{0}/{1} Player	{0}/{1} 名玩家	{0}/{1} игроков
+A seeker has spotted you!	寻找者发现你了！	Искатель заметил вас!
+Default bullets	普通子弹	Обычные пули
+Default bullets: unlimited	普通子弹：无限	Обычные пули: без ограничений
+Special bullet {0}	特殊子弹 {0}	Особая пуля {0}
+Out of {0}: back to default bullets.	{0} 已用完：换回普通子弹。	{0} закончились: снова обычные пули.
+GO! Find the hiders.	出发！找到躲藏者。	ВПЕРЁД! Найдите прячущихся.
+Hiders are hiding. You are frozen until the seek starts.	躲藏者正在躲藏。搜寻开始前你无法移动。	Прячущиеся прячутся. Вы не можете двигаться до начала поиска.
+Move or you will be removed for being idle in {0}s.	请移动，否则将在 {0} 秒后因闲置被移出。	Двигайтесь, иначе через {0} с вас удалят за бездействие.
+Next player	下一个玩家	Следующий игрок
+Paused: a seat is being refilled.	已暂停：正在补充空位。	Пауза: освободившееся место занимает новый игрок.
+Ready! The seek starts once every hider has pressed Start.	准备好了！所有躲藏者按下开始后，搜寻开始。	Готово! Поиск начнётся, когда все прячущиеся нажмут «Старт».
+Tap Home again to leave. Leaving now counts as quitting this round.	再次点击主页即可离开。现在离开将算作退出本回合。	Нажмите «Главная» ещё раз, чтобы выйти. Выход сейчас считается отказом от раунда.
+The match was cancelled. Your entry was refunded.	比赛已取消，报名费已退还。	Матч отменён. Взнос возвращён.
+The match was cancelled; leaving early forfeited your entry.	比赛已取消；你提前离开，报名费不予退还。	Матч отменён; из-за раннего выхода взнос не возвращён.
+The seekers are coming. Stay hidden!	寻找者来了，藏好！	Искатели идут. Не высовывайтесь!
+This result is being reviewed before it is paid.	此结果正在审核，审核后发放奖励。	Этот результат проверяется перед выплатой.
+Waiting for the other players to load...	正在等待其他玩家加载……	Ждём, пока загрузятся другие игроки...
+Watching {0}	正在观看 {0}	Наблюдение: {0}
+You are a HIDER. Paint yourself and hide!	你是躲藏者。给自己涂色，然后躲起来！	Вы ПРЯЧУЩИЙСЯ. Раскрасьте себя и спрячьтесь!
+You are a SEEKER. Wait for the hiders to hide...	你是寻找者。请等待躲藏者躲好……	Вы ИСКАТЕЛЬ. Подождите, пока прячущиеся спрячутся...
+You got {0}!	你抓到了 {0}！	Вы поймали: {0}!
+You left after being caught.	你在被抓后离开了。	Вы вышли после того, как вас поймали.
+You left before the start. Your entry was refunded.	你在开始前离开了，报名费已退还。	Вы вышли до начала. Взнос возвращён.
+You left the match.	你离开了比赛。	Вы покинули матч.
+You lost.	你输了。	Вы проиграли.
+You won!	你赢了！	Вы победили!
+You were caught! Watch the rest of the round.	你被抓住了！观看本回合剩余部分。	Вас поймали! Смотрите остаток раунда.
+You were shot! Watch the rest of the round.	你被击中了！观看本回合剩余部分。	В вас попали! Смотрите остаток раунда.
+You were disconnected for too long.	你断开连接的时间过长。	Вы были отключены слишком долго.
+You were removed for being idle.	你因闲置被移出。	Вас удалили за бездействие.
+{0} is out.	{0} 出局了。	{0} выбывает.
+Still reconnecting... Tap Home to leave.	仍在重新连接……点击主页离开。	Переподключение... Нажмите «Главная», чтобы выйти.
+The match went on without you: you were away too long.	比赛已在没有你的情况下继续：你离开太久了。	Матч продолжился без вас: вас не было слишком долго.
+Changing poses too fast. Try again in a moment.	更换姿势太快了，请稍后再试。	Слишком частая смена позы. Попробуйте чуть позже.
+That pose isn't unlocked online. Get it in the Shop.	这个姿势尚未在线解锁。请在商店获取。	Эта поза не открыта для онлайна. Её можно получить в магазине.
+Get this pose in the Shop to use it online.	在商店获取此姿势后即可在线使用。	Получите эту позу в магазине, чтобы использовать её онлайн.
+Online match	在线比赛	Онлайн-матч
+Connecting	正在连接	Подключение
+Connecting to {0}...	正在连接 {0}……	Подключение к {0}...
+Couldn't reach the server at {0}.	无法连接到服务器 {0}。	Не удалось связаться с сервером {0}.
+Check that it is running and the address is right.	请确认服务器正在运行且地址正确。	Проверьте, что сервер запущен и адрес указан верно.
+Can't play online	无法进行在线游戏	Онлайн-игра недоступна
+Couldn't sign in. Try again.	登录失败，请重试。	Не удалось войти. Попробуйте ещё раз.
+Choose your player name	选择你的玩家名称	Выберите имя игрока
+Player name	玩家名称	Имя игрока
+Server	服务器	Сервер
+IP address or host name	IP 地址或主机名	IP-адрес или имя хоста
+Loading your profile...	正在加载你的资料……	Загрузка профиля...
+Please update the app.	请更新应用。	Пожалуйста, обновите приложение.
+Server busy, retrying...	服务器繁忙，正在重试……	Сервер занят, повторяем...
+Enter a name.	请输入名称。	Введите имя.
+Start with a letter.	请以字母或汉字开头。	Имя должно начинаться с буквы.
+Use at least {0} characters.	至少使用 {0} 个字符。	Используйте не меньше {0} символов.
+Use at most {0} characters.	最多使用 {0} 个字符。	Используйте не больше {0} символов.
+Use only letters, digits, _ and .	只能使用字母、汉字、数字、_ 和 .	Используйте только буквы, цифры, _ и .
+Don't mix Latin and Cyrillic letters in one name.	一个名称中不能混用拉丁字母和西里尔字母。	Не смешивайте в имени латинские и кириллические буквы.
+That name is already taken. Try another.	这个名称已被使用，请换一个。	Это имя уже занято. Попробуйте другое.
+That name is reserved. Try another.	这个名称为保留名称，请换一个。	Это имя зарезервировано. Попробуйте другое.
+That name isn't allowed.	这个名称不可用。	Это имя недопустимо.
+Everyone sees this name. {0}-{1} letters (English, Russian or Chinese), digits, _ or ., starting with a letter.	所有人都能看到这个名称。{0}-{1} 个字符（英文、俄文或中文），可含数字、_ 或 .，须以字母或汉字开头。	Это имя видят все. {0}-{1} букв (английских, русских или китайских), цифры, _ или ., начиная с буквы.
+The server's profile service did not answer.	服务器的资料服务没有响应。	Служба профилей сервера не ответила.
+It may be blocked by a firewall (TCP port 7779 by default).	可能被防火墙拦截（默认 TCP 端口 7779）。	Возможно, её блокирует брандмауэр (по умолчанию TCP-порт 7779).
+This app version does not match the server. Please update.	此应用版本与服务器不匹配，请更新。	Версия приложения не совпадает с сервером. Пожалуйста, обновите.
+Too many requests. Wait a moment and try again.	请求过多，请稍后再试。	Слишком много запросов. Подождите и попробуйте снова.
+Too many requests. Wait a moment.	请求过多，请稍等。	Слишком много запросов. Подождите немного.
+You signed in on another device.	你已在另一台设备上登录。	Вы вошли на другом устройстве.
+Your session has expired. Tap Retry to sign in again.	你的会话已过期。点击重试重新登录。	Сеанс истёк. Нажмите «Повторить», чтобы войти снова.
+Your session has expired. Sign in again.	你的会话已过期，请重新登录。	Сеанс истёк. Войдите снова.
+You don't own that avatar.	你还没有这个角色。	У вас нет этого аватара.
+Choose a room	选择房间	Выберите комнату
+Your coins: {0}	你的金币：{0}	Ваши монеты: {0}
+Loading rooms...	正在加载房间……	Загрузка комнат...
+Practice	练习	Тренировка
+Standard	标准	Стандарт
+Free - bots fill empty seats	免费 - 空位由机器人补充	Бесплатно - пустые места займут боты
+Entry {0} - coming soon	报名费 {0} - 即将推出	Взнос {0} - скоро
+HISTORY	记录	ИСТОРИЯ
+WALLET	钱包	КОШЕЛЁК
+Searching in {0}...	正在 {0} 中匹配……	Поиск в комнате «{0}»...
+Server picks the map	由服务器选择地图	Карту выберет сервер
+{0} isn't unlocked online: playing as {1}.	{0} 尚未在线解锁：将以 {1} 进行游戏。	{0} не открыт для онлайна: играете за {1}.
+{0} isn't available online yet. Pick another map.	{0} 暂不支持在线游戏，请选择其他地图。	{0} пока недоступна онлайн. Выберите другую карту.
+That map isn't available online yet. Pick another map.	这张地图暂不支持在线游戏，请选择其他地图。	Эта карта пока недоступна онлайн. Выберите другую.
+All servers are busy. Try again in a moment.	所有服务器都很忙，请稍后再试。	Все серверы заняты. Попробуйте чуть позже.
+Connection lost. Reconnecting...	连接已断开，正在重新连接……	Соединение потеряно. Переподключение...
+Not enough coins for this room.	金币不足，无法进入此房间。	Недостаточно монет для этой комнаты.
+Not enough players joined. Entry refunded.	加入的玩家不足，报名费已退还。	Набралось недостаточно игроков. Взнос возвращён.
+Paid rooms are closed on this server.	此服务器未开放付费房间。	Платные комнаты на этом сервере закрыты.
+REJOIN	重新加入	ВЕРНУТЬСЯ
+Rejoin your match?	重新加入你的比赛？	Вернуться в матч?
+Your online round is still going.	你的在线回合仍在进行。	Ваш онлайн-раунд ещё идёт.
+That match has already ended.	那场比赛已经结束。	Этот матч уже закончился.
+That room no longer exists.	那个房间已不存在。	Этой комнаты больше нет.
+That took too long. Please try again.	等待时间过长，请重试。	Это заняло слишком много времени. Попробуйте ещё раз.
+The server could not list its rooms ({0}).	服务器无法列出房间（{0}）。	Сервер не смог показать комнаты ({0}).
+The server has no rooms configured.	服务器没有配置房间。	На сервере нет настроенных комнат.
+The server refused the request.	服务器拒绝了请求。	Сервер отклонил запрос.
+The server's room list did not answer. Try again.	服务器的房间列表没有响应，请重试。	Список комнат сервера не ответил. Попробуйте ещё раз.
+Waiting for players... bots take the empty seats after a few seconds.	正在等待玩家……几秒后空位将由机器人补充。	Ждём игроков... через несколько секунд пустые места займут боты.
+You are a Hider. Hide carefully. Don't let the Seekers find you!	你是躲藏者。小心躲藏，别让寻找者找到你！	Вы прячущийся. Прячьтесь хорошо. Не дайте искателям найти вас!
+You are a Seeker. Find the fugitives and catch them before the round ends.	你是寻找者。在回合结束前找到并抓住躲藏者。	Вы искатель. Найдите беглецов и поймайте их до конца раунда.
+You left too many matches early. Try again in a few minutes.	你提前离开的比赛太多，请几分钟后再试。	Вы слишком часто выходили из матчей раньше времени. Попробуйте через несколько минут.
+You signed in on another device, so you left the match here.	你已在另一台设备上登录，因此已离开这里的比赛。	Вы вошли на другом устройстве, поэтому покинули матч здесь.
+MATCH HISTORY	比赛记录	ИСТОРИЯ МАТЧЕЙ
+No matches yet. Matches in rooms with an entry fee are recorded here.	还没有比赛。收费房间的比赛会记录在这里。	Матчей пока нет. Здесь записываются матчи в комнатах со взносом.
+WON	胜利	ПОБЕДА
+LOST	失败	ПОРАЖЕНИЕ
+free	免费	бесплатно
+  -  {0} in {1}  -  {2} pts  -  	  -  {1} · {0}  -  {2} 分  -  	  -  {0}, {1}  -  {2} очк.  -  
+Completed	已完成	Завершён
+Completed after a reconnect	重新连接后完成	Завершён после переподключения
+Disconnected	已断开	Отключён
+Left	已离开	Вышел
+Removed for idling	因闲置被移出	Удалён за бездействие
+Left after being caught	被抓后离开	Вышел после поимки
+Refunded	已退款	Возврат
+Cancelled, refunded	已取消，已退款	Отменён, возврат
+Cancelled, entry forfeited	已取消，报名费不退	Отменён, взнос не возвращён
+Under review	审核中	На проверке
+COMPLETED	已完成	ЗАВЕРШЁН
+The server did not answer. Try again.	服务器没有响应，请重试。	Сервер не ответил. Попробуйте ещё раз.
+The server could not answer ({0}).	服务器无法响应（{0}）。	Сервер не смог ответить ({0}).
+Coins	金币	Монеты
+Avatars	角色	Аватары
+Poses	姿势	Позы
+Weapons	武器	Оружие
+Bullets	子弹	Пули
+Buy	购买	Купить
+Popular	热门	Популярно
+Best Value	超值	Выгодно
+Equip	装备	Надеть
+Equipped	已装备	Надето
+Owned	已拥有	Куплено
+Own {0}	拥有 {0}	Есть {0}
+Waiting...	等待中……	Ожидание...
+{0} unlocked!	{0} 已解锁！	{0}: открыто!
+{0} equipped	已装备 {0}	Надето: {0}
+Standard gun equipped	已装备标准枪	Надето стандартное оружие
++{0} special bullet {1} (you have {2})	+{0} 发特殊子弹 {1}（共 {2} 发）	+{0} особых пуль {1} (всего {2})
++{0} special bullet {1}	+{0} 发特殊子弹 {1}	+{0} особых пуль {1}
+Not enough coins	金币不足	Недостаточно монет
+You already own that	你已经拥有了	У вас это уже есть
+That item is no longer for sale	该商品已下架	Этот товар больше не продаётся
+That amount can't be bought	无法购买该数量	Такое количество купить нельзя
+The store failed. You were not charged	商店出错，未扣除金币	Ошибка магазина. Монеты не списаны
+The purchase was refused ({0})	购买被拒绝（{0}）	Покупка отклонена ({0})
+The shop is turned off on this server.	此服务器已关闭商店。	Магазин на этом сервере выключен.
+Sign in to use the shop.	请登录后使用商店。	Войдите, чтобы пользоваться магазином.
+Buying...	购买中……	Покупка...
+No answer from the server. Check your coins before trying again.	服务器没有响应。重试前请先查看你的金币。	Сервер не ответил. Проверьте монеты, прежде чем пробовать снова.
+Coin top-ups aren't available yet	金币充值暂不可用	Пополнение монет пока недоступно
+Opening the payment...	正在打开付款页面……	Открываем оплату...
+Finish paying on the payment page.	请在付款页面完成支付。	Завершите оплату на странице платежа.
+Couldn't open the payment. Try again.	无法打开付款，请重试。	Не удалось открыть оплату. Попробуйте ещё раз.
+Payments aren't available right now.	目前无法付款。	Платежи сейчас недоступны.
+Added {0} coins!	已添加 {0} 金币！	Добавлено {0} монет!
+The payment failed. You were not charged.	付款失败，未扣款。	Платёж не прошёл. Деньги не списаны.
+The payment expired before it was paid.	付款在完成前已过期。	Срок оплаты истёк.
+{0} Coins	{0} 金币	{0} монет
+Special Bullet {0} x{1}	特殊子弹 {0} x{1}	Особая пуля {0} x{1}
+Player 2	玩家 2	Игрок 2
+Paint Blaster	颜料冲击枪	Краскомёт
+Paint Brush	画刷	Малярная кисть
+Precision Brush	精细画刷	Тонкая кисть
+Roller	滚筒	Валик
+Splatter Cannon	泼溅炮	Брызгопушка
+Spray Gun	喷枪	Краскопульт
+Brush Dance	画刷舞	Танец с кистью
+Camo Paint	迷彩涂装	Камуфляж
+Galaxy Paint	星空涂装	Галактика
+Golden Paint	金色涂装	Золотая краска
+Neon Drip	霓虹滴彩	Неоновые капли
+Pink Splash	粉色飞溅	Розовые брызги
+Laugh	大笑	Смех
+Sneak	潜行	Крадущийся
+Taunt	挑衅	Насмешка
+Victory	胜利	Победа
+Wave	挥手	Привет
+{0} coin	{0} 金币	{0} монета
+{0} coins	{0} 金币	{0} монет
+Coins: <b>{0}</b>	金币：<b>{0}</b>	Монеты: <b>{0}</b>
+TEST WALLET - test currency only, no real money	测试钱包 - 仅限测试货币，不涉及真实资金	ТЕСТОВЫЙ КОШЕЛЁК - только тестовая валюта, без реальных денег
+DEPOSIT	充值	ПОПОЛНИТЬ
+WITHDRAW	提现	ВЫВЕСТИ
+OPEN WALLET PAGE	打开钱包页面	ОТКРЫТЬ КОШЕЛЁК
+MIN	最少	МИН
+HALF	一半	ПОЛОВИНА
+ALL	全部	ВСЁ
+Coins to withdraw	要提现的金币	Сколько монет вывести
+Wallet account: <b>{0}</b>	钱包账户：<b>{0}</b>	Счёт кошелька: <b>{0}</b>
+Wallet account: could not be read just now	钱包账户：暂时无法读取	Счёт кошелька: сейчас не удаётся прочитать
+No wallet is connected on this server.	此服务器未连接钱包。	На этом сервере кошелёк не подключён.
+Loading...	加载中……	Загрузка...
+Loading the coin packs...	正在加载金币包……	Загрузка наборов монет...
+Deposits are not available on this server.	此服务器不支持充值。	Пополнение на этом сервере недоступно.
+Withdrawals are not available on this server.	此服务器不支持提现。	Вывод на этом сервере недоступен.
+Pay on the wallet page that opens. The coins arrive here a few seconds after.	请在打开的钱包页面中付款，金币将在几秒后到账。	Оплатите на открывшейся странице кошелька. Монеты придут через несколько секунд.
+waiting for payment - tap to reopen	等待付款 - 点击重新打开	ждёт оплаты - нажмите, чтобы открыть
+{0} coins pay out {1}.   Smallest {2} coins, largest {3}.	{0} 金币可提现 {1}。   最少 {2} 金币，最多 {3}。	{0} монет = {1}.   Минимум {2} монет, максимум {3}.
+Takes <b>{0}</b> coins, pays <b>{1}</b> into your wallet account.	扣除 <b>{0}</b> 金币，向你的钱包账户支付 <b>{1}</b>。	Спишет <b>{0}</b> монет и зачислит <b>{1}</b> на счёт кошелька.
+Enter how many coins to withdraw.	请输入要提现的金币数量。	Введите, сколько монет вывести.
+That is not an amount of coins.	这不是有效的金币数量。	Это не количество монет.
+The smallest withdrawal is {0} coins.	最少提现 {0} 金币。	Минимальный вывод: {0} монет.
+The largest withdrawal is {0} coins.	最多提现 {0} 金币。	Максимальный вывод: {0} монет.
+You have {0} coins.	你有 {0} 金币。	У вас {0} монет.
+Withdrawing...	正在提现……	Вывод...
+Withdrew {0} coins: {1} is in your wallet account.	已提现 {0} 金币：{1} 已到账钱包账户。	Выведено {0} монет: {1} на счёте кошелька.
+The wallet refused the withdrawal. Your {0} coins are back.	钱包拒绝了提现，你的 {0} 金币已退回。	Кошелёк отклонил вывод. Ваши {0} монет возвращены.
+The wallet has not confirmed the withdrawal yet. Checking...	钱包尚未确认提现，正在查询……	Кошелёк ещё не подтвердил вывод. Проверяем...
+No answer from the server. Look at your coins and the history before trying again.	服务器没有响应。重试前请查看你的金币和记录。	Сервер не ответил. Проверьте монеты и историю, прежде чем пробовать снова.
+You do not have that many coins. Nothing was taken.	你没有那么多金币，未扣除任何金币。	У вас нет столько монет. Ничего не списано.
+That amount is outside what can be withdrawn. Nothing was taken.	该数量超出可提现范围，未扣除任何金币。	Эту сумму нельзя вывести. Ничего не списано.
+The server refused the withdrawal ({0}). Nothing was taken.	服务器拒绝了提现（{0}），未扣除任何金币。	Сервер отклонил вывод ({0}). Ничего не списано.
+The server did not answer. Close and open the wallet to try again.	服务器没有响应。请关闭并重新打开钱包再试。	Сервер не ответил. Закройте и снова откройте кошелёк.
+Only whole units are paid; coins that would not pay anything stay with you.	只支付整数单位；不足一个单位的金币会留在你的账户中。	Выплачиваются только целые единицы; монеты, которых не хватает на единицу, остаются у вас.
+Nothing has moved your coins yet.	你的金币还没有任何变动。	Движений монет пока нет.
+Deposit	充值	Пополнение
+Deposit ({0})	充值（{0}）	Пополнение ({0})
+Withdrawal to the wallet	提现到钱包	Вывод в кошелёк
+Withdrawal refused, coins returned	提现被拒，金币已退回	Вывод отклонён, монеты возвращены
+Shop purchase	商店购买	Покупка в магазине
+Shop: {0}	商店：{0}	Магазин: {0}
+Room entry fee	房间报名费	Взнос за комнату
+Match payout	比赛奖励	Выплата за матч
+Entry fee refunded	报名费已退还	Взнос возвращён
+Entry fee forfeited	报名费被没收	Взнос не возвращён
+Coins moved	金币变动	Движение монет
+{0}  -  balance {1}	{0}  -  余额 {1}	{0}  -  баланс {1}
+Purchase complete	购买成功	Покупка завершена
+{0} coins have been added to your account.	{0} 金币已添加到你的账户。	На ваш счёт зачислено {0} монет.
+Balance: {0} coins	余额：{0} 金币	Баланс: {0} монет
+Not unlocked online. Get it in the Shop.	尚未在线解锁，请在商店获取。	Не открыт для онлайна. Его можно получить в магазине.
+LOCKED	未解锁	ЗАКРЫТО

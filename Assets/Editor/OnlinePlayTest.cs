@@ -21,11 +21,12 @@ using Object = UnityEngine.Object;
 //
 //   Unity.exe -batchmode -projectPath <project> -executeMethod OnlinePlayTest.Run
 //             -playtestHost 127.0.0.1 -playtestPort 17777 -playtestMetaPort 17779
-//             -playtestRole seeker|hider -playtestSeats 16 -playtestReport <file>
+//             -playtestRole seeker|hider -playtestSeats 8 -playtestReport <file>
+//             [-playtestArea <the server's PlayableArea, if not the standard one>] [-playtestMap <0-4>]
 //
 // The flow: Multiplayer sign-in (first-run name if the server asks) -> special bullets bought in
-// the shop -> Single Play's role screen (HomeUI.BeginMatch) -> the room screen's Practice button
-// -> Single Play's map picker -> matchmaking -> the round (seeker: shoots and switches bullet
+// the shop -> Single Play's role screen (HomeUI.BeginMatch) -> Single Play's character screen
+// (SelectPlayerCanvas) -> the room screen's Practice button -> Single Play's map picker -> matchmaking -> the round (seeker: shoots and switches bullet
 // type; hider: presses Start and paints) -> the result popup -> Home (wallet refreshed) -> match
 // history -> the shop's bullet cards. Bots or headless clients fill the lobby.
 //
@@ -93,7 +94,7 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language }
 
     private static Step step;
     private static float stepStarted, startedAt, nextAction;
@@ -254,6 +255,12 @@ public static class OnlinePlayTest
                 GameObject roleCanvas = FindByName("RoleSelectCanvas");
                 Check(roleCanvas != null && roleCanvas.activeInHierarchy, "online side choice is Single Play's RoleSelectCanvas");
                 Object.FindAnyObjectByType<HomeUI>().BeginMatch(Seeker ? 1 : 2);   // its Seeker / Hider button
+                Go(Step.Body);
+                return;
+
+            case Step.Body:
+                if (InStep < 0.5f) return;
+                PickBodyOnline();
                 Go(Step.Room);
                 return;
 
@@ -270,7 +277,12 @@ public static class OnlinePlayTest
                 MapSelectPopup popup = MapSelectPopup.Instance;
                 if (popup != null && popup.Ready)
                 {
-                    popup.SelectMap(0);
+                    popup.SelectMap(MapIndex);
+                    Text roomName = FindByName("SelectedRoomName")?.GetComponent<Text>();
+                    LevelManager levels = Object.FindAnyObjectByType<LevelManager>();
+                    Check(roomName != null && roomName.gameObject.activeInHierarchy && levels != null && !string.IsNullOrEmpty(roomName.text)
+                          && roomName.text == levels.CurrentDisplayName,
+                          $"the chosen room's name shows above Play ('{roomName?.text}')");
                     popup.Confirm();
                     Check(true, "map chosen in Single Play's map picker");
                 }
@@ -287,6 +299,9 @@ public static class OnlinePlayTest
                 }
                 if (!OnlineRound.Active) return;
                 Check(Net.MatchSeats == Seats, $"the match has the room's {Seats} seats ({Net.MatchSeats})");
+                Check(Net.MatchHunterSeats == GameTuning.SeekersFor(Seats),
+                      $"{GameTuning.SeekersFor(Seats)} of them seek and {Seats - GameTuning.SeekersFor(Seats)} hide ({Net.MatchHunterSeats} seekers)");
+                Check(Net.MatchPlayableArea == ExpectedArea, $"the server's playable area came with the match ({Net.MatchPlayableArea}, expected {ExpectedArea})");
                 Check(Net.LocalRole == (Seeker ? Role.Hunter : Role.Fugitive), $"plays the side picked ({Net.LocalRole})");
                 Go(Step.Round);
                 return;
@@ -318,6 +333,11 @@ public static class OnlinePlayTest
                 if (Seeker && !Chase && !Pair && !Kills)
                     Check(ShopInventory.SpecialBullets(BulletType.Special2) < stockBeforeRound.Special2,
                           $"special bullets spent in the round are gone from the wallet ({stockBeforeRound.Special2} -> {ShopInventory.SpecialBullets(BulletType.Special2)})");
+                Go(Step.Language);
+                return;
+
+            case Step.Language:
+                if (!CheckLanguages()) return;
                 OnlineHistory.Show(Object.FindAnyObjectByType<OnlineLobby>().transform, null);
                 Go(Step.History);
                 return;
@@ -418,8 +438,14 @@ public static class OnlinePlayTest
                 Check(!OnlineRound.Active, "no online round is left running before Single Play");
                 gmm.ShowMenu();
                 gmm.BeginRound(false);      // Play Now: the player hides, the bots hunt
-                seek.SkipGrace();
                 singleBots = manager.Bots.ToList();
+                {
+                    string off = OffMarkers(singleBots.Skip(singleBots.Count - GameTuning.HunterSlots), true);
+                    Check(off == "", $"Single Play: the seeker bots start on the room's HunterSpawn markers, as online ({off})");
+                    off = OffMarkers(new[] { PlayerRef.Active }, false);
+                    Check(off == "", $"Single Play: the hiding player starts on a HiderSpawn marker ({off})");
+                }
+                seek.SkipGrace();
                 singlePlayStage = 1;
                 stepStarted = Time.realtimeSinceStartup;
                 return;
@@ -441,7 +467,18 @@ public static class OnlinePlayTest
                 Check(singleWalked > 3f || spotted, $"Single Play: the seeker bots hunted (furthest {singleWalked:F0} units, spotted the player: {spotted})");
                 Check(Net.HostedBots.Length == 0, "Single Play sends nothing to the server about its bots");
                 gmm.ShowMenu();
+                OpenPanelsBeforeRound();
                 gmm.BeginRound(true);       // the player seeks, the bots hide
+                {
+                    // They go straight on to their hiding places, some in this same frame: where each started is kept.
+                    IReadOnlyList<Vector3> starts = hide.RoundStarts;
+                    string off = OffMarkers(starts.Select((p, i) => ("hider bot " + (i + 1), p)), false);
+                    Check(off == "" && starts.Count == GameTuning.FugitiveSlots,
+                          $"Single Play: the hider bots start on the room's HiderSpawn markers, as online ({starts.Count} placed{(off == "" ? "" : "; " + off)})");
+                    off = OffMarkers(new[] { PlayerRef.Active }, true);
+                    Check(off == "", $"Single Play: the seeking player starts on a HunterSpawn marker ({off})");
+                    CheckPanelsClosedAtRound();
+                }
                 singlePlayStage = 3;
                 stepStarted = Time.realtimeSinceStartup;
                 return;
@@ -450,6 +487,7 @@ public static class OnlinePlayTest
                 if (InStep < 3f) return;
                 Check(hide.BotCount > 0 && hide.Active, $"Single Play: the hider bots took their places ({hide.BotCount})");
                 Check(WallsOpen(), "Single Play: a seeker can use the walls");
+                Check(FallGuard.Rescues == 0, $"Single Play: nobody fell out of the room ({FallGuard.Rescues} times put back)");
                 gmm.ShowMenu();
                 Check(!WallsOpen(), "and nobody can from the Home screen");
                 Go(Step.Done);
@@ -784,6 +822,173 @@ public static class OnlinePlayTest
         Check(closest >= 9f, $"all {Seats} seats start apart (closest two {closest:F1} units)");
     }
 
+    // -playtestMap: which of the map picker's rooms to play (0 = the first, Room).
+    private static int MapIndex => int.Parse(System.Environment.GetCommandLineArgs().SkipWhile(a => a != "-playtestMap").Skip(1).FirstOrDefault() ?? "0");
+
+    // -playtestArea: the server's PlayableArea, when it is not the standard one.
+    private static int ExpectedArea
+    {
+        get
+        {
+            string given = System.Environment.GetCommandLineArgs().SkipWhile(a => a != "-playtestArea").Skip(1).FirstOrDefault();
+            return given != null ? int.Parse(given) : GameTuning.PlayableArea;
+        }
+    }
+
+    private static bool playAreaChecked;
+
+    // Every map plays at the server's area (RoomSetup): a big one fenced, a small one scaled up,
+    // with the player inside it.
+    private static void CheckPlayArea()
+    {
+        if (playAreaChecked || Net.Phase != MatchPhase.Hide || PlayerRef.Active == null) return;
+        playAreaChecked = true;
+
+        string how = RoomSetup.Fence is Rect fence ? $"fenced to {fence.width:F0} x {fence.height:F0}"
+                   : RoomSetup.Scale > 1.0001f ? $"scaled x{RoomSetup.Scale:F2}" : "played whole";
+        string room = RoomSetup.Room != null ? RoomSetup.Room.name : "none";
+        Check(RoomSetup.Room != null && (ExpectedArea == 0 || how != "played whole"), $"the map is held to the playable area ({room}: {how})");
+        Check(RoomSetup.Inside(PlayerRef.Active.position), "the player starts inside it");
+    }
+
+    // Each body stands on a spawn marker of that side, as online places them: "" when they all do,
+    // else which ones are how far from the nearest.
+    private static string OffMarkers(IEnumerable<Transform> bodies, bool seeker) =>
+        OffMarkers(bodies.Select(b => b == null ? ("a missing body", new Vector3(float.NaN, 0f, float.NaN)) : (b.name, b.position)), seeker);
+
+    private static string OffMarkers(IEnumerable<(string Name, Vector3 At)> bodies, bool seeker)
+    {
+        GameObject room = RoomSetup.Room;
+        string prefix = seeker ? "HunterSpawn" : "HiderSpawn";
+        List<Vector3> markers = room == null ? new List<Vector3>()
+            : room.GetComponentsInChildren<Transform>(true).Where(t => t.name.StartsWith(prefix, StringComparison.Ordinal)).Select(t => t.position).ToList();
+        if (markers.Count == 0) return "no " + prefix + " markers in the room";
+
+        var far = new List<string>();
+        foreach ((string name, Vector3 position) in bodies)
+        {
+            if (float.IsNaN(position.x)) { far.Add(name); continue; }
+            Vector2 at = new Vector2(position.x, position.z);
+            float nearest = markers.Min(m => Vector2.Distance(new Vector2(m.x, m.z), at));
+            if (nearest > 2f) far.Add($"{name} {nearest:F1} units off");
+        }
+        return string.Join(", ", far);
+    }
+
+    // Multiple Play's body choice: Single Play's SelectPlayerCanvas after the side. A character this
+    // account does not own online is refused there; the one in use goes on to the rooms.
+    private static void PickBodyOnline()
+    {
+        SelectPlayerUI picker = SelectPlayerUI.Instance;
+        GameObject canvas = FindByName("SelectPlayerCanvas");
+        if (picker == null || !picker.Ready)
+        {
+            report.Add("INFO  no character screen in the scene: straight to the rooms");
+            return;
+        }
+        Check(canvas != null && canvas.activeInHierarchy, "online body choice is Single Play's SelectPlayerCanvas, after the side");
+
+        int inUse = (int)typeof(SelectPlayerUI).GetField("_pending", Any).GetValue(picker);
+        int locked = -1;
+        if (profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0)
+            for (int i = 0; i < picker.buttonNames.Length && locked < 0; i++)
+                if (Array.IndexOf(profile.OwnedAvatars, i) < 0) locked = i;
+
+        if (locked >= 0)
+        {
+            picker.PickCharacter(locked);
+            picker.Confirm();
+            Text message = FindByName("LockMessage")?.GetComponent<Text>();
+            Check(canvas.activeInHierarchy && message != null && message.gameObject.activeInHierarchy,
+                  $"a character not owned online is refused ('{message?.text}')");
+        }
+        else report.Add("INFO  this account owns every character online: no locked one to try");
+
+        picker.PickCharacter(inUse);
+        picker.Confirm();               // the character already in use: no reload
+        Check(!canvas.activeInHierarchy, $"Play on the character in use ({inUse}) goes on to the rooms");
+    }
+
+    private static int languageStage;
+    private static Text languageLabel;
+
+    // Settings' language row: the screen in Chinese, then Russian, each in a font that has its
+    // letters, then English again. True when done.
+    private static bool CheckLanguages()
+    {
+        SettingsUI settings = Object.FindAnyObjectByType<SettingsUI>(FindObjectsInactive.Include);
+        MethodInfo step = typeof(SettingsUI).GetMethod("StepLanguage", Any);
+        if (settings == null || step == null)
+        {
+            report.Add("INFO  no Settings screen in the scene: languages not tried");
+            return true;
+        }
+
+        switch (languageStage)
+        {
+            case 0:
+                L.Set(GameLanguage.English);
+                settings.Show();
+                languageLabel = FindByName("LblLang")?.GetComponent<Text>();
+                Check(languageLabel != null && languageLabel.gameObject.activeInHierarchy, "Settings has a Language row");
+                if (languageLabel == null) return true;
+                step.Invoke(settings, new object[] { 1 });     // its right arrow
+                languageStage = 1;
+                stepStarted = Time.realtimeSinceStartup;
+                return false;
+
+            case 1:
+            case 2:
+            {
+                if (InStep < 1f) return false;
+                GameLanguage expected = languageStage == 1 ? GameLanguage.Chinese : GameLanguage.Russian;
+                string text = languageLabel.text;
+                bool script = expected == GameLanguage.Chinese ? text.Any(c => c >= 0x4E00 && c <= 0x9FFF) : text.Any(c => c >= 0x0400 && c <= 0x04FF);
+                bool drawable = languageLabel.font != null && (languageLabel.font == UiTranslator.WideFont
+                                || text.All(c => char.IsWhiteSpace(c) || languageLabel.font.HasCharacter(c)));
+                Check(L.Current == expected && script && drawable,
+                      $"the right arrow switches to {expected}: Settings reads '{text}' in {languageLabel.font?.name}");
+                Text other = FindByName("SettingsCanvas")?.GetComponentsInChildren<Text>(true)
+                    .FirstOrDefault(t => t != languageLabel && t.gameObject.activeInHierarchy && t.text.Length > 0
+                                         && (expected == GameLanguage.Chinese ? t.text.Any(c => c >= 0x4E00 && c <= 0x9FFF) : t.text.Any(c => c >= 0x0400 && c <= 0x04FF)));
+                if (other != null) report.Add($"INFO  another label in {expected}: '{other.text}'");
+                step.Invoke(settings, new object[] { 1 });
+                languageStage++;
+                stepStarted = Time.realtimeSinceStartup;
+                return false;
+            }
+
+            case 3:
+                if (InStep < 1f) return false;
+                Check(L.Current == GameLanguage.English && languageLabel.text == "Language",
+                      $"and on round to English again ('{languageLabel.text}')");
+                settings.Hide();
+                return true;
+        }
+        return true;
+    }
+
+    private static bool panelsOpened;
+
+    // A panel left open in one round must not be open in the next (RoundUiReset).
+    private static void OpenPanelsBeforeRound()
+    {
+        PoseSelectorUI poses = Object.FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include);
+        Mode1FirstPersonGun gun = Object.FindAnyObjectByType<Mode1FirstPersonGun>(FindObjectsInactive.Include);
+        if (poses != null) { poses.Open(); panelsOpened = true; }
+        if (gun != null && !gun.IsProne) { gun.ToggleProne(); panelsOpened = true; }
+    }
+
+    private static void CheckPanelsClosedAtRound()
+    {
+        if (!panelsOpened) { report.Add("INFO  no pose panel or lie-down button to leave open"); return; }
+        PoseSelectorUI poses = Object.FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include);
+        Mode1FirstPersonGun gun = Object.FindAnyObjectByType<Mode1FirstPersonGun>(FindObjectsInactive.Include);
+        GameObject panel = poses != null ? typeof(PoseSelectorUI).GetField("panelRoot", Any)?.GetValue(poses) as GameObject : null;
+        bool poseOpen = panel != null && panel.activeSelf;
+        Check(!poseOpen && (gun == null || !gun.IsProne), $"a new round starts with the pose panel shut and standing (pose panel open: {poseOpen}, lying: {gun != null && gun.IsProne})");
+    }
+
     private static void CheckPlayerPrefab()
     {
         if (playerPrefabChecked) return;
@@ -888,6 +1093,7 @@ public static class OnlinePlayTest
     {
         CheckPlayerPrefab();
         CheckSpawnsApart();
+        CheckPlayArea();
         CheckSeekerBotGun();
         CheckSeekerBodyLiesDown();
         CheckFreeLookWhenOut();
@@ -2077,6 +2283,7 @@ public static class OnlinePlayTest
         report.Add($"INFO  bodies that went back to a state within 0.3 s: {animBounces}, over {animTracks.Count} bodies");
         if (switchStage < 4) report.Add("INFO  the animation switching check did not finish");
         CheckOwnFalls();
+        Check(FallGuard.Rescues == 0, $"this player never fell out of the room ({FallGuard.Rescues} times put back)");
         if (Pair)
         {
             CheckPair();
@@ -2362,6 +2569,8 @@ public static class OnlinePlayTest
                 if (!Awaited(Net.CoinCents == 55000, 25f, "the deposit reached the balance")) return;
                 Check(WalletShown().Contains("Coins: <b>550</b>"), $"the wallet screen shows 550 coins ({Net.CoinCents})");
                 Check(WalletField("status").Contains("Added 550"), $"and says so ('{WalletField("status")}')");
+                Check(CoinNotice.Shown > 0 && CoinNotice.Visible.Contains("550"),
+                      $"a notice over everything confirms the coins were added ('{CoinNotice.Visible.Replace("\n", " / ")}')");
                 walletStage = 7;
                 return;
 

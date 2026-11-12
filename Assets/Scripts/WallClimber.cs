@@ -148,6 +148,14 @@ public class WallClimber : MonoBehaviour
         BodyAnimation.SetPose(anim, 0);
     }
 
+    /// <summary>A new round: off any wall, the climb buttons released (RoundUiReset).</summary>
+    public void ResetControls()
+    {
+        up = 0;
+        down = 0;
+        if (state == State.OnWall) DropToGround();
+    }
+
     private void Start()
     {
         GameObject resolved = PlayerRef.Resolve(characterRootName);
@@ -577,12 +585,12 @@ public class WallClimber : MonoBehaviour
     {
         if (col == null) return false;
         if (col.isTrigger) return false;
-        if (col.CompareTag(groundTag)) return false;
+        if (SafeTags.Has(col, groundTag)) return false;
         if (climbAnySurface)
         {
             return !IsCharacter(col);
         }
-        return col.CompareTag(wallTag);
+        return SafeTags.Has(col, wallTag);
     }
 
     private bool IsCharacter(Collider col)
@@ -759,5 +767,38 @@ public class WallClimber : MonoBehaviour
         rt.anchorMax = Vector2.one;
         rt.offsetMin = Vector2.zero;
         rt.offsetMax = Vector2.zero;
+    }
+}
+
+/// <summary>
+/// CompareTag for a tag the project may not define. Unity logs "Tag: Ground is not defined" on
+/// every CompareTag with an undefined tag, and the wall probes ask on every hit, every frame: no
+/// "Ground" or "Wall" tag exists in TagManager, so standing by a wall logged thousands of errors a
+/// minute. Whether a tag exists is found out once (FindWithTag throws for an undefined one).
+/// </summary>
+public static class SafeTags
+{
+    private static readonly Dictionary<string, bool> defined = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+    public static bool Has(Component component, string tag) => component != null && Defined(tag) && component.CompareTag(tag);
+
+    public static bool Defined(string tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return false;
+        if (defined.TryGetValue(tag, out bool known)) return known;
+
+        bool exists;
+        try
+        {
+            GameObject.FindWithTag(tag);
+            exists = true;
+        }
+        catch (UnityException)
+        {
+            exists = false;
+        }
+
+        defined[tag] = exists;
+        return exists;
     }
 }

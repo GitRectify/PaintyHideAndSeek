@@ -68,8 +68,11 @@ public class ShopUI : MonoBehaviour
         PendingTopUp.Settled -= HandleTopUpSettled;
     }
 
-    private void HandleTopUpSettled(PendingTopUp.Entry entry, Meccha.Shared.Game.PaymentState state) =>
-        ShowToast(PendingTopUp.MessageFor(entry, state));
+    // A credit is confirmed by CoinNotice, over every screen; the shop says only how a failed one ended.
+    private void HandleTopUpSettled(PendingTopUp.Entry entry, Meccha.Shared.Game.PaymentState state)
+    {
+        if (state != Meccha.Shared.Game.PaymentState.Credited) ShowToast(PendingTopUp.MessageFor(entry, state));
+    }
 
     public void Open()
     {

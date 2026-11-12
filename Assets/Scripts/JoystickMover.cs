@@ -125,7 +125,10 @@ public class JoystickMover : MonoBehaviour
         {
             ShowRotateButtons(false);
         }
-        if (_rotHeldDir != 0 && character != null && (climber == null || !climber.BlocksRotation))
+        // The rotate buttons turn the character whenever they are held: on a wall, on the floor,
+        // and next to a wall after climbing down or falling off one (WallClimber.BlocksRotation is
+        // true there, and used to swallow every press until the player walked away from the wall).
+        if (_rotHeldDir != 0 && character != null)
         {
             character.Rotate(0f, rotateButtonSpeed * _rotHeldDir * Time.deltaTime, 0f, Space.World);
         }
@@ -338,6 +341,20 @@ public class JoystickMover : MonoBehaviour
         {
             Debug.LogWarning("[JoystickMover] ButtonRotationLeft/Right not found.");
         }
+    }
+
+    /// <summary>Clears the speed a fall built up: the player was put back on solid ground (FallGuard).</summary>
+    public void StopFalling()
+    {
+        _vy = 0f;
+        _moveVel = Vector3.zero;
+    }
+
+    /// <summary>A new round: the rotate pair hidden and nothing held (RoundUiReset).</summary>
+    public void ResetControls()
+    {
+        ShowRotateButtons(false);
+        _rotHeldDir = 0;
     }
 
     public void ToggleRotateButtons()

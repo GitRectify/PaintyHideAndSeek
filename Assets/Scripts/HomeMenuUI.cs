@@ -62,6 +62,15 @@ public class HomeMenuUI : MonoBehaviour
 
     private void Start()
     {
+        // A character picked in Multiple Play reloads the scene; carry on at the room screen.
+        int onlineMode = PlayerPrefs.GetInt(SelectPlayerUI.PendingOnlineModeKey, -1);
+        if (onlineMode >= 0)
+        {
+            PlayerPrefs.SetInt(SelectPlayerUI.PendingOnlineModeKey, -1);
+            PlayerPrefs.Save();
+            OnlineSignIn.Open(profile => OnlineLobby.ResumeAfterCharacterSwitch(profile, onlineMode), null);
+        }
+
         if (rejoinOffered) return;
         rejoinOffered = true;
         OnlineLobby.OfferRejoin();
@@ -86,6 +95,7 @@ public class HomeMenuUI : MonoBehaviour
     // A top-up the player paid in the browser, settled while Home is up (the shop says it itself).
     private void HandleTopUpSettled(PendingTopUp.Entry entry, PaymentState state)
     {
+        if (state == PaymentState.Credited) return;   // CoinNotice confirms a credit, on every screen
         if (toastText == null || ToastObject == null) return;
         if (homeCanvas != null && !homeCanvas.activeInHierarchy) return;
         if (toast != null) StopCoroutine(toast);

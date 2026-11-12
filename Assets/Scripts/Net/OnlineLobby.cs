@@ -22,7 +22,7 @@ using UnityEngine.UI;
 // round that was running (OfferRejoin): signing in then lands straight back in the held seat.
 public class OnlineLobby : MonoBehaviour
 {
-    private enum Step { Idle, Role, Room, Map, Searching, Lobby, Match, Rejoin }
+    private enum Step { Idle, Role, Body, Room, Map, Searching, Lobby, Match, Rejoin }
 
     [Tooltip("Rejoining after a restart: how long after signing in to wait for the held seat.")]
     [SerializeField] private float rejoinWaitSeconds = 3f;
@@ -287,11 +287,43 @@ public class OnlineLobby : MonoBehaviour
         home.ShowRoleSelect();
     }
 
+    // The side, then the body as in Single Play (SelectPlayerCanvas), then the room.
     private void PickRole(RolePreference preference)
     {
         role = preference;
+        step = Step.Body;
+
+        int version = flowVersion;
+        int mode = preference == RolePreference.Seeker ? 1 : 2;
+        bool shown = home != null && home.ShowSelectPlayerOnline(mode,
+            () => { if (version == flowVersion && step == Step.Body) BodyChosen(); },
+            () => { if (version == flowVersion && step == Step.Body) ShowRoleScreen(); },
+            NotOwnedOnline);
+
+        if (!shown) BodyChosen();
+    }
+
+    private void BodyChosen()
+    {
         if (home != null) home.HideRoleSelect();   // back to Home, under the room screen
         ShowRoomScreen(null);
+    }
+
+    // The characters this account cannot play online: those the server does not list as owned.
+    private bool NotOwnedOnline(int character) =>
+        profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0 && Array.IndexOf(profile.OwnedAvatars, character) < 0;
+
+    /// <summary>
+    /// After the scene reloaded for a new character picked online (SelectPlayerUI): straight back
+    /// to the room screen, on the side chosen before the reload.
+    /// </summary>
+    public static void ResumeAfterCharacterSwitch(MetaProfile profile, int mode)
+    {
+        OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
+        if (lobby == null) lobby = new GameObject("OnlineLobby").AddComponent<OnlineLobby>();
+        lobby.Begin(profile, null);
+        lobby.role = mode == 1 ? RolePreference.Seeker : RolePreference.Hider;
+        lobby.BodyChosen();
     }
 
     private static OnlineLobby ChoosingRole()

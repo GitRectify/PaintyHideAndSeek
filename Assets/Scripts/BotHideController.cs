@@ -572,7 +572,7 @@ public class BotHideController : MonoBehaviour
         BuildHideObjects();
         BuildClimbSurfaces();
         scaleBots = true;
-        ResetBots();
+        ResetBots(true);
 
         seeking = false;
         over = false;
@@ -809,13 +809,24 @@ public class BotHideController : MonoBehaviour
 
     // Back to spawn: tags shown, ragdolls off, original scale/position/rotation/colour, Speed 0 and
     // Pose 0 (shrunk again when scaleBots is on).
-    public void ResetBots()
+    public void ResetBots() => ResetBots(false);
+
+    /// <summary>Where each hider bot stood as this Single Play round began, before it went to hide (the play test reads it).</summary>
+    public IReadOnlyList<Vector3> RoundStarts => roundStarts;
+    private readonly List<Vector3> roundStarts = new List<Vector3>();
+
+    // onSpawns: a Single Play round starts, and the bots stand on the room's HiderSpawn markers
+    // before they go and hide, as online hider bots do (OnlineRound puts each on the marker the
+    // server gave it). Otherwise they go back to where BotManager made them.
+    private void ResetBots(bool onSpawns)
     {
         if (botMgr != null)
         {
             botMgr.SetAllTagsVisible(true);
         }
 
+        int index = 0;
+        if (onSpawns) roundStarts.Clear();
         foreach (Bot b in bots)
         {
             if (b == null) continue;
@@ -827,7 +838,13 @@ public class BotHideController : MonoBehaviour
             }
             if (b.cc != null) b.cc.enabled = false;
             b.tf.localScale = b.originScale;
-            b.tf.SetPositionAndRotation(b.originPos, b.originRot);
+
+            Vector3 pos = b.originPos;
+            Quaternion rot = b.originRot;
+            if (onSpawns) OnSpawnMarker(b, index, ref pos, ref rot);
+            index++;
+            b.tf.SetPositionAndRotation(pos, rot);
+            if (onSpawns) roundStarts.Add(pos);
             if (scaleBots)
             {
                 ApplyBotScale(b);
@@ -844,6 +861,17 @@ public class BotHideController : MonoBehaviour
                 b.smr.material.SetColor(BaseColorId, b.originColor);
             }
         }
+    }
+
+    // A hiding player stands on the first HiderSpawn marker (LevelManager.TryGetSpawn), so the bots
+    // take the ones after it; with the player seeking they start from the first.
+    private void OnSpawnMarker(Bot b, int index, ref Vector3 pos, ref Quaternion rot)
+    {
+        bool playerHides = gmm != null && !gmm.PlayerIsSeeker;
+        if (!RoomSetup.TrySpawn(RoomSetup.Room, false, index + (playerHides ? 1 : 0), out Vector3 feet, out Quaternion facing)) return;
+
+        pos = b.cc != null ? RoomSetup.PivotForFeet(b.tf, feet) : feet + Vector3.up * b.pivotToFeet;
+        rot = facing;
     }
 
     // Shrinks the bot to botScaleInMode1 and lowers it so its feet stay on the floor.
@@ -1278,6 +1306,7 @@ public class BotHideController : MonoBehaviour
             Bounds bb = mr.bounds;
             float footprint = Mathf.Max(bb.size.x, bb.size.z);
             if (footprint > 22f || bb.size.y < 3f || footprint < 2f) continue;
+            if (!RoomSetup.Inside(bb.center)) continue;     // outside the fence: nobody may hide there
 
             bool excluded = false;
             for (int j = 0; j < skip.Length; j++)
@@ -1543,6 +1572,7 @@ public class BotHideController : MonoBehaviour
             }
         }
         bb.Expand(12f);
+        bb = RoomSetup.Clamp(bb);      // bots never walk out of the playable area
 
         NavMeshBuildSettings settings = NavMesh.GetSettingsByID(0);
         settings.agentRadius = 2.5f;

@@ -1117,6 +1117,12 @@ public class ChameleonPaint : MonoBehaviour
         CloseDrawing(false);
     }
 
+    /// <summary>Closed at once, not slid away: a new round starts with the panel gone (RoundUiReset).</summary>
+    public void CloseDrawingNow()
+    {
+        CloseDrawing(true);
+    }
+
     private void CloseDrawing(bool immediately)
     {
         drawingOn = false;

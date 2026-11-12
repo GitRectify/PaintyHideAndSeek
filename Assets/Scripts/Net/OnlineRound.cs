@@ -258,7 +258,10 @@ public partial class OnlineRound : MonoBehaviour
         if (results != null) results.HideAll();
 
         if (home != null) home.EnterOnlineRound(hunter);
-        if (gmm != null) gmm.BeginNetworkRound(hunter, mapName);
+        // The match's playable area, the same on every player's screen; remembered for Single Play.
+        int area = Net.MatchPlayableArea;
+        RoomSetup.NoteServerArea(area);
+        if (gmm != null) gmm.BeginNetworkRound(hunter, mapName, area);
 
         localBody = PlayerRef.ResolveTransform("Player");
         NetEntityRegistry.ViewFactory = MakeView;

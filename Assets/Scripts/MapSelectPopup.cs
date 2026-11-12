@@ -21,6 +21,7 @@ public class MapSelectPopup : MonoBehaviour
     private Action _onConfirm;
     private Action _onBack;
     private LevelManager _lm;
+    private Text _roomName;
 
     // NOTE: both get_Instance and set_Instance were separately decompiled (not just a bare
     // field), so this is a real property with a public setter — same as LevelManager.Instance
@@ -85,6 +86,45 @@ public class MapSelectPopup : MonoBehaviour
         }
 
         _lm?.SetLevel(selected);
+        ShowRoomName();
+    }
+
+    // The room about to be played, over the Play button: the name the level list gives it.
+    private void ShowRoomName()
+    {
+        if (_roomName == null || _lm == null) return;
+        _roomName.text = _lm.CurrentDisplayName;
+    }
+
+    // A label built just above the scene's Play button, in its panel, so it moves with it.
+    private void BuildRoomName()
+    {
+        Transform play = FindUnder(_canvas.transform, "ButtonPlay");
+        if (play == null || play.parent == null) return;
+
+        var go = new GameObject("SelectedRoomName", typeof(RectTransform));
+        go.transform.SetParent(play.parent, false);
+        var rt = (RectTransform)go.transform;
+        var playRt = (RectTransform)play;
+        rt.anchorMin = playRt.anchorMin;
+        rt.anchorMax = playRt.anchorMax;
+        rt.pivot = new Vector2(0.5f, 0f);
+        rt.sizeDelta = new Vector2(Mathf.Max(420f, playRt.rect.width + 160f), 56f);
+        rt.anchoredPosition = playRt.anchoredPosition + new Vector2(0f, playRt.rect.height * (1f - playRt.pivot.y) + 10f);
+
+        _roomName = go.AddComponent<Text>();
+        _roomName.font = UIFont.Default;
+        _roomName.fontSize = 40;
+        _roomName.fontStyle = FontStyle.Bold;
+        _roomName.alignment = TextAnchor.LowerCenter;
+        _roomName.color = Color.white;
+        _roomName.raycastTarget = false;
+        _roomName.horizontalOverflow = HorizontalWrapMode.Overflow;
+        _roomName.verticalOverflow = VerticalWrapMode.Overflow;
+
+        Outline outline = go.AddComponent<Outline>();
+        outline.effectColor = new Color(0f, 0f, 0f, 0.6f);
+        outline.effectDistance = new Vector2(2f, -2f);
     }
 
     public void Back()
@@ -237,6 +277,8 @@ public class MapSelectPopup : MonoBehaviour
                 }
             }
         }
+
+        BuildRoomName();
 
         Transform backTransform = FindUnder(_canvas.transform, backButtonName);
         if (backTransform == null)

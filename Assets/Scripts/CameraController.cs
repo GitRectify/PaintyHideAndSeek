@@ -79,6 +79,10 @@ public class CameraController : MonoBehaviour
     public float proneBack = 0.12f;
     [Tooltip("Speed ​​of lowering/raising the camera when toggling the lying-down state (expressed as a rate of 0–1 per second). A higher value means faster/snappier movement.")]
     public float proneLerpSpeed = 6f;
+    [Tooltip("Fallback: the camera's height above the floor when lying down (see SeekerCamProfile.proneEyeHeight).")]
+    public float proneEyeHeight = 2.6f;
+    [Tooltip("Fallback: how far in front of the pivot the camera sits when lying down (see SeekerCamProfile.proneForward).")]
+    public float proneForward = 6.5f;
     private bool _proneOn;
     private float _proneAmt;
     public bool firstPerson;
@@ -301,6 +305,28 @@ public class CameraController : MonoBehaviour
         return new Vector3(character.position.x, _smoothY, character.position.z);
     }
 
+    private float _proneFloorY;
+    private int _proneFloorFrame = -1;
+
+    // The floor under the lying player, once a frame: the highest non-character surface below.
+    private float ProneFloorY(Vector3 pivot)
+    {
+        if (_proneFloorFrame == Time.frameCount) return _proneFloorY;
+        _proneFloorFrame = Time.frameCount;
+
+        float best = float.NegativeInfinity;
+        foreach (RaycastHit hit in Physics.RaycastAll(pivot + Vector3.up * 2f, Vector3.down, 60f, ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (hit.collider is CharacterController) continue;
+            if (character != null && hit.transform.IsChildOf(character)) continue;
+            if (hit.collider.GetComponentInParent<Animator>() != null) continue;
+            if (hit.point.y > best) best = hit.point.y;
+        }
+
+        _proneFloorY = float.IsNegativeInfinity(best) ? pivot.y - 7f : best;
+        return _proneFloorY;
+    }
+
     // SeekerCamProfile of PlayerRef.Active, looked up again only when the active player changes.
     private SeekerCamProfile ActiveCamProfile()
     {
@@ -358,9 +384,21 @@ public class CameraController : MonoBehaviour
                 _proneAmt = Mathf.MoveTowards(_proneAmt, _proneOn ? 1f : 0f, proneLerpSpeed * Time.deltaTime);
                 if (_proneAmt > 0f)
                 {
-                    height -= (p != null ? p.proneHeightDrop : proneHeightDrop) * _proneAmt;
-                    lookHeight -= (p != null ? p.proneLookDrop : proneLookDrop) * _proneAmt;
-                    back = Mathf.Lerp(back, p != null ? p.proneBack : proneBack, _proneAmt);
+                    // Lying down, the eye goes near the FLOOR, at the head end of the body, looking
+                    // level: under beds and tables. The character's pivot stays at its standing
+                    // height (its controller is not shortened), so the old drop from the pivot left
+                    // the camera about 9 units up, twice the height of the lying body.
+                    float s = Mathf.Max(0.1f, character.lossyScale.y);
+                    float eyeAboveFloor = (p != null ? p.proneEyeHeight : proneEyeHeight) * s;
+                    float forward = (p != null ? p.proneForward : proneForward) * s;
+                    float proneHeight = ProneFloorY(pivot) + eyeAboveFloor - pivot.y;
+
+                    height = Mathf.Lerp(height, proneHeight, _proneAmt);
+                    lookHeight = Mathf.Lerp(lookHeight, proneHeight - 0.15f * s, _proneAmt);
+                    lookAhead = Mathf.Lerp(lookAhead, lookAhead + forward, _proneAmt);
+                    back = Mathf.Lerp(back, -forward, _proneAmt);
+                    side = Mathf.Lerp(side, 0f, _proneAmt);
+                    lookSide = Mathf.Lerp(lookSide, 0f, _proneAmt);
                 }
 
                 // Level facing (forward when the character looks straight up/down).

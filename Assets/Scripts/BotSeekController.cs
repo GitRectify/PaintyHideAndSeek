@@ -1069,7 +1069,7 @@ public class BotSeekController : MonoBehaviour
         {
             RaycastHit hit = _rayHits[i];
             if (hit.distance <= 0f || hit.distance >= distance) continue;
-            if (hit.collider is CharacterController || IsCharacter(hit.collider) || hit.collider.CompareTag("Ground")) continue;
+            if (hit.collider is CharacterController || IsCharacter(hit.collider) || SafeTags.Has(hit.collider, "Ground")) continue;
             if (Vector3.Angle(hit.normal, Vector3.up) < botMinWallSteepness) continue;
 
             distance = hit.distance;
@@ -1466,7 +1466,7 @@ public class BotSeekController : MonoBehaviour
     {
         if (b.tf == null) return;
 
-        Vector3 home = online != null ? online.RescuePoint(b.tf, bots.IndexOf(b)) : ValidRoomHome(b.originPos, bots.IndexOf(b));
+        Vector3 home = online != null ? online.RescuePoint(b.tf, bots.IndexOf(b)) : SpawnHome(b, bots.IndexOf(b), out _);
         if (b.targetIdx >= 0)
         {
             MarkChecked(b.targetIdx);
@@ -1566,12 +1566,31 @@ public class BotSeekController : MonoBehaviour
         return HorizDist(c[c.Length - 1], to) <= arriveDistance * 2f;
     }
 
-    // A floor point on a spiral (radius 18..74) around the player (or this object), 7 units above
-    // the NavMesh. Fallbacks: the NavMesh point nearest the centre (+7), then the NavMesh point
-    // near origin (origin's own y kept), then origin itself.
+    // Where a seeker bot starts, and goes back to when it is stranded: a HunterSpawn marker of the
+    // room, in both modes. Online, OnlineRound has put each bot on the marker the server gave it
+    // (and RescuePoint finds it again); in Single Play a seeking player stands on the first marker
+    // (LevelManager.TryGetSpawn), so the bots take the ones after it. A room without markers
+    // falls back to the spiral round the player.
+    private Vector3 SpawnHome(SeekBot b, int index, out Quaternion facing)
+    {
+        facing = b.originRot;
+        if (online != null) return b.originPos;
+
+        int marker = index + (chasePlayer ? 0 : 1);
+        if (RoomSetup.TrySpawn(RoomSetup.Room, true, marker, out Vector3 feet, out Quaternion onMarker))
+        {
+            facing = onMarker;
+            return b.cc != null ? RoomSetup.PivotForFeet(b.tf, feet) : feet + Vector3.up * 7f;
+        }
+
+        return ValidRoomHome(b.originPos, index);
+    }
+
+    // A room without spawn markers: a floor point on a spiral (radius 18..74) around the player
+    // (or this object), 7 units above the NavMesh. Fallbacks: the NavMesh point nearest the centre
+    // (+7), then the NavMesh point near origin (origin's own y kept), then origin itself.
     private Vector3 ValidRoomHome(Vector3 origin, int seed)
     {
-        // Single Play's seekers start around the player; online they stay on their own spawns.
         if (online != null) return origin;
 
         Transform t = playerTf != null ? playerTf : transform;
@@ -2938,9 +2957,9 @@ public class BotSeekController : MonoBehaviour
                     b.ragdoll.Deactivate();
                 }
 
-                Vector3 home = ValidRoomHome(b.originPos, seed);
+                Vector3 home = SpawnHome(b, seed, out Quaternion facing);
                 if (b.cc != null) b.cc.enabled = false;
-                b.tf.SetPositionAndRotation(home, b.originRot);
+                b.tf.SetPositionAndRotation(home, facing);
                 if (b.cc != null) b.cc.enabled = true;
 
                 if (b.cc != null)
@@ -3373,6 +3392,7 @@ public class BotSeekController : MonoBehaviour
             }
         }
         bb.Expand(12f);
+        bb = RoomSetup.Clamp(bb);      // bots never walk out of the playable area
 
         NavMeshBuildSettings settings = NavMesh.GetSettingsByID(0);
         settings.agentRadius = 2.5f;

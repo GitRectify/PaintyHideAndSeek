@@ -69,6 +69,14 @@ public class LevelManager : MonoBehaviour
     public GameObject CurrentRoomInstance => _roomInstance;
     private string _loadedRoomName;
     private string lastAppliedRoom;
+    private int _loadedArea = -1;
+
+    /// <summary>
+    /// The walkable floor the next room is limited to (RoomSetup). An online round sets the
+    /// match's (MatchFound) before it loads the map; Single Play has the server's last word, or
+    /// the standard area. A loaded room whose area differs is loaded again.
+    /// </summary>
+    public int PlayableArea { get; set; } = RoomSetup.PlayableArea;
 
     // NOTE: invoked as a plain delegate call in the decompiled code (no distinguishable
     // add/remove accessor complexity at the IL2CPP level) — could equally be a C# event;
@@ -200,7 +208,7 @@ public class LevelManager : MonoBehaviour
     {
         string roomName = CurrentRoomName;
 
-        if (_roomInstance != null && _loadedRoomName == roomName)
+        if (_roomInstance != null && _loadedRoomName == roomName && _loadedArea == PlayableArea)
         {
             if (!_roomInstance.activeSelf)
             {
@@ -230,6 +238,10 @@ public class LevelManager : MonoBehaviour
         _roomInstance.name = roomName;
         _roomInstance.SetActive(true);
         _loadedRoomName = roomName;
+        _loadedArea = PlayableArea;
+
+        // Solid floors, the same playable area as every room, in every mode (RoomSetup).
+        RoomSetup.Prepare(_roomInstance, PlayableArea);
 
         Debug.Log($"[LevelManager] Instantiated room: {_roomInstance.name}");
 
@@ -240,6 +252,21 @@ public class LevelManager : MonoBehaviour
         Resources.UnloadUnusedAssets();
         lastAppliedRoom = roomName;
         return true;
+    }
+
+    /// <summary>
+    /// Where the player starts in the room now loaded: this side's first spawn marker, on the floor
+    /// under it — the markers online play uses. The level's fixed spawn point (0, 7.5, 0) is only
+    /// the fallback: in Room5 it is over no floor at all, and the player fell for ever.
+    /// </summary>
+    public bool TryGetSpawn(bool seeker, Transform character, out Vector3 pos, out Quaternion rot)
+    {
+        if (_roomInstance != null && RoomSetup.TrySpawn(_roomInstance, seeker, 0, out Vector3 feet, out rot))
+        {
+            pos = RoomSetup.PivotForFeet(character, feet);   // the transform, not the feet, is what is placed
+            return true;
+        }
+        return TryGetSpawn(out pos, out rot);
     }
 
     public bool TryGetSpawn(out Vector3 pos, out Quaternion rot)
