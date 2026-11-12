@@ -234,7 +234,7 @@ public class ChameleonPaint : MonoBehaviour
     private RectTransform _sizeDotRt;
     private Image _sizeDotImg;
     private float _sizeTrackW;
-    private float wheelRadius = 100f;
+    // private float wheelRadius = 100f;
     private Sprite solidSprite;
     private Sprite circleSprite;
     private Sprite ringSprite;

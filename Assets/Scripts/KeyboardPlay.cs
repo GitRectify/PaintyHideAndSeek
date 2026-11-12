@@ -155,7 +155,7 @@ public sealed class KeyboardPlay : MonoBehaviour
     // The button of that name on screen now, if it can be pressed.
     private static GameObject Find(string buttonName)
     {
-        foreach (RectTransform rt in FindObjectsByType<RectTransform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+        foreach (RectTransform rt in FindObjectsByType<RectTransform>(FindObjectsInactive.Exclude))
         {
             if (rt.name != buttonName || !rt.gameObject.activeInHierarchy) continue;
             UnityEngine.UI.Selectable selectable = rt.GetComponent<UnityEngine.UI.Selectable>();

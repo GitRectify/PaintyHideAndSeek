@@ -136,6 +136,17 @@ public class JoystickMover : MonoBehaviour
         if (character == null) return;
         if (joystick == null) return;
 
+        // No round (Home, the map picker, loading): the room is hidden and there is no floor, so
+        // nothing moves the body and gravity does not run. It used to keep falling, hidden, the
+        // whole time and carried that speed into the next round's spawn.
+        if (gmm != null && !gmm.RoundActive)
+        {
+            _vy = 0f;
+            _moveVel = Vector3.zero;
+            SetSpeed(0f);
+            return;
+        }
+
         // Frozen player: joystick hidden, unless it is flying the free camera; frozen or seeker
         // hide countdown: no movement at all.
         bool frozen = gmm != null && gmm.PlayerFrozen;
@@ -353,11 +364,13 @@ public class JoystickMover : MonoBehaviour
         _moveVel = Vector3.zero;
     }
 
-    /// <summary>A new round: the rotate pair hidden and nothing held (RoundUiReset).</summary>
+    /// <summary>A new round: the rotate pair hidden, nothing held, no speed left from before (RoundUiReset).</summary>
     public void ResetControls()
     {
         ShowRotateButtons(false);
         _rotHeldDir = 0;
+        _vy = 0f;
+        _moveVel = Vector3.zero;
     }
 
     public void ToggleRotateButtons()

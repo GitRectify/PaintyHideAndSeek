@@ -39,6 +39,15 @@ public static class OnlinePlayTest
     private const string ArgsKey = "MecchaPlayTest.Args";
     private const float TimeoutSeconds = 240f;
 
+    private const string CharacterKey = "MecchaPlayTest.Character";
+    private const string CharacterPrefsKey = "SelectedCharacter";      // CharacterSelect.prefsKey
+
+    // -playtestSwitchBody: the account buys the other character, picks it on SelectPlayerCanvas (the
+    // scene reloads for it) and plays the match with it.
+    private static bool SwitchBody => System.Environment.GetCommandLineArgs().Contains("-playtestSwitchBody");
+    private static int switchedTo = -1;
+    private static bool switchChecked, avatarAnswered, profileRefreshed;
+
     private static readonly BindingFlags Any = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
 
     static OnlinePlayTest()
@@ -85,6 +94,8 @@ public static class OnlinePlayTest
         });
         SessionState.SetString(ArgsKey, settings);
         SessionState.SetBool(ActiveKey, true);
+        // The character the editor had: -playtestSwitchBody changes it, and it is put back at the end.
+        SessionState.SetInt(CharacterKey, PlayerPrefs.GetInt(CharacterPrefsKey, 0));
 
         EditorSceneManager.OpenScene("Assets/Scenes/SampleScene.unity");
         EditorApplication.update -= Tick;
@@ -252,7 +263,23 @@ public static class OnlinePlayTest
                         });
                     }
                 }
-                if (!boughtAnswered || (Pair && !posesAnswered)) return;
+                if (SwitchBody && nextAction == 1f)
+                {
+                    nextAction = 2f;
+                    int other = 1 - Mathf.Clamp(PlayerPrefs.GetInt(CharacterPrefsKey, 0), 0, 1);
+                    Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "avatar-" + other, Quantity = 1 } }, receipt =>
+                    {
+                        Check(receipt.Status == PurchaseStatus.Completed || receipt.Status == PurchaseStatus.AlreadyOwned,
+                              $"bought character {other} ({receipt.Status}, {receipt.Error})");
+                        Meta.GetProfile(reply =>
+                        {
+                            if (reply.Error == MetaError.None) profile = reply.Profile;
+                            profileRefreshed = true;
+                        });
+                        avatarAnswered = true;
+                    });
+                }
+                if (!boughtAnswered || (Pair && !posesAnswered) || (SwitchBody && (!avatarAnswered || !profileRefreshed))) return;
 
                 OnlineLobby.Open(profile, null);
                 Go(Step.Role);
@@ -275,6 +302,19 @@ public static class OnlinePlayTest
             case Step.Room:
                 Button practice = FindButton("RoomScreen", "Practice");
                 if (practice == null) return;
+                if (switchedTo >= 0 && !switchChecked)
+                {
+                    // Back from the reload by itself, at the room screen, as the new character.
+                    switchChecked = true;
+                    Transform body = PlayerRef.Active;
+                    string expected = switchedTo == 0 ? "Player" : "Player" + (switchedTo + 1);
+                    int bodies = Object.FindObjectsByType<SeekerCamProfile>(FindObjectsInactive.Include).Length;
+                    Check(body != null && body.name == expected && bodies == 1,
+                          $"after the reload the game came back to the room screen as {expected} ({(body != null ? body.name : "none")}, {bodies} player bodies)");
+                    Check(FindByName("SelectPlayerCanvas") is not { activeInHierarchy: true } && FindByName("RoleSelectCanvas") is not { activeInHierarchy: true },
+                          "with the side and character screens closed");
+                    Check(PlayerPrefs.GetInt(SelectPlayerUI.PendingOnlineModeKey, -1) == -1, "and nothing left pending for the next launch");
+                }
                 Check(FindButton("RoomScreen", "HISTORY") != null, "room screen has the HISTORY button");
                 practice.onClick.Invoke();
                 Go(Step.Map);
@@ -307,6 +347,12 @@ public static class OnlinePlayTest
                 }
                 if (!OnlineRound.Active) return;
                 Check(Net.MatchSeats == Seats, $"the match has the room's {Seats} seats ({Net.MatchSeats})");
+                if (switchedTo >= 0)
+                {
+                    var everyone = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster");
+                    uint model = everyone != null ? everyone.FirstOrDefault(e => e.Slot == Net.LocalSlot).ModelId : 999u;
+                    Check(model == (uint)switchedTo, $"the server has this player as character {switchedTo} ({model})");
+                }
                 Check(Net.MatchHunterSeats == GameTuning.SeekersFor(Seats),
                       $"{GameTuning.SeekersFor(Seats)} of them seek and {Seats - GameTuning.SeekersFor(Seats)} hide ({Net.MatchHunterSeats} seekers)");
                 Check(Net.LocalRole == (Seeker ? Role.Hunter : Role.Fugitive), $"plays the side picked ({Net.LocalRole})");
@@ -741,6 +787,7 @@ public static class OnlinePlayTest
             foreach (RaycastHit hit in Physics.RaycastAll(feet + Vector3.up * 6f, Vector3.down, 14f).OrderBy(h => h.distance))
             {
                 if (hit.collider.GetComponentInParent<NetEntityView>() != null) continue;
+                if (hit.point.y > feet.y + 1f) continue;    // a tabletop over a hider, not the floor under them
                 feetAboveFloor.Add(Mathf.Abs(feet.y - hit.point.y));
                 break;
             }
@@ -894,6 +941,16 @@ public static class OnlinePlayTest
         if (profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0)
             for (int i = 0; i < picker.buttonNames.Length && locked < 0; i++)
                 if (Array.IndexOf(profile.OwnedAvatars, i) < 0) locked = i;
+
+        if (SwitchBody && switchedTo < 0)
+        {
+            // The other character, which this account now owns: Play reloads the scene with it.
+            switchedTo = 1 - inUse;
+            report.Add($"INFO  picking character {switchedTo} (was {inUse}): the scene reloads");
+            picker.PickCharacter(switchedTo);
+            picker.Confirm();
+            return;
+        }
 
         if (locked >= 0)
         {
@@ -2809,6 +2866,9 @@ public static class OnlinePlayTest
         EditorApplication.update -= Tick;
         Application.logMessageReceived -= CountErrors;
         ShopInventory.PreferredBullet = BulletType.Default;   // leave the editor's preference as found
+        PlayerPrefs.SetInt(CharacterPrefsKey, SessionState.GetInt(CharacterKey, 0));   // and its character
+        PlayerPrefs.SetInt(SelectPlayerUI.PendingOnlineModeKey, -1);
+        PlayerPrefs.Save();
         if (Lan) OnlineConfig.SaveHostOverride("");             // the LAN search remembered what it found
 
         var text = new StringBuilder();

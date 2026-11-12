@@ -8,14 +8,14 @@ public class PanelLoading : MonoBehaviour
     public float timeLoad;
 
     private bool isShowAOA;
-    private bool isIntAds; // NOTE: set false in Start() and never read/written anywhere else in this file — write-only/unused as far as this dump shows.
+    // private bool isIntAds; // NOTE: set false in Start() and never read/written anywhere else in this file — write-only/unused as far as this dump shows.
     private float speed;
     private float currentTime;
 
     private void Start()
     {
         isShowAOA = false;
-        isIntAds = false;
+        // isIntAds = false;
         // NOTE: this initial speed is effectively dead — Update() unconditionally re-randomizes
         // `speed` to a DIFFERENT range (0.5–2.0, vs. this 0.1–0.8) on every single frame,
         // starting with the very first Update() call after this Start(). Confirmed via trace,
