@@ -414,7 +414,7 @@ public class CameraController : MonoBehaviour
                         float behindGun = (p != null ? p.proneBehindGun : proneBehindGun) * s;
                         float aboveGun = (p != null ? p.proneAboveGun : proneAboveGun) * s;
                         Quaternion tilt = Quaternion.AngleAxis(-aimPitchDeg, right);
-                        Vector3 onGun = gun.position - tilt * fwd * behindGun + tilt * Vector3.up * aboveGun;
+                        Vector3 onGun = GunCentre(gun) - tilt * fwd * behindGun + tilt * Vector3.up * aboveGun;
                         forward = Vector3.Dot(onGun - pivot, fwd);
                         proneHeight = Mathf.Max(proneHeight, onGun.y - pivot.y);
                     }
@@ -501,6 +501,16 @@ public class CameraController : MonoBehaviour
     public void Zoom(float deltaDistance)
     {
         distance = Mathf.Clamp(distance + deltaDistance, minDistance, maxDistance);
+    }
+
+    private Renderer heldGunMesh;
+
+    // The middle of the gun's mesh: it lies on the line of fire (the gun lies along the aiming
+    // arm), so framing on it keeps the gun at one place on screen however the hand moves.
+    private Vector3 GunCentre(Transform gun)
+    {
+        if (heldGunMesh == null || !heldGunMesh.transform.IsChildOf(gun)) heldGunMesh = gun.GetComponentInChildren<Renderer>();
+        return heldGunMesh != null ? heldGunMesh.bounds.center : gun.position;
     }
 
     // The local player's gun while it is out (GunHolder), or null.

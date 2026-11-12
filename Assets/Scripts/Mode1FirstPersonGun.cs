@@ -55,11 +55,11 @@ public class Mode1FirstPersonGun : MonoBehaviour
     private float aimPitch;
 
     [Header("Right arm follows the aim (up/down)")]
-    [Tooltip("Bone rotated so the gun arm points where you aim. Mixamo upper arm by default.")]
+    [Tooltip("Bone rotated so the gun arm points where you aim. Mixamo upper arm by default (GunAim finds the Mixamo right arm).")]
     public string armBoneName = "mixamorig:RightArm";
-    [Tooltip("How much the arm pitches per degree of aim pitch (1 = match the crosshair; lower = subtler).")]
+    [Tooltip("How far the arm turns onto the aim (1 = the forearm and the gun point exactly where the shots go; lower = subtler).")]
     public float armPitchFactor = 1f;
-    private Transform rightArm;
+    private GunAim.Arm arm;
 
     [Header("Gun aim (barrel points at the crosshair)")]
     [Tooltip("Each frame, rotate the held gun so its barrel points exactly at the spot under the crosshair, so the bullet flies straight out of the muzzle toward the crosshair instead of off at an angle.")]
@@ -152,19 +152,8 @@ public class Mode1FirstPersonGun : MonoBehaviour
             playerTf = player.transform;
         }
 
-        rightArm = null;
-        if (player != null)
-        {
-            foreach (Transform t in player.GetComponentsInChildren<Transform>(true))
-            {
-                if (t.name == armBoneName)
-                {
-                    rightArm = t;
-                    break;
-                }
-            }
-        }
-
+        // The arm that aims and holds the gun (GunAim), found again for a new character.
+        arm = player != null ? GunAim.FindArm(player.transform) : null;
     }
 
     // Gun mode = round running with the player as the seeker; re-applied only when it flips.
@@ -184,15 +173,17 @@ public class Mode1FirstPersonGun : MonoBehaviour
         if (!gmm.RoundActive || !gmm.PlayerIsSeeker) return;
         if (playerTf == null) return;
 
-        // Right arm pitches with the aim (applied after the animator pose). Not lying down: the
-        // arms of that pose reach forward along the floor, and only the gun turns.
-        if (rightArm != null && !prone)
+        // The right arm aims and the gun lies along it (GunAim), after the animator pose, in any
+        // posture: the forearm points where the shots go and the barrel is parallel to it, the
+        // handle in the hand. armPitchFactor below 1 lets the arm follow the aim only partly.
+        if (arm == null) arm = GunAim.FindArm(playerTf);
+        if (arm != null)
         {
-            float armAngle = aimPitch * armPitchFactor;
-            if (Mathf.Abs(armAngle) > 0.01f)
-            {
-                rightArm.Rotate(playerTf.right, -armAngle, Space.World);
-            }
+            Vector3 aim = ShotDir();
+            GunAim.PointArm(arm, Vector3.Slerp(arm.Direction, aim, Mathf.Clamp01(armPitchFactor)));
+
+            if (gunTf == null && gunHolder != null) gunTf = gunHolder.Gun;
+            if (gunTf != null && gunTf.gameObject.activeInHierarchy) GunAim.AlongArm(gunTf, arm);
         }
 
         if (aimGunAtCrosshair && !aimAlongBarrel)
@@ -217,11 +208,6 @@ public class Mode1FirstPersonGun : MonoBehaviour
 
         if (aimAlongBarrel)
         {
-            // The gun on the line of fire, in any posture: lying down the hand alone held it
-            // pointing up. The muzzle (and the crosshair worked out from it) moves with it.
-            if (gunTf == null && gunHolder != null) gunTf = gunHolder.Gun;
-            if (gunTf != null && gunTf.gameObject.activeInHierarchy) GunAim.PointAlong(gunTf, ShotDir());
-
             UpdateBarrelCrosshair();
         }
     }
@@ -866,6 +852,15 @@ public class Mode1FirstPersonGun : MonoBehaviour
         UIDrag drag = SceneUI.GetOrAdd<UIDrag>(zone);
         drag.cb = OnAimDrag;
         aimZone = zone;
+    }
+
+    /// <summary>Turns the player and tilts the aim by these degrees, as a drag on the screen does (the aim keys).</summary>
+    public void AimBy(float yawDegrees, float pitchDegrees)
+    {
+        if (!gunModeOn || (gmm != null && gmm.SeekerHideCountdown)) return;
+        if (playerTf != null && Mathf.Abs(yawDegrees) > 0.0001f) playerTf.Rotate(0f, yawDegrees, 0f);
+        aimPitch = Mathf.Clamp(aimPitch + pitchDegrees, aimMinPitch, aimMaxPitch);
+        if (camCtrl != null) camCtrl.SetAimPitch(aimPitch);
     }
 
     // Horizontal drag turns the player; vertical drag changes the (clamped) aim pitch.

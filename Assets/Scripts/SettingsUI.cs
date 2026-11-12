@@ -130,6 +130,42 @@ public class SettingsUI : MonoBehaviour
         Text homeLabel = NewText("Label", homeBtn.transform, "Home", 30, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
         Place(homeLabel, CenterAnchor, CenterAnchor, new Vector2(0f, 24f), new Vector2(150f, 50f));
 
+        // The keyboard's keys (KeyBindingsUI) and closing the game for good. In the scene's popup Home
+        // and Restore Purchase share the bottom row, so these go in the space above them, one over
+        // each; a popup built from code has Home alone at the bottom, and these go either side of it.
+        Vector2 extraSize = new Vector2(220f, 88f);
+        Vector2 controlsPos = new Vector2(-252f, -195f);
+        Vector2 exitPos = new Vector2(252f, -195f);
+        if (homeBtn.transform is RectTransform homeRT && parent.Find("RestoreBtn") is RectTransform restoreRT)
+        {
+            extraSize = new Vector2(restoreRT.sizeDelta.x, 66f);
+            float y = homeRT.anchoredPosition.y + homeRT.sizeDelta.y / 2f + 8f + extraSize.y / 2f;
+            controlsPos = new Vector2(restoreRT.anchoredPosition.x, y);
+            exitPos = new Vector2(homeRT.anchoredPosition.x, y);
+        }
+
+        Button controlsBtn = NewButton("ControlsBtn", parent, homeBg, controlsPos, extraSize);
+        Text controlsLabel = NewText("Label", controlsBtn.transform, "Controls", 30, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
+        Place(controlsLabel, CenterAnchor, CenterAnchor, Vector2.zero, new Vector2(extraSize.x - 20f, 50f));
+        controlsBtn.onClick.RemoveAllListeners();
+        controlsBtn.onClick.AddListener(() =>
+        {
+            AudioManager.ButtonTap();
+            KeyBindingsUI.Open(font, null);
+        });
+
+        Button exitBtn = NewButton("ExitBtn", parent, homeBg, exitPos, extraSize);
+        Text exitLabel = NewText("Label", exitBtn.transform, "Exit Game", 30, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
+        Place(exitLabel, CenterAnchor, CenterAnchor, Vector2.zero, new Vector2(extraSize.x - 20f, 50f));
+        exitBtn.onClick.RemoveAllListeners();
+        exitBtn.onClick.AddListener(() =>
+        {
+            AudioManager.ButtonTap();
+            ShowExitConfirm(true);
+        });
+        UiTranslator.Track(controlsLabel);
+        UiTranslator.Track(exitLabel);
+
         WireControls();
         canvasGO.SetActive(false);
     }
@@ -150,10 +186,83 @@ public class SettingsUI : MonoBehaviour
 
     public void Hide()
     {
+        KeyBindingsUI.Close();
+        ShowExitConfirm(false);
         if (canvasGO != null)
         {
             canvasGO.SetActive(false);
         }
+    }
+
+    /// <summary>The Settings popup is on screen.</summary>
+    public bool IsShown => canvasGO != null && canvasGO.activeSelf;
+
+    private GameObject exitConfirm;
+
+    // "Exit the game?" over the popup: Exit closes the game (GameExit), Cancel goes back.
+    private void ShowExitConfirm(bool show)
+    {
+        if (!show)
+        {
+            if (exitConfirm != null) exitConfirm.SetActive(false);
+            return;
+        }
+
+        if (exitConfirm == null && canvasGO != null)
+        {
+            // Inside the popup, so it is drawn at the popup's own size (the scene scales the popup).
+            Transform host = canvasGO.transform.Find("Popup");
+            if (host == null) host = canvasGO.transform;
+            exitConfirm = new GameObject("ExitConfirm", typeof(RectTransform));
+            exitConfirm.transform.SetParent(host, false);
+            RectTransform cover = (RectTransform)exitConfirm.transform;
+            cover.anchorMin = Vector2.zero;
+            cover.anchorMax = Vector2.one;
+            cover.offsetMin = cover.offsetMax = Vector2.zero;
+            Image dim = exitConfirm.AddComponent<Image>();
+            dim.color = new Color(0f, 0f, 0f, 0.55f);
+
+            Image box = NewImage("ExitBox", exitConfirm.transform, null, new Color(0.12f, 0.14f, 0.2f, 0.97f), true, false);
+            Place(box, CenterAnchor, CenterAnchor, Vector2.zero, new Vector2(600f, 300f));
+
+            Text question = NewText("Question", box.transform, "Exit the game?", 44, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
+            Place(question, CenterAnchor, CenterAnchor, new Vector2(0f, 70f), new Vector2(560f, 60f));
+            UiTranslator.Track(question);
+
+            Button yes = ConfirmButton(box.transform, "ExitYes", "Exit", new Vector2(-150f, -60f), new Color(0.75f, 0.28f, 0.24f, 1f));
+            yes.onClick.AddListener(() =>
+            {
+                AudioManager.ButtonTap();
+                GameExit.Quit();
+            });
+
+            Button no = ConfirmButton(box.transform, "ExitNo", "Cancel", new Vector2(150f, -60f), new Color(0.25f, 0.3f, 0.42f, 1f));
+            no.onClick.AddListener(() =>
+            {
+                AudioManager.ButtonTap();
+                ShowExitConfirm(false);
+            });
+        }
+
+        if (exitConfirm != null)
+        {
+            exitConfirm.transform.SetAsLastSibling();
+            exitConfirm.SetActive(true);
+        }
+    }
+
+    private Button ConfirmButton(Transform parent, string name, string label, Vector2 pos, Color tint)
+    {
+        Image img = NewImage(name, parent, null, tint, true, false);
+        Place(img, CenterAnchor, CenterAnchor, pos, new Vector2(240f, 90f));
+        Button button = SceneUI.GetOrAdd<Button>(img.gameObject);
+        button.targetGraphic = img;
+        button.onClick.RemoveAllListeners();
+
+        Text text = NewText("Label", img.transform, label, 38, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
+        Place(text, CenterAnchor, CenterAnchor, Vector2.zero, new Vector2(230f, 90f));
+        UiTranslator.Track(text);
+        return button;
     }
 
     public void AuthorUI()

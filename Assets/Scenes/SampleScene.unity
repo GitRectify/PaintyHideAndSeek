@@ -66040,6 +66040,10 @@ MonoBehaviour:
   proneLookDrop: 1.8
   proneBack: 0.12
   proneLerpSpeed: 6
+  proneEyeHeight: 2.6
+  proneForward: 6.5
+  proneBehindGun: 3.6
+  proneAboveGun: 1.3
   firstPerson: 0
   staticCameraInMenu: 1
   homeCameraName: Camera
@@ -69025,6 +69029,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f9161dc428f5008438e341421e913254, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CharacterSelect
+  characterPrefabs:
+  - Players/Player
+  - Players/Player2
   characters:
   - {fileID: 838}
   - {fileID: 841}
@@ -77347,7 +77354,6 @@ MonoBehaviour:
   font: {fileID: 0}
   hunterSlots: 3
   totalPlayers: 8
-  coinAmount: 10000
   fillSeconds: 4.5
   readyPause: 0.8
   panelSprite: {fileID: 21300000, guid: afa4a679d39739743824cef01d862332, type: 3}
@@ -77549,8 +77555,15 @@ MonoBehaviour:
   homeInChance: 0.8
   homeInStartFraction: 0.667
   chasePlayer: 1
-  gunObjectName: gun
   handBoneName: mixamorig:RightHand
+  botsClimbWalls: 1
+  botClimbSpeed: 8
+  botWallCheckDistance: 6
+  botMinWallSteepness: 50
+  botClimbHeightRange: {x: 10, y: 24}
+  botClimbChance: 0.5
+  botClimbCooldown: 8
+  botClimbHoldSeconds: 1.5
   fireInterval: 0.7
   bulletSpeed: 160
   bulletSize: 1.2
@@ -77700,6 +77713,10 @@ PrefabInstance:
       propertyPath: tpsHeight
       value: 4
       objectReference: {fileID: 0}
+    - target: {fileID: 3669528952637486749, guid: baa0d0800e6124a49940b35f619dc5c3, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 6561002774915774094, guid: baa0d0800e6124a49940b35f619dc5c3, type: 3}
       propertyPath: m_LocalPosition.x
       value: -54.7
@@ -77774,6 +77791,10 @@ PrefabInstance:
       value: Player
       objectReference: {fileID: 0}
     - target: {fileID: 2851645928761040417, guid: 31137ef9cf82b2d41a6abe1c37e3a59f, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2861924329809659090, guid: 31137ef9cf82b2d41a6abe1c37e3a59f, type: 3}
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}

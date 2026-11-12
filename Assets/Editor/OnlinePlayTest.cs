@@ -1933,7 +1933,8 @@ public static class OnlinePlayTest
     }
 
     // A seeker's aim, up and down, as sent (own) and as drawn on the other screen (partner's).
-    private static float ownAimMin, ownAimMax, partnerAimMin, partnerAimMax, partnerGunOffWorst;
+    private static float ownAimMin, ownAimMax, partnerAimMin, partnerAimMax, partnerGunOffWorst, partnerGunArmWorst;
+    private static GunAim.Arm partnerArm;
     private static int partnerGunSamples, partnerGunProneSamples;
 
     // Sweeps this seeker's aim up and down through the seek, as dragging on the screen does.
@@ -1959,6 +1960,8 @@ public static class OnlinePlayTest
         partnerAimMin = Mathf.Min(partnerAimMin, v.AimPitch);
         partnerAimMax = Mathf.Max(partnerAimMax, v.AimPitch);
         partnerGunOffWorst = Mathf.Max(partnerGunOffWorst, GunAim.AngleOff(gun, GunAim.Direction(v.transform, v.AimPitch)));
+        if (partnerArm == null || partnerArm.Hand == null || !partnerArm.Hand.IsChildOf(v.transform)) partnerArm = GunAim.FindArm(v.transform);
+        if (partnerArm != null) partnerGunArmWorst = Mathf.Max(partnerGunArmWorst, GunAim.AngleOff(gun, partnerArm.Direction));
         partnerGunSamples++;
         if (prone) partnerGunProneSamples++;
     }
@@ -2301,6 +2304,8 @@ public static class OnlinePlayTest
                   $"the other seeker's aim up and down shows here ({partnerAimMin:F0} to {partnerAimMax:F0} degrees over {partnerGunSamples} frames)");
             Check(partnerGunSamples > 0 && partnerGunOffWorst < 3f,
                   $"their gun points along their aim on this screen, standing and lying down (worst {partnerGunOffWorst:F1} degrees off; {partnerGunProneSamples} of {partnerGunSamples} frames lying down)");
+            Check(partnerGunSamples > 0 && partnerGunArmWorst < 2f,
+                  $"and lies along their arm, handle in hand (barrel at worst {partnerGunArmWorst:F1} degrees off the forearm)");
             Check(partnerGunOffShape, "a seeker's shape shows through their gun layer");
             Check(partnerGunBack, "and their gun comes back after it");
             Check(partnerLayFlag && partnerLayAnim, $"the other seeker lying down shows here (flag {partnerLayFlag}, animation {partnerLayAnim})");

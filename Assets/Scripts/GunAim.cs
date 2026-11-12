@@ -2,18 +2,55 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Points a held gun where its shooter aims. A seeker's shot leaves the muzzle along the body's
-/// facing tilted by the aim pitch (Mode1FirstPersonGun.ShotDir); the gun model itself only
-/// followed the hand's animation, so lying down it pointed up at the ceiling, and on other players'
-/// screens it never tilted at all. After the animation each frame the gun is turned in the hand so
-/// its barrel lies exactly on that line: what the gun points at is where the bullet goes, standing,
-/// crouching or lying down, on every screen.
+/// A seeker's gun is held, not aimed on its own. Each frame, after the animation:
+///
+/// 1. The arm aims: the right arm turns at the shoulder so the forearm points where the shots go
+///    (the body's facing tilted by the aim pitch). The whole arm turns as one, so nothing
+///    stretches, and the hand moves with it.
+/// 2. The gun lies along the arm: from its place in the hand as the character was built with it,
+///    it is turned about the palm until the barrel is parallel to the forearm. The handle stays in
+///    the hand; when the arm moves, the gun moves with it.
+///
+/// So the barrel, the arm and the line of fire are one, standing or lying down, on every screen.
+/// Before, the gun was turned onto the line of fire by itself and could cross the arm.
 /// </summary>
 public static class GunAim
 {
-    // Each gun's barrel in its own space, found once: the longest side of its meshes, towards the
-    // end away from the hand (where the muzzle is made, Mode1FirstPersonGun.EnsureMuzzle).
+    private const string UpperArmName = "mixamorig:RightArm";
+    private const string ForeArmName = "mixamorig:RightForeArm";
+    private const string HandName = "mixamorig:RightHand";
+    private const string PalmName = "mixamorig:RightHandMiddle1";
+
+    /// <summary>The bones of a body's right arm.</summary>
+    public sealed class Arm
+    {
+        public Transform Upper, Fore, Hand, Palm;
+
+        /// <summary>Where the forearm points: elbow to wrist.</summary>
+        public Vector3 Direction => (Hand.position - Fore.position).normalized;
+
+        /// <summary>Where the gun is held: the middle of the hand.</summary>
+        public Vector3 Grip => Palm != null ? (Hand.position + Palm.position) * 0.5f : Hand.position;
+    }
+
+    // Each gun's place in the hand as built, and its barrel in its own space.
+    private static readonly Dictionary<Transform, (Vector3 Position, Quaternion Rotation)> rests = new Dictionary<Transform, (Vector3, Quaternion)>();
     private static readonly Dictionary<Transform, Vector3> barrels = new Dictionary<Transform, Vector3>();
+
+    /// <summary>The right arm under <paramref name="body"/>, or null when it has no such bones.</summary>
+    public static Arm FindArm(Transform body)
+    {
+        if (body == null) return null;
+        var arm = new Arm();
+        foreach (Transform t in body.GetComponentsInChildren<Transform>(true))
+        {
+            if (t.name == UpperArmName) arm.Upper = t;
+            else if (t.name == ForeArmName) arm.Fore = t;
+            else if (t.name == HandName) arm.Hand = t;
+            else if (t.name == PalmName) arm.Palm = t;
+        }
+        return arm.Upper != null && arm.Fore != null && arm.Hand != null ? arm : null;
+    }
 
     /// <summary>A body's aim: its level facing, tilted up by <paramref name="pitchDegrees"/> (up is positive).</summary>
     public static Vector3 Direction(Transform body, float pitchDegrees)
@@ -25,22 +62,46 @@ public static class GunAim
         return Quaternion.AngleAxis(-pitchDegrees, right) * forward;
     }
 
-    /// <summary>Turns <paramref name="gun"/> about its grip so its barrel points along <paramref name="direction"/>.</summary>
-    public static void PointAlong(Transform gun, Vector3 direction)
+    /// <summary>Turns the arm at the shoulder so the forearm points along <paramref name="aim"/>.</summary>
+    public static void PointArm(Arm arm, Vector3 aim)
     {
-        if (gun == null || direction.sqrMagnitude < 1e-6f) return;
+        if (arm == null || aim.sqrMagnitude < 1e-6f) return;
+        Vector3 forearm = arm.Direction;
+        if (forearm.sqrMagnitude < 1e-6f) return;
+        arm.Upper.rotation = Quaternion.FromToRotation(forearm, aim.normalized) * arm.Upper.rotation;
+    }
+
+    /// <summary>
+    /// Puts <paramref name="gun"/> back where the hand holds it, then turns it about the palm until
+    /// the barrel is parallel to the forearm.
+    /// </summary>
+    public static void AlongArm(Transform gun, Arm arm)
+    {
+        if (gun == null || arm == null) return;
+
+        if (!rests.TryGetValue(gun, out var rest))
+        {
+            if (rests.Count > 64) rests.Clear();       // bodies come and go; the live guns are measured again
+            rest = (gun.localPosition, gun.localRotation);
+            rests[gun] = rest;
+        }
+        gun.localPosition = rest.Position;
+        gun.localRotation = rest.Rotation;
 
         Vector3 barrel = gun.TransformDirection(BarrelAxis(gun));
-        if (barrel.sqrMagnitude < 1e-6f) return;
+        Vector3 along = arm.Direction;
+        if (barrel.sqrMagnitude < 1e-6f || along.sqrMagnitude < 1e-6f) return;
 
-        gun.rotation = Quaternion.FromToRotation(barrel, direction.normalized) * gun.rotation;
+        Quaternion turn = Quaternion.FromToRotation(barrel, along);
+        Vector3 grip = arm.Grip;
+        gun.SetPositionAndRotation(grip + turn * (gun.position - grip), turn * gun.rotation);
     }
 
     /// <summary>How far, in degrees, the gun's barrel is from <paramref name="direction"/> (the play test reads it).</summary>
     public static float AngleOff(Transform gun, Vector3 direction) =>
         gun == null ? 180f : Vector3.Angle(gun.TransformDirection(BarrelAxis(gun)), direction);
 
-    /// <summary>The barrel in the gun's own space, unit length.</summary>
+    /// <summary>The barrel in the gun's own space, unit length: its longest side, towards the end away from the hand.</summary>
     public static Vector3 BarrelAxis(Transform gun)
     {
         if (barrels.TryGetValue(gun, out Vector3 known)) return known;
@@ -65,7 +126,7 @@ public static class GunAim
             if (muzzle != null && Vector3.Dot(muzzle.localPosition - b.center, axis) < 0f) axis = -axis;
         }
 
-        if (barrels.Count > 64) barrels.Clear();    // bodies come and go; the few live guns are found again
+        if (barrels.Count > 64) barrels.Clear();
         barrels[gun] = axis;
         return axis;
     }

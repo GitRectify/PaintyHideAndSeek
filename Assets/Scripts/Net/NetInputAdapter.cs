@@ -55,9 +55,9 @@ namespace Meccha.Client
 
         // ---- INetInputSource ----------------------------------------------------------------
 
-        public Vector2 MoveAxis => joystick != null
+        public Vector2 MoveAxis => KeyBindings.WithKeys(joystick != null
             ? new Vector2(joystick.Horizontal, joystick.Vertical)
-            : Vector2.zero;
+            : Vector2.zero);
 
         /// <summary>
         /// Which way the body faces, which is what other players are shown. Not the camera's yaw:

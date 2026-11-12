@@ -315,3 +315,31 @@ Purchase complete	购买成功	Покупка завершена
 Balance: {0} coins	余额：{0} 金币	Баланс: {0} монет
 Not unlocked online. Get it in the Shop.	尚未在线解锁，请在商店获取。	Не открыт для онлайна. Его можно получить в магазине.
 LOCKED	未解锁	ЗАКРЫТО
+Controls	按键设置	Управление
+Exit Game	退出游戏	Выйти из игры
+Exit the game?	要退出游戏吗？	Выйти из игры?
+Exit	退出	Выйти
+Cancel	取消	Отмена
+Back	返回	Назад
+Reset to defaults	恢复默认	Сбросить по умолчанию
+Press a key...	请按一个键……	Нажмите клавишу...
+Tap a key to change it.	点击按键即可更改。	Нажмите на клавишу, чтобы изменить её.
+Press the new key. Esc cancels.	请按下新的按键。按 Esc 取消。	Нажмите новую клавишу. Esc — отмена.
+No keyboard found. Connect one to change the keys.	未找到键盘。连接键盘后即可更改按键。	Клавиатура не найдена. Подключите её, чтобы изменить клавиши.
+Move forward	向前移动	Вперёд
+Move back	向后移动	Назад (движение)
+Move left	向左移动	Влево
+Move right	向右移动	Вправо
+Turn left	向左转	Поворот влево
+Turn right	向右转	Поворот вправо
+Aim up	向上瞄准	Прицел вверх
+Aim down	向下瞄准	Прицел вниз
+Jump	跳跃	Прыжок
+Fire	开火	Огонь
+Lie down / stand up	趴下 / 站起	Лечь / встать
+Climb up	向上攀爬	Лезть вверх
+Climb down	向下攀爬	Лезть вниз
+Paint	涂装	Покраска
+Free camera	自由视角	Свободная камера
+Start (end hiding)	开始（结束躲藏）	Старт (конец пряток)
+Settings	设置	Настройки

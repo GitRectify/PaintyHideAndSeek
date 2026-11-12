@@ -150,7 +150,7 @@ public class JoystickMover : MonoBehaviour
         // Out of the round the free camera works as it does alive; the body just stays where it fell.
         if (frozen && scouting)
         {
-            camCtrl.PanFree(joystick.Direction, Time.deltaTime);
+            camCtrl.PanFree(Stick, Time.deltaTime);
         }
 
         bool countdown = gmm != null && gmm.SeekerHideCountdown;
@@ -165,7 +165,7 @@ public class JoystickMover : MonoBehaviour
         // Free-look scout: the joystick pans the camera; the player only falls.
         if (camCtrl != null && camCtrl.FreeLook)
         {
-            camCtrl.PanFree(joystick.Direction, Time.deltaTime);
+            camCtrl.PanFree(Stick, Time.deltaTime);
             if (climber != null && climber.IsOnWall)
             {
                 _vy = 0f;
@@ -190,7 +190,7 @@ public class JoystickMover : MonoBehaviour
         if (camCtrl != null && camCtrl.IsFirstPerson)
         {
             // Mode 1: strafe / walk relative to the character's level facing, no turning.
-            Vector2 d = joystick.Direction;
+            Vector2 d = Stick;
             if (Mathf.Clamp01(d.magnitude) >= 0.01f)
             {
                 Vector3 fwd = character.forward;
@@ -211,7 +211,7 @@ public class JoystickMover : MonoBehaviour
         else
         {
             // Third person: camera-relative direction, speed by stick deflection, turn to face it.
-            Vector2 inp = joystick.Direction;
+            Vector2 inp = Stick;
             if (inp.sqrMagnitude >= 0.0001f)
             {
                 Vector3 dir = new Vector3(inp.x, 0f, inp.y);
@@ -344,6 +344,9 @@ public class JoystickMover : MonoBehaviour
     }
 
     /// <summary>Clears the speed a fall built up: the player was put back on solid ground (FallGuard).</summary>
+    // The on-screen stick and the movement keys together (KeyBindings), no longer than 1.
+    private Vector2 Stick => KeyBindings.WithKeys(joystick != null ? joystick.Direction : Vector2.zero);
+
     public void StopFalling()
     {
         _vy = 0f;
@@ -400,6 +403,16 @@ public class JoystickMover : MonoBehaviour
     public void StopRotate()
     {
         _rotHeldDir = 0;
+    }
+
+    /// <summary>
+    /// Turns the body while held, by which way its facing goes: 1 to its right (clockwise seen from
+    /// above), -1 to its left, 0 stops. The turn keys use it (KeyboardPlay). The on-screen pair is
+    /// named from the screen's view, and its "right" turns the facing to the left.
+    /// </summary>
+    public void HoldTurn(int towards)
+    {
+        _rotHeldDir = towards > 0 ? 1 : towards < 0 ? -1 : 0;
     }
 
     public void EvtRotateLeftDown(BaseEventData e)

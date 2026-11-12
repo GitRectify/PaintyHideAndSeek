@@ -12,18 +12,17 @@ using UnityEngine;
 // way its host has. It used to be turned to the wall here instead, so a seeker looking round from
 // a wall never turned on anybody else's screen.
 //
-// A seeker's gun points where that player aims: their arm tilts with the aim pitch the server
-// relays (NetEntityView.AimPitch) as the player's own does, and the gun is turned onto the line
-// their shots fly along (GunAim), standing or lying down. Before, it followed the hand's
-// animation only and never tilted up or down on anybody else's screen.
+// A seeker's arm points where that player aims, with the aim pitch the server relays
+// (NetEntityView.AimPitch), and their gun lies along the arm with its handle in the hand (GunAim),
+// standing or lying down, as on their own screen. Before, it followed the hand's animation only
+// and never tilted up or down on anybody else's screen.
 [DisallowMultipleComponent]
 public class NetBodyAnimator : MonoBehaviour
 {
-    private const string ArmBoneName = "mixamorig:RightArm";    // Mode1FirstPersonGun.armBoneName
-
     private NetEntityView view;
     private Animator anim;
-    private Transform gun, rightArm;
+    private Transform gun;
+    private GunAim.Arm arm;
     private bool aims;
 
     /// <param name="carried">The seeker's gun, or null.</param>
@@ -35,10 +34,7 @@ public class NetBodyAnimator : MonoBehaviour
         anim = GetComponentInChildren<Animator>();
         gun = carried;
         aims = aimsWithPitch && carried != null;
-
-        rightArm = null;
-        foreach (Transform t in GetComponentsInChildren<Transform>(true))
-            if (t.name == ArmBoneName) { rightArm = t; break; }
+        arm = GunAim.FindArm(transform);
     }
 
     /// <summary>The gun this body carries, for the play test.</summary>
@@ -60,19 +56,15 @@ public class NetBodyAnimator : MonoBehaviour
         BodyAnimation.SetClimbing(anim, (flags & EntityFlags.Climbing) != 0);
         BodyAnimation.SetSpeed(anim, view.AnimationSpeed / GameTuning.MoveSpeed);
 
-        if (aims) AimGun(prone);
+        if (aims) AimGun();
     }
 
-    // After the animation: the arm tilted by the aim (not lying down, as for the player's own), then
-    // the gun onto the aim's line.
-    private void AimGun(bool prone)
+    // After the animation: the arm onto their aim, then the gun along the arm.
+    private void AimGun()
     {
-        if (gun == null || !gun.gameObject.activeInHierarchy) return;
+        if (arm == null || gun == null || !gun.gameObject.activeInHierarchy) return;
 
-        float pitch = view.AimPitch;
-        if (!prone && rightArm != null && Mathf.Abs(pitch) > 0.01f)
-            rightArm.Rotate(transform.right, -pitch, Space.World);
-
-        GunAim.PointAlong(gun, GunAim.Direction(transform, pitch));
+        GunAim.PointArm(arm, GunAim.Direction(transform, view.AimPitch));
+        GunAim.AlongArm(gun, arm);
     }
 }
