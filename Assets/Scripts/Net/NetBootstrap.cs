@@ -97,11 +97,27 @@ public static class NetBootstrap
     // Stops a quiet sign-in that is getting nowhere. The SDK's client retries for ever, which is
     // right once a player is online and wrong for someone who only opened the game: left alone it
     // would knock on an unreachable server every 30 seconds all through Single Play.
+    //
+    // When the address it has does not answer (or a phone or emulator has only its own 192.168.15.150),
+    // it looks for the server on the LAN once (LanSearch) and switches to it, as the sign-in
+    // screen does: the PC's address on a LAN can change from one day to the next.
     private sealed class QuietSignInWatch : MonoBehaviour
     {
-        private float giveUpAt;
+        private const float LanSearchAfterSeconds = 4f;
 
-        private void Start() => giveUpAt = Time.unscaledTime + QuietSignInSeconds;
+        private float giveUpAt, lanSearchAt;
+        private LanSearch lanSearch;
+        private bool lanSearched;
+
+        private void Start()
+        {
+            giveUpAt = Time.unscaledTime + QuietSignInSeconds;
+            MecchaNetClient net = MecchaNetClient.Instance;
+            bool pointedAtItself = net != null && OnlineConfig.OnHandheld && OnlineConfig.IsThisDevice(net.Host);
+            lanSearchAt = Time.unscaledTime + (pointedAtItself ? 0f : LanSearchAfterSeconds);
+        }
+
+        private void OnDestroy() => lanSearch?.Dispose();
 
         private void Update()
         {
@@ -114,11 +130,35 @@ public static class NetBootstrap
                 return;
             }
 
+            PumpLanSearch(net);
+
             if (Time.unscaledTime < giveUpAt) return;
 
             net.Disconnect();   // also cancels the retry it had scheduled
             Debug.Log("[Online] The server was not reached; staying offline until something online is asked for");
             Destroy(this);
+        }
+
+        private void PumpLanSearch(MecchaNetClient net)
+        {
+            if (lanSearch == null)
+            {
+                if (lanSearched || net.IsConnected || Time.unscaledTime < lanSearchAt) return;
+                lanSearched = true;
+                lanSearch = new LanSearch(net.Port, net.ConnectionKey);
+                return;
+            }
+
+            lanSearch.Poll();
+            bool found = lanSearch.TryGetBest(out LanSearch.Found server);
+            if (!found && !lanSearch.Done) return;
+
+            lanSearch.Dispose();
+            lanSearch = null;
+            if (!found || net.IsConnected) return;
+
+            OnlineConfig.UseLanServer(server);
+            giveUpAt = Mathf.Max(giveUpAt, Time.unscaledTime + 8f);
         }
     }
 }

@@ -143,7 +143,9 @@ public partial class OnlineRound : MonoBehaviour
     /// </summary>
     public static bool BodyAlong(Vector3 origin, Vector3 direction, out float distance)
     {
-        distance = float.MaxValue;
+        // Only as far as a bullet flies: a body beyond that is out of reach, and the server's
+        // bullet stops short of it (Combat.Fly), however squarely it is in the sights.
+        distance = BulletReach;
         return Active && _instance.hunter &&
                _instance.NearestHider(origin, direction, BulletSpecs.Of(Net.NextBullet).Radius, 0f, ref distance);
     }
@@ -159,6 +161,9 @@ public partial class OnlineRound : MonoBehaviour
         at = to;
         return Active && _instance.NearestHider(muzzle, direction, radius, from, ref at);
     }
+
+    /// <summary>How far a bullet flies before it is spent (GameTuning.BulletSpeed for BulletLifeSeconds).</summary>
+    public const float BulletReach = GameTuning.BulletSpeed * GameTuning.BulletLifeSeconds;
 
     /// <summary>The drawn bullet's size against the default one: the type the last shot used (1 offline).</summary>
     public static float ShotRadiusScale => Active ? BulletSpecs.Of(_instance.firedBullet).RadiusScale : 1f;
@@ -258,10 +263,7 @@ public partial class OnlineRound : MonoBehaviour
         if (results != null) results.HideAll();
 
         if (home != null) home.EnterOnlineRound(hunter);
-        // The match's playable area, the same on every player's screen; remembered for Single Play.
-        int area = Net.MatchPlayableArea;
-        RoomSetup.NoteServerArea(area);
-        if (gmm != null) gmm.BeginNetworkRound(hunter, mapName, area);
+        if (gmm != null) gmm.BeginNetworkRound(hunter, mapName);
 
         localBody = PlayerRef.ResolveTransform("Player");
         NetEntityRegistry.ViewFactory = MakeView;
@@ -461,13 +463,21 @@ public partial class OnlineRound : MonoBehaviour
         // view's own); and a shot's sound and tracer, as Single Play's seeker bots fire.
         NetBodyAnimator animator = body.GetComponent<NetBodyAnimator>();
         if (animator == null) animator = body.AddComponent<NetBodyAnimator>();
-        animator.Bind(view);
+        animator.Bind(view, carried, !IsBotSlot(slot));
 
         view.LoadoutChanged += ApplyRemoteLoadout;
         ApplyRemoteLoadout(view);
 
         if (canvases.TryGetValue(slot, out RemoteCanvas canvas)) canvas.AppliedTo = null;   // re-applied next frame
         return view;
+    }
+
+    private bool IsBotSlot(byte slot)
+    {
+        if (roster == null) return false;
+        foreach (MecchaNetClient.RosterEntry e in roster)
+            if (e.Slot == slot) return e.IsBot;
+        return false;
     }
 
     // Whose name this player sees, by the side they are on. A hider sees a name over everybody,

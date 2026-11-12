@@ -7,11 +7,11 @@ using UnityEngine;
 // Where the multiplayer server lives. Read from Resources/NetConfig.json so a build can be pointed
 // at another server without touching code; the host can also be overridden on the device from the
 // connection screen (kept in PlayerPrefs), because a phone testing against a PC on the LAN cannot
-// reach "127.0.0.1" and rebuilding the APK for every IP change is slow.
+// reach "192.168.15.150" and rebuilding the APK for every IP change is slow.
 [Serializable]
 public class OnlineConfig
 {
-    public string host = "127.0.0.1";
+    public string host = "192.168.15.150";
     public int port = 7777;            // UDP game socket
     public int webSocketPort = 7778;   // fallback for networks that drop UDP; 0 disables it
     public int metaPort = 7779;        // TCP profile/shop service
@@ -52,5 +52,42 @@ public class OnlineConfig
     {
         PlayerPrefs.SetString(HostOverrideKey, (host ?? "").Trim());
         PlayerPrefs.Save();
+    }
+
+    /// <summary>
+    /// True when the address can only be this device itself. On a phone or an emulator that is
+    /// never where the server runs, so the server is looked for on the LAN instead (LanSearch).
+    /// </summary>
+    public static bool IsThisDevice(string host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return true;
+        string h = host.Trim();
+        return h == "localhost" || h == "::1" || h.StartsWith("127.", StringComparison.Ordinal);
+    }
+
+    /// <summary>A game on a phone or emulator (not the Editor or a PC build, which may share the server's machine).</summary>
+    public static bool OnHandheld => Application.isMobilePlatform && !Application.isEditor;
+
+    /// <summary>
+    /// Switches both connections to a server found on the LAN and remembers its address for the
+    /// next launch, as one typed on the connection screen is.
+    /// </summary>
+    public static void UseLanServer(Meccha.Client.LanSearch.Found server)
+    {
+        OnlineConfig config = Load();
+        SaveHostOverride(server.Host);
+
+        Meccha.Client.MecchaNetClient net = Meccha.Client.MecchaNetClient.Instance;
+        if (net != null)
+        {
+            net.Disconnect();
+            net.Configure(server.Host, server.Info.Port, server.Info.WebSocketPort, net.ConnectionKey);
+        }
+
+        Meccha.Client.MetaClient meta = Meccha.Client.MetaClient.Instance;
+        if (meta != null) meta.Configure(server.Info.MetaPort, config.metaTls, config.metaThumbprint);
+
+        Debug.Log($"[Online] Using {server.Info.Name}, found on this network at {server.Host} (UDP {server.Info.Port}, meta {server.Info.MetaPort})");
+        if (net != null) net.Connect();
     }
 }

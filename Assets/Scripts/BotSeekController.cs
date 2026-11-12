@@ -3392,7 +3392,6 @@ public class BotSeekController : MonoBehaviour
             }
         }
         bb.Expand(12f);
-        bb = RoomSetup.Clamp(bb);      // bots never walk out of the playable area
 
         NavMeshBuildSettings settings = NavMesh.GetSettingsByID(0);
         settings.agentRadius = 2.5f;

@@ -19,6 +19,16 @@ public class OnlineSignIn : MonoBehaviour
     [Tooltip("How long to wait for the server to sign us in before offering to retry.")]
     [SerializeField] private float connectTimeoutSeconds = 12f;
 
+    [Tooltip("How long the address given may stay silent before the server is looked for on this network.")]
+    [SerializeField] private float lanSearchAfterSeconds = 4f;
+
+    // LAN discovery (LanSearch): the server on this network when the address given is not it,
+    // straight away on a phone or emulator pointed at itself, otherwise once that address has
+    // been silent for a few seconds. Once per sign-in attempt.
+    private LanSearch lanSearch;
+    private bool lanSearched;
+    private float lanSearchAt;
+
     private static MecchaNetClient Net => MecchaNetClient.Instance;
     private static MetaClient Meta => MetaClient.Instance;
 
@@ -67,14 +77,54 @@ public class OnlineSignIn : MonoBehaviour
         HideScreens();
     }
 
-    private void OnDestroy() => Unhook();
+    private void OnDestroy()
+    {
+        Unhook();
+        lanSearch?.Dispose();
+    }
 
     private void Update()
     {
+        if (step == Step.Connecting) PumpLanSearch();
+
         if (step == Step.Connecting && Time.unscaledTime > connectDeadline)
         {
-            Fail($"Couldn't reach the server at {Net.Host}.\nCheck that it is running and the address is right.");
+            Fail(lanSearched
+                ? $"Couldn't reach the server at {Net.Host}, and none answered on this network.\nCheck that it is running and on the same network."
+                : $"Couldn't reach the server at {Net.Host}.\nCheck that it is running and the address is right.");
         }
+    }
+
+    private void PumpLanSearch()
+    {
+        if (lanSearch == null)
+        {
+            if (lanSearched || Net.IsConnected || Time.unscaledTime < lanSearchAt) return;
+
+            lanSearched = true;
+            lanSearch = new LanSearch(Net.Port, Net.ConnectionKey);
+            statusMessage.text = "Looking for a server on this network...";
+            connectDeadline = Mathf.Max(connectDeadline, Time.unscaledTime + LanDiscovery.SearchSeconds + 1f);
+            return;
+        }
+
+        lanSearch.Poll();
+        bool found = lanSearch.TryGetBest(out LanSearch.Found server);
+        if (!found && !lanSearch.Done) return;
+
+        lanSearch.Dispose();
+        lanSearch = null;
+        if (!found)
+        {
+            Debug.Log("[Online] No server answered on this network");
+            return;
+        }
+        if (Net.IsConnected) return;
+
+        OnlineConfig.UseLanServer(server);
+        if (hostInput != null) hostInput.text = server.Host;
+        statusMessage.text = $"Found {server.Info.Name} at {server.Host}. Connecting...";
+        connectDeadline = Time.unscaledTime + connectTimeoutSeconds;
     }
 
     private void Begin(Action<MetaProfile> signedIn, Action cancelled)
@@ -119,6 +169,10 @@ public class OnlineSignIn : MonoBehaviour
         ShowStatus("Connecting", $"Connecting to {Net.Host}...", false);
         step = Step.Connecting;
         connectDeadline = Time.unscaledTime + connectTimeoutSeconds;
+
+        // A phone or emulator pointed at itself (the build's 192.168.15.150) looks on the LAN at once.
+        lanSearched = false;
+        lanSearchAt = Time.unscaledTime + (OnlineConfig.OnHandheld && OnlineConfig.IsThisDevice(Net.Host) ? 0f : lanSearchAfterSeconds);
         Net.Connect();   // no-op while an attempt is already under way
     }
 

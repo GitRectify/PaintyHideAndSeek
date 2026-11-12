@@ -1306,7 +1306,6 @@ public class BotHideController : MonoBehaviour
             Bounds bb = mr.bounds;
             float footprint = Mathf.Max(bb.size.x, bb.size.z);
             if (footprint > 22f || bb.size.y < 3f || footprint < 2f) continue;
-            if (!RoomSetup.Inside(bb.center)) continue;     // outside the fence: nobody may hide there
 
             bool excluded = false;
             for (int j = 0; j < skip.Length; j++)
@@ -1572,7 +1571,6 @@ public class BotHideController : MonoBehaviour
             }
         }
         bb.Expand(12f);
-        bb = RoomSetup.Clamp(bb);      // bots never walk out of the playable area
 
         NavMeshBuildSettings settings = NavMesh.GetSettingsByID(0);
         settings.agentRadius = 2.5f;

@@ -35,4 +35,8 @@ public class SeekerCamProfile : MonoBehaviour
     public float proneEyeHeight = 2.6f;
     [Tooltip("When lying down, how far in front of the character's pivot the camera sits (world units at scale 1): at the head end of the lying body, so the body itself is not in the way.")]
     public float proneForward = 6.5f;
+    [Tooltip("When lying down with the gun, the camera sits this far behind the gun's grip (world units at scale 1), as it does standing, so the gun is always in view: ahead of the hands it was behind the camera and could not be seen.")]
+    public float proneBehindGun = 3.6f;
+    [Tooltip("When lying down with the gun, the camera sits at least this far above the gun's grip (world units at scale 1), as it does standing, so the gun shows at the bottom right and the arm does not fill the view.")]
+    public float proneAboveGun = 1.3f;
 }

@@ -65,7 +65,22 @@ namespace Meccha.Client
         /// </summary>
         public float YawDegrees => transform.eulerAngles.y;
 
-        public float PitchDegrees => cameraController != null ? cameraController.pitch : 0f;
+        /// <summary>
+        /// The seeker's aim tilt while they hold the gun, which other players' screens turn their
+        /// gun by (NetBodyAnimator); the camera's own tilt otherwise. It was always the camera's,
+        /// which is not where the gun points, so nobody else saw a seeker aim up or down.
+        /// </summary>
+        public float PitchDegrees
+        {
+            get
+            {
+                if (gun == null) gun = FindAnyObjectByType<Mode1FirstPersonGun>(FindObjectsInactive.Include);
+                if (gun != null && gun.GunModeOn) return gun.AimPitch;
+                return cameraController != null ? cameraController.pitch : 0f;
+            }
+        }
+
+        private Mode1FirstPersonGun gun;
 
         public bool Jump => jumpHeld;
         public bool Fire => fireHeld;

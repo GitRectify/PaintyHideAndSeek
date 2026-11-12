@@ -69,14 +69,6 @@ public class LevelManager : MonoBehaviour
     public GameObject CurrentRoomInstance => _roomInstance;
     private string _loadedRoomName;
     private string lastAppliedRoom;
-    private int _loadedArea = -1;
-
-    /// <summary>
-    /// The walkable floor the next room is limited to (RoomSetup). An online round sets the
-    /// match's (MatchFound) before it loads the map; Single Play has the server's last word, or
-    /// the standard area. A loaded room whose area differs is loaded again.
-    /// </summary>
-    public int PlayableArea { get; set; } = RoomSetup.PlayableArea;
 
     // NOTE: invoked as a plain delegate call in the decompiled code (no distinguishable
     // add/remove accessor complexity at the IL2CPP level) — could equally be a C# event;
@@ -208,7 +200,7 @@ public class LevelManager : MonoBehaviour
     {
         string roomName = CurrentRoomName;
 
-        if (_roomInstance != null && _loadedRoomName == roomName && _loadedArea == PlayableArea)
+        if (_roomInstance != null && _loadedRoomName == roomName)
         {
             if (!_roomInstance.activeSelf)
             {
@@ -238,10 +230,9 @@ public class LevelManager : MonoBehaviour
         _roomInstance.name = roomName;
         _roomInstance.SetActive(true);
         _loadedRoomName = roomName;
-        _loadedArea = PlayableArea;
 
-        // Solid floors, the same playable area as every room, in every mode (RoomSetup).
-        RoomSetup.Prepare(_roomInstance, PlayableArea);
+        // Solid floors in every mode (RoomSetup).
+        RoomSetup.Prepare(_roomInstance);
 
         Debug.Log($"[LevelManager] Instantiated room: {_roomInstance.name}");
 

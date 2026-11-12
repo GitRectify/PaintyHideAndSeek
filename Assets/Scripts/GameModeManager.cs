@@ -251,9 +251,6 @@ public class GameModeManager : MonoBehaviour
         PlayerFrozen = false;
         RoundUiReset.ResetAll();
 
-        // Single Play plays on the area the server last set (or the standard one), offline.
-        if (levelMgr != null) levelMgr.PlayableArea = RoomSetup.PlayableArea;
-
         SetPlayerVisible(true);
 
         if (homeDecor != null) homeDecor.gameObject.SetActive(false);
@@ -372,12 +369,8 @@ public class GameModeManager : MonoBehaviour
     // An online round on the map the server picked: the scene is set up as BeginRound does, but no
     // bot is spawned or started — the other players come from the server. Returns false when the
     // map is not one of LevelManager's rooms (the current room is used instead).
-    public bool BeginNetworkRound(bool playerSeeker, string mapName) => BeginNetworkRound(playerSeeker, mapName, RoomSetup.PlayableArea);
-
-    /// <summary>An online round on the server's map, limited to the server's playable area (MatchFound).</summary>
-    public bool BeginNetworkRound(bool playerSeeker, string mapName, int playableArea)
+    public bool BeginNetworkRound(bool playerSeeker, string mapName)
     {
-        if (levelMgr != null) levelMgr.PlayableArea = playableArea;
         PlayerIsSeeker = playerSeeker;
         PlayerFrozen = false;
         RoundUiReset.ResetAll();

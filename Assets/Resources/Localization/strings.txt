@@ -119,6 +119,10 @@ Connecting	正在连接	Подключение
 Connecting to {0}...	正在连接 {0}……	Подключение к {0}...
 Couldn't reach the server at {0}.	无法连接到服务器 {0}。	Не удалось связаться с сервером {0}.
 Check that it is running and the address is right.	请确认服务器正在运行且地址正确。	Проверьте, что сервер запущен и адрес указан верно.
+Couldn't reach the server at {0}, and none answered on this network.	无法连接到服务器 {0}，本地网络中也没有服务器响应。	Не удалось связаться с сервером {0}, и в этой сети ни один сервер не ответил.
+Check that it is running and on the same network.	请确认服务器正在运行，并且与本设备处于同一网络。	Проверьте, что сервер запущен и находится в той же сети.
+Looking for a server on this network...	正在本地网络中查找服务器……	Поиск сервера в этой сети...
+Found {0} at {1}. Connecting...	已在 {1} 找到 {0}，正在连接……	Найден {0} по адресу {1}. Подключение...
 Can't play online	无法进行在线游戏	Онлайн-игра недоступна
 Couldn't sign in. Try again.	登录失败，请重试。	Не удалось войти. Попробуйте ещё раз.
 Choose your player name	选择你的玩家名称	Выберите имя игрока

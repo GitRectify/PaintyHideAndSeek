@@ -20,9 +20,9 @@ using Object = UnityEngine.Object;
 // SDK and the game exactly as on a phone.
 //
 //   Unity.exe -batchmode -projectPath <project> -executeMethod OnlinePlayTest.Run
-//             -playtestHost 127.0.0.1 -playtestPort 17777 -playtestMetaPort 17779
+//             -playtestHost 192.168.15.150 -playtestPort 17777 -playtestMetaPort 17779
 //             -playtestRole seeker|hider -playtestSeats 8 -playtestReport <file>
-//             [-playtestArea <the server's PlayableArea, if not the standard one>] [-playtestMap <0-4>]
+//             [-playtestMap <0-4>]
 //
 // The flow: Multiplayer sign-in (first-run name if the server asks) -> special bullets bought in
 // the shop -> Single Play's role screen (HomeUI.BeginMatch) -> Single Play's character screen
@@ -76,7 +76,7 @@ public static class OnlinePlayTest
 
         var settings = string.Join("\n", new[]
         {
-            Arg("-playtestHost", "127.0.0.1"),
+            Arg("-playtestHost", "192.168.15.150"),
             Arg("-playtestPort", "7777"),
             Arg("-playtestMetaPort", "7779"),
             Arg("-playtestRole", "seeker"),
@@ -186,9 +186,11 @@ public static class OnlinePlayTest
 
                 if (InStep < 3f || Object.FindAnyObjectByType<HomeMenuUI>() == null) return;
 
-                // Point the game at the test server (NetBootstrap reads NetConfig.json).
+                // Point the game at the test server (NetBootstrap reads NetConfig.json). With
+                // -playtestLan at an address where nothing answers: the game must find the server
+                // on this network by itself (LanSearch) and sign in there.
                 MecchaNetClient net = NetBootstrap.Ensure();
-                net.Configure(Host, Port, 0, OnlineConfig.Load().connectionKey);
+                net.Configure(Lan ? NoServerHere : Host, Port, 0, OnlineConfig.Load().connectionKey);
                 if (Pair) net.AuthToken = "pair-test-" + System.Diagnostics.Process.GetCurrentProcess().Id;   // one PC, two players
                 Meta.Configure(MetaPort, false, "");
                 Hook();
@@ -201,6 +203,12 @@ public static class OnlinePlayTest
                 if (signedIn)
                 {
                     Check(true, "signed in (Multiplayer -> OnlineSignIn)");
+                    if (Lan && !lanChecked)
+                    {
+                        lanChecked = true;
+                        Check(Net.Host != NoServerHere && Net.IsConnected,
+                              $"given an address with no server ({NoServerHere}), the game found the server on this network and signed in there ({Net.Host}, after {InStep:F1} s)");
+                    }
                     Go(Wallet ? Step.Wallet : Step.Shop);
                     return;
                 }
@@ -301,7 +309,6 @@ public static class OnlinePlayTest
                 Check(Net.MatchSeats == Seats, $"the match has the room's {Seats} seats ({Net.MatchSeats})");
                 Check(Net.MatchHunterSeats == GameTuning.SeekersFor(Seats),
                       $"{GameTuning.SeekersFor(Seats)} of them seek and {Seats - GameTuning.SeekersFor(Seats)} hide ({Net.MatchHunterSeats} seekers)");
-                Check(Net.MatchPlayableArea == ExpectedArea, $"the server's playable area came with the match ({Net.MatchPlayableArea}, expected {ExpectedArea})");
                 Check(Net.LocalRole == (Seeker ? Role.Hunter : Role.Fugitive), $"plays the side picked ({Net.LocalRole})");
                 Go(Step.Round);
                 return;
@@ -823,32 +830,26 @@ public static class OnlinePlayTest
     }
 
     // -playtestMap: which of the map picker's rooms to play (0 = the first, Room).
-    private static int MapIndex => int.Parse(System.Environment.GetCommandLineArgs().SkipWhile(a => a != "-playtestMap").Skip(1).FirstOrDefault() ?? "0");
+    // -playtestLan: the game is given an address with no server (TEST-NET-1, never routed).
+    private static bool Lan => System.Environment.GetCommandLineArgs().Contains("-playtestLan");
+    private const string NoServerHere = "192.0.2.1";
+    private static bool lanChecked;
 
-    // -playtestArea: the server's PlayableArea, when it is not the standard one.
-    private static int ExpectedArea
-    {
-        get
-        {
-            string given = System.Environment.GetCommandLineArgs().SkipWhile(a => a != "-playtestArea").Skip(1).FirstOrDefault();
-            return given != null ? int.Parse(given) : GameTuning.PlayableArea;
-        }
-    }
+    private static int MapIndex => int.Parse(System.Environment.GetCommandLineArgs().SkipWhile(a => a != "-playtestMap").Skip(1).FirstOrDefault() ?? "0");
 
     private static bool playAreaChecked;
 
-    // Every map plays at the server's area (RoomSetup): a big one fenced, a small one scaled up,
-    // with the player inside it.
+    // The map is played as it is built: its prefab's own scale, nothing fenced off.
     private static void CheckPlayArea()
     {
         if (playAreaChecked || Net.Phase != MatchPhase.Hide || PlayerRef.Active == null) return;
         playAreaChecked = true;
 
-        string how = RoomSetup.Fence is Rect fence ? $"fenced to {fence.width:F0} x {fence.height:F0}"
-                   : RoomSetup.Scale > 1.0001f ? $"scaled x{RoomSetup.Scale:F2}" : "played whole";
-        string room = RoomSetup.Room != null ? RoomSetup.Room.name : "none";
-        Check(RoomSetup.Room != null && (ExpectedArea == 0 || how != "played whole"), $"the map is held to the playable area ({room}: {how})");
-        Check(RoomSetup.Inside(PlayerRef.Active.position), "the player starts inside it");
+        GameObject room = RoomSetup.Room;
+        GameObject prefab = room != null ? Resources.Load<GameObject>("Rooms/" + room.name) : null;
+        bool fenced = room != null && room.GetComponentsInChildren<Transform>(true).Any(t => t.name == "PlayAreaFence");
+        Check(room != null && prefab != null && room.transform.localScale == prefab.transform.localScale && !fenced,
+              $"the map is played as built ({(room != null ? room.name : "none")}: scale {(room != null ? room.transform.localScale.x : 0f):F2}, prefab {(prefab != null ? prefab.transform.localScale.x : 0f):F2}, fenced {fenced})");
     }
 
     // Each body stands on a spawn marker of that side, as online places them: "" when they all do,
@@ -1458,16 +1459,27 @@ public static class OnlinePlayTest
 
     private static bool killRealPlayersOnly;
 
+    private static readonly HashSet<byte> outOfReach = new HashSet<byte>();
+
     private static NetEntityView NextHider(out MecchaNetClient.RosterEntry entry)
     {
         entry = default;
         var entries = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster");
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
         foreach (MecchaNetClient.RosterEntry e in entries)
         {
             if (killRealPlayersOnly && e.IsBot) continue;
             NetEntityView v = NetEntityRegistry.Get(e.Slot);
             if (e.Role != Role.Fugitive || v == null || v.Eliminated) continue;
             if (!v.HasPosition && !v.IsHosted) continue;
+
+            // A bullet is spent after OnlineRound.BulletReach: a hider further off cannot be hit
+            // from here, and the crosshair does not claim it.
+            if (me != null && Vector3.Distance(me.FeetPosition, v.FeetPosition) > OnlineRound.BulletReach - 20f)
+            {
+                if (outOfReach.Add(e.Slot)) report.Add($"INFO  hider in slot {e.Slot} is {Vector3.Distance(me.FeetPosition, v.FeetPosition):F0} units off, beyond a bullet's {OnlineRound.BulletReach:F0}: not shot at");
+                continue;
+            }
             entry = e;
             return v;
         }
@@ -1886,7 +1898,9 @@ public static class OnlinePlayTest
 
     private static readonly List<string> climbTrace = new List<string>();
     private static float nextClimbTraceAt;
-    private static int pairStage, shapeIndex, placementsBeforeClimb;
+    private static int pairStage, shapeIndex, placementsBeforeClimb, walkTurns;
+    private static float walkStuckCheckAt;
+    private static Vector3? walkStuckFrom;
     private static float pairAt, walkDeadline, climbFromY, climbHighest;
     private static readonly HashSet<int> partnerShapes = new HashSet<int>();
     private static bool partnerSeen, partnerClimbFlag, partnerClimbAnim, partnerLayFlag, partnerLayAnim, partnerGunOffShape, partnerGunBack;
@@ -1918,6 +1932,37 @@ public static class OnlinePlayTest
         else hold.onUp();
     }
 
+    // A seeker's aim, up and down, as sent (own) and as drawn on the other screen (partner's).
+    private static float ownAimMin, ownAimMax, partnerAimMin, partnerAimMax, partnerGunOffWorst;
+    private static int partnerGunSamples, partnerGunProneSamples;
+
+    // Sweeps this seeker's aim up and down through the seek, as dragging on the screen does.
+    private static void SweepAim()
+    {
+        Mode1FirstPersonGun g = Object.FindAnyObjectByType<Mode1FirstPersonGun>();
+        if (g == null || !g.GunModeOn) return;
+
+        float pitch = 30f * Mathf.Sin(Time.realtimeSinceStartup * 0.9f);
+        typeof(Mode1FirstPersonGun).GetField("aimPitch", Any).SetValue(g, pitch);
+        Object.FindAnyObjectByType<CameraController>()?.SetAimPitch(pitch);
+        ownAimMin = Mathf.Min(ownAimMin, pitch);
+        ownAimMax = Mathf.Max(ownAimMax, pitch);
+    }
+
+    // The other seeker's gun, as drawn here: tilted by their aim, on its line, lying down too.
+    private static void WatchPartnerAim(NetEntityView v, bool prone)
+    {
+        NetBodyAnimator body = v.GetComponent<NetBodyAnimator>();
+        Transform gun = body != null ? body.Gun : null;
+        if (gun == null || !gun.gameObject.activeInHierarchy) return;
+
+        partnerAimMin = Mathf.Min(partnerAimMin, v.AimPitch);
+        partnerAimMax = Mathf.Max(partnerAimMax, v.AimPitch);
+        partnerGunOffWorst = Mathf.Max(partnerGunOffWorst, GunAim.AngleOff(gun, GunAim.Direction(v.transform, v.AimPitch)));
+        partnerGunSamples++;
+        if (prone) partnerGunProneSamples++;
+    }
+
     private static void WatchPartner()
     {
         var entries = Get<MecchaNetClient.RosterEntry[]>(OnlineRoundInstance(), "roster");
@@ -1929,6 +1974,7 @@ public static class OnlinePlayTest
             NetEntityView v = NetEntityRegistry.Get(e.Slot);
             if (v == null || v.IsLocal || !v.HasPosition) continue;
             partnerSeen = true;
+            if (e.Role == Role.Hunter) WatchPartnerAim(v, (v.Flags & EntityFlags.Prone) != 0);
 
             Animator a = v.GetComponentInChildren<Animator>();
             AnimatorStateInfo s = a.GetCurrentAnimatorStateInfo(0);
@@ -2043,6 +2089,8 @@ public static class OnlinePlayTest
             return;
         }
 
+        if (Seeker && !Mixed) SweepAim();
+
         // A hider and a seeker: before anything else the seeker shoots the other real player, who
         // times the bullet coming at them from their own side.
         if (Mixed && Seeker && killStage != 9)
@@ -2141,7 +2189,27 @@ public static class OnlinePlayTest
                     pairStage = 5;
                     return;
                 }
-                if (walkFrom == null) walkFrom = me.FeetPosition;
+                if (walkFrom == null)
+                {
+                    walkFrom = me.FeetPosition;
+                    walkStuckFrom = null;
+                    walkStuckCheckAt = now + 1.5f;
+                }
+
+                // Blocked by furniture (the spawn may face the middle of the room): a quarter turn
+                // and on, up to three times, rather than pushing at a table until the time runs out.
+                if (now >= walkStuckCheckAt)
+                {
+                    if (walkStuckFrom != null && Vector3.Distance(walkStuckFrom.Value, me.FeetPosition) < 2f && walkTurns < 3)
+                    {
+                        PlayerRef.Active.Rotate(0f, 90f, 0f);
+                        walkTurns++;
+                        report.Add($"INFO  the walk to a wall was blocked at {me.FeetPosition}; turned a quarter round ({walkTurns})");
+                    }
+                    walkStuckFrom = me.FeetPosition;
+                    walkStuckCheckAt = now + 1.5f;
+                }
+
                 if (now > walkDeadline)
                 {
                     DriveStraight(false);
@@ -2228,6 +2296,11 @@ public static class OnlinePlayTest
         Check(partnerShapes.Count == 9, $"all nine shapes of the other player show here ({string.Join(",", partnerShapes.OrderBy(x => x))})");
         if (Seeker)
         {
+            Check(ownAimMax > 20f && ownAimMin < -20f, $"this seeker aimed up and down ({ownAimMin:F0} to {ownAimMax:F0} degrees)");
+            Check(partnerGunSamples > 0 && partnerAimMax > 15f && partnerAimMin < -15f,
+                  $"the other seeker's aim up and down shows here ({partnerAimMin:F0} to {partnerAimMax:F0} degrees over {partnerGunSamples} frames)");
+            Check(partnerGunSamples > 0 && partnerGunOffWorst < 3f,
+                  $"their gun points along their aim on this screen, standing and lying down (worst {partnerGunOffWorst:F1} degrees off; {partnerGunProneSamples} of {partnerGunSamples} frames lying down)");
             Check(partnerGunOffShape, "a seeker's shape shows through their gun layer");
             Check(partnerGunBack, "and their gun comes back after it");
             Check(partnerLayFlag && partnerLayAnim, $"the other seeker lying down shows here (flag {partnerLayFlag}, animation {partnerLayAnim})");
@@ -2553,7 +2626,7 @@ public static class OnlinePlayTest
 
                 Check(walletOpenedUrl.Contains("/checkout/"), $"at {walletOpenedUrl}");
                 Check(Net.CoinCents == 0, "nothing is credited for opening a payment");
-                walletPay = walletHttp.PostAsync(walletOpenedUrl.Replace("localhost", "127.0.0.1") + "/pay", new System.Net.Http.StringContent(""));
+                walletPay = walletHttp.PostAsync(walletOpenedUrl.Replace("localhost", "192.168.15.150") + "/pay", new System.Net.Http.StringContent(""));
                 walletStage = 5;
                 return;
             }
@@ -2731,6 +2804,7 @@ public static class OnlinePlayTest
         EditorApplication.update -= Tick;
         Application.logMessageReceived -= CountErrors;
         ShopInventory.PreferredBullet = BulletType.Default;   // leave the editor's preference as found
+        if (Lan) OnlineConfig.SaveHostOverride("");             // the LAN search remembered what it found
 
         var text = new StringBuilder();
         text.AppendLine($"Online play-test as {(Seeker ? "seeker" : "hider")} against {Host}:{Port} (meta {MetaPort}), {Time.realtimeSinceStartup - startedAt:F0} s");

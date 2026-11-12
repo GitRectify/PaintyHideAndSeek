@@ -184,8 +184,9 @@ public class Mode1FirstPersonGun : MonoBehaviour
         if (!gmm.RoundActive || !gmm.PlayerIsSeeker) return;
         if (playerTf == null) return;
 
-        // Right arm pitches with the aim (applied after the animator pose).
-        if (rightArm != null)
+        // Right arm pitches with the aim (applied after the animator pose). Not lying down: the
+        // arms of that pose reach forward along the floor, and only the gun turns.
+        if (rightArm != null && !prone)
         {
             float armAngle = aimPitch * armPitchFactor;
             if (Mathf.Abs(armAngle) > 0.01f)
@@ -216,6 +217,11 @@ public class Mode1FirstPersonGun : MonoBehaviour
 
         if (aimAlongBarrel)
         {
+            // The gun on the line of fire, in any posture: lying down the hand alone held it
+            // pointing up. The muzzle (and the crosshair worked out from it) moves with it.
+            if (gunTf == null && gunHolder != null) gunTf = gunHolder.Gun;
+            if (gunTf != null && gunTf.gameObject.activeInHierarchy) GunAim.PointAlong(gunTf, ShotDir());
+
             UpdateBarrelCrosshair();
         }
     }
@@ -250,6 +256,15 @@ public class Mode1FirstPersonGun : MonoBehaviour
     public void StandUp() => SetProne(false);
 
     public bool IsProne => prone;
+
+    /// <summary>The aim's up/down tilt in degrees (up is positive): what online play sends as this player's pitch.</summary>
+    public float AimPitch => aimPitch;
+
+    /// <summary>True while this player is the seeker in a round, holding the gun.</summary>
+    public bool GunModeOn => gunModeOn;
+
+    /// <summary>Where this gun's shots go now: the facing tilted by the aim (the play test reads it).</summary>
+    public Vector3 AimDirection => ShotDir();
 
     public void ToggleProne()
     {

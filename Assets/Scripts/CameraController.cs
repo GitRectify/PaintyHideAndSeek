@@ -83,6 +83,11 @@ public class CameraController : MonoBehaviour
     public float proneEyeHeight = 2.6f;
     [Tooltip("Fallback: how far in front of the pivot the camera sits when lying down (see SeekerCamProfile.proneForward).")]
     public float proneForward = 6.5f;
+    [Tooltip("Fallback: how far behind the held gun's grip the camera sits when lying down (see SeekerCamProfile.proneBehindGun).")]
+    public float proneBehindGun = 3.6f;
+    [Tooltip("Fallback: how far above the held gun's grip the camera sits at least when lying down (see SeekerCamProfile.proneAboveGun).")]
+    public float proneAboveGun = 1.3f;
+    private GunHolder gunHolder;
     private bool _proneOn;
     private float _proneAmt;
     public bool firstPerson;
@@ -381,6 +386,12 @@ public class CameraController : MonoBehaviour
                 float lookHeight = p != null ? p.tpsLookHeight : tpsLookHeight;
                 float lookSide = p != null ? p.tpsLookSide : tpsLookSide;
 
+                // Level facing (forward when the character looks straight up/down).
+                Vector3 fwd = character.forward;
+                fwd.y = 0f;
+                fwd = fwd.x * fwd.x + fwd.z * fwd.z < 0.001f ? Vector3.forward : fwd.normalized;
+                Vector3 right = Vector3.Cross(Vector3.up, fwd);
+
                 _proneAmt = Mathf.MoveTowards(_proneAmt, _proneOn ? 1f : 0f, proneLerpSpeed * Time.deltaTime);
                 if (_proneAmt > 0f)
                 {
@@ -393,6 +404,21 @@ public class CameraController : MonoBehaviour
                     float forward = (p != null ? p.proneForward : proneForward) * s;
                     float proneHeight = ProneFloorY(pivot) + eyeAboveFloor - pivot.y;
 
+                    // With the gun out, framed on it as standing: behind its grip and a little above,
+                    // along the aim, so it stays at the bottom right however far up or down the aim
+                    // goes (lying down the arm does not tilt with it). A camera past the hands had
+                    // the gun behind it, out of view, and one below them saw only the arm.
+                    Transform gun = HeldGun();
+                    if (gun != null)
+                    {
+                        float behindGun = (p != null ? p.proneBehindGun : proneBehindGun) * s;
+                        float aboveGun = (p != null ? p.proneAboveGun : proneAboveGun) * s;
+                        Quaternion tilt = Quaternion.AngleAxis(-aimPitchDeg, right);
+                        Vector3 onGun = gun.position - tilt * fwd * behindGun + tilt * Vector3.up * aboveGun;
+                        forward = Vector3.Dot(onGun - pivot, fwd);
+                        proneHeight = Mathf.Max(proneHeight, onGun.y - pivot.y);
+                    }
+
                     height = Mathf.Lerp(height, proneHeight, _proneAmt);
                     lookHeight = Mathf.Lerp(lookHeight, proneHeight - 0.15f * s, _proneAmt);
                     lookAhead = Mathf.Lerp(lookAhead, lookAhead + forward, _proneAmt);
@@ -400,12 +426,6 @@ public class CameraController : MonoBehaviour
                     side = Mathf.Lerp(side, 0f, _proneAmt);
                     lookSide = Mathf.Lerp(lookSide, 0f, _proneAmt);
                 }
-
-                // Level facing (forward when the character looks straight up/down).
-                Vector3 fwd = character.forward;
-                fwd.y = 0f;
-                fwd = fwd.x * fwd.x + fwd.z * fwd.z < 0.001f ? Vector3.forward : fwd.normalized;
-                Vector3 right = Vector3.Cross(Vector3.up, fwd);
 
                 Vector3 eye = pivot + Vector3.up * height;
                 Vector3 camPos = eye - fwd * back + right * side;
@@ -481,6 +501,14 @@ public class CameraController : MonoBehaviour
     public void Zoom(float deltaDistance)
     {
         distance = Mathf.Clamp(distance + deltaDistance, minDistance, maxDistance);
+    }
+
+    // The local player's gun while it is out (GunHolder), or null.
+    private Transform HeldGun()
+    {
+        if (gunHolder == null) gunHolder = FindAnyObjectByType<GunHolder>();
+        Transform gun = gunHolder != null ? gunHolder.Gun : null;
+        return gun != null && gun.gameObject.activeInHierarchy ? gun : null;
     }
 
     public void SetFirstPerson(bool v)
