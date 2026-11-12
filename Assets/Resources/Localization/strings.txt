@@ -357,3 +357,19 @@ Entry {0}. Real players only, no bots: the match starts once all {1} seats are t
 If it does not fill in time, your entry is refunded.	如果未能按时坐满，报名费将退还。	Если матч не наберётся вовремя, взнос вернут.
 PAY {0}	支付 {0}	ОПЛАТИТЬ {0}
 Waiting for real players... the match starts once every seat is taken. Entry refunded if it does not fill.	正在等待真人玩家……所有座位坐满后比赛开始。未坐满将退还报名费。	Ждём живых игроков... матч начнётся, когда все места будут заняты. Если не наберётся, взнос вернут.
+EXIT	退出	ВЫЙТИ
+Leave this match?	离开这场比赛？	Покинуть матч?
+LEAVE	离开	ПОКИНУТЬ
+STAY	留下	ОСТАТЬСЯ
+You go back to the room list. This free match goes on without you.	你将回到房间列表。这场免费比赛会在没有你的情况下继续。	Вы вернётесь к списку комнат. Этот бесплатный матч продолжится без вас.
+You were caught, so leaving costs nothing more. Your payout is worked out when the round ends.	你已被抓到，所以离开不会有额外损失。你的奖励会在本局结束时计算。	Вас уже поймали, так что выход ничего не стоит. Выплата будет рассчитана в конце раунда.
+The round has started: leaving now counts as quitting it, and you are paid as a player who quit when it ends.	本局已开始：现在离开算作退出，本局结束时你会按退出的玩家结算。	Раунд уже идёт: выход сейчас считается уходом, и в конце раунда вам заплатят как ушедшему игроку.
+The round has not started yet: your entry is refunded.	本局尚未开始：你的报名费将被退还。	Раунд ещё не начался: взнос будет возвращён.
+Ready to start: {0}/{1}	准备开始：{0}/{1}	Готовы к началу: {0}/{1}
+{0}: ready	{0}：已准备	{0}: готов
+{0}: hiding...	{0}：躲藏中……	{0}: прячется...
+{0} (you)	{0}（你）	{0} (вы)
+{0} is ready ({1}/{2})	{0} 已准备（{1}/{2}）	{0} готов ({1}/{2})
+Special bullet {0}: {1} left	特殊子弹 {0}：剩余 {1}	Особая пуля {0}: осталось {1}
+Tap to switch	点击切换	Нажмите, чтобы сменить
+Switch bullet	切换子弹	Сменить пулю

@@ -106,7 +106,15 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited }
+
+    // -playtestNext: the result's Next. -playtestExit: the round's Exit, Stay, then Leave.
+    // -playtestReady: two hiders see each other press Start.
+    private static bool NextTest => System.Environment.GetCommandLineArgs().Contains("-playtestNext");
+    private static bool ExitTest => System.Environment.GetCommandLineArgs().Contains("-playtestExit");
+    private static bool ReadyTest => System.Environment.GetCommandLineArgs().Contains("-playtestReady");
+    private static int matchesAtNext;
+    private static bool modeBackDone, modeBackChecked;
 
     // -playtestStandard: the paid room (20 coins, real players only). -playtestLobbyMark <file>:
     // written once this game sits in a lobby, so a runner can send the other players in after it.
@@ -127,6 +135,23 @@ public static class OnlinePlayTest
     private static int remoteShots, loadoutAnswers, phaseChanges, shotsFired, eliminations;
     private static int sawPhaseSeek;
     private static bool chosenSpecial, specialSpent, pressedStart, painted, sawStartButton;
+    private static float bulletTapAt = -1f;
+
+    // A finger's tap on this button: the topmost UI under its centre gets the click, as on a
+    // phone. Returns what was hit (null for nothing).
+    private static GameObject TapAt(Button button)
+    {
+        if (button == null || EventSystem.current == null) return null;
+        Vector2 screen = RectTransformUtility.WorldToScreenPoint(null, ((RectTransform)button.transform).position);
+        var pointer = new PointerEventData(EventSystem.current) { position = screen, button = PointerEventData.InputButton.Left };
+        var hits = new List<RaycastResult>();
+        EventSystem.current.RaycastAll(pointer, hits);
+        if (hits.Count == 0) return null;
+        GameObject top = hits[0].gameObject;
+        pointer.pointerPress = top;
+        ExecuteEvents.ExecuteHierarchy(top, pointer, ExecuteEvents.pointerClickHandler);
+        return top;
+    }
     private static int remoteViews, remoteAnimators, matchEnds;
     private static BulletStock stockBeforeRound;
 
@@ -303,6 +328,32 @@ public static class OnlinePlayTest
 
             case Step.Body:
                 if (InStep < 0.5f) return;
+                if (!modeBackDone)
+                {
+                    // The character screen's own Back (BtnExit, which the scene wires to the side
+                    // screen), then the side again: this used to start Single Play.
+                    modeBackDone = true;
+                    Button exit = FindByName("SelectPlayerCanvas")?.GetComponentsInChildren<Button>(true).FirstOrDefault(b => b.name == "BtnExit");
+                    Check(exit != null, "the character screen has its Back button");
+                    exit?.onClick.Invoke();
+                    stepStarted = Time.realtimeSinceStartup;
+                    return;
+                }
+                if (!modeBackChecked)
+                {
+                    modeBackChecked = true;
+                    GameObject sides = FindByName("RoleSelectCanvas");
+                    Check(sides != null && sides.activeInHierarchy && FindByName("SelectPlayerCanvas") is not { activeInHierarchy: true },
+                          "Back on the character screen goes to the side screen");
+                    Object.FindAnyObjectByType<HomeUI>().BeginMatch(Seeker ? 1 : 2);   // the side again
+                    stepStarted = Time.realtimeSinceStartup;
+                    return;
+                }
+                if (InStep < 1f) return;
+                GameModeManager modes = Object.FindAnyObjectByType<GameModeManager>();
+                Check(modes != null && !modes.RoundActive && FindByName("SelectPlayerCanvas") is { activeInHierarchy: true }
+                      && FindByName("LoadingCanvas") is not { activeInHierarchy: true },
+                      "and picking a side again stays in Multiplayer: the character screen again, no Single Play round");
                 PickBodyOnline();
                 Go(Step.Room);
                 return;
@@ -444,7 +495,32 @@ public static class OnlinePlayTest
                 bool shown = round != null && (bool)typeof(OnlineRound).GetField("resultShown", Any).GetValue(round);
                 bool hasPopup = typeof(OnlineRound).GetField("results", Any).GetValue(round) != null;
                 Check(shown && hasPopup, "Single Play's result popup (HideModeResultUI) shows the online result");
+                if (NextTest)
+                {
+                    // Next is the room list now, not the same room again.
+                    matchesAtNext = matchesFound;
+                    Object.FindAnyObjectByType<HideModeResultUI>().OnNextClicked();
+                    Go(Step.NextRooms);
+                    return;
+                }
                 Object.FindAnyObjectByType<OnlineLobby>().GoHomeFromRound();
+                Go(Step.Home);
+                return;
+
+            case Step.Exited:
+                if (InStep < 1f) return;
+                Go(Step.Done);
+                return;
+
+            case Step.NextRooms:
+                if (InStep < 4f) return;     // long enough for a lobby to turn up if one were coming
+                Check(!OnlineRound.Active && FindByName("RoomScreen") is { activeInHierarchy: true } && FindButton("RoomScreen", "Practice") != null,
+                      "Next after the match opens the room list, with every room the server has to pick from");
+                Shot("next_rooms");
+                Check(matchesFound == matchesAtNext && !Net.InMatch, "and nobody put this player into another match by themselves");
+                // Out the way a player goes: the room list's BACK, then the side screen's Back.
+                FindButton("RoomScreen", "BACK")?.onClick.Invoke();
+                FindByName("RoleSelectCanvas")?.GetComponentsInChildren<Button>(true).FirstOrDefault(b => b.name == "BackBtn")?.onClick.Invoke();
                 Go(Step.Home);
                 return;
 
@@ -1239,6 +1315,108 @@ public static class OnlinePlayTest
         freeLookStage = 2;
     }
 
+    // ================= Exit: out of the match, to the room list =================
+
+    private static int exitStage;
+    private static float exitAt;
+
+    private static void CheckExit()
+    {
+        if (!ExitTest || exitStage >= 9 || Net.Phase != MatchPhase.Hide) return;
+        float now = Time.realtimeSinceStartup;
+        if (exitStage == 0) { exitAt = now + 3f; exitStage = 1; return; }
+        if (now < exitAt) return;
+
+        Button exit = FindByName("ExitMatch")?.GetComponent<Button>();
+        GameObject confirm = FindByName("ExitMatchConfirm");
+        switch (exitStage)
+        {
+            case 1:
+                Check(exit != null && exit.gameObject.activeInHierarchy, "the round has an EXIT button");
+                Shot("exit_button");
+                Check(TapAt(exit) != null, "a tap reaches it");
+                exitAt = now + 0.5f;
+                exitStage = 2;
+                return;
+            case 2:
+                string text = confirm != null ? string.Join(" | ", confirm.GetComponentsInChildren<Text>(true).Select(t => t.text)) : "none";
+                Check(confirm != null && confirm.activeInHierarchy && text.Contains("Leave this match?") && text.Contains("room list"),
+                      $"it asks first, saying what leaving costs ({text})");
+                Shot("exit_confirm");
+                FindButton("ExitMatchConfirm", "STAY")?.onClick.Invoke();
+                exitAt = now + 0.5f;
+                exitStage = 3;
+                return;
+            case 3:
+                Check(confirm != null && !confirm.activeInHierarchy && OnlineRound.Active, "STAY keeps playing");
+                TapAt(exit);
+                exitAt = now + 0.5f;
+                exitStage = 4;
+                return;
+            case 4:
+                FindButton("ExitMatchConfirm", "LEAVE")?.onClick.Invoke();
+                exitAt = now + 2f;
+                exitStage = 5;
+                return;
+            case 5:
+                Check(!OnlineRound.Active && FindByName("RoomScreen") is { activeInHierarchy: true } && !Net.InMatch && Net.IsConnected,
+                      "LEAVE goes back to the room list, out of the match, still signed in, the game still running");
+                Shot("exit_rooms");
+                exitStage = 9;
+                Go(Step.Exited);
+                return;
+        }
+    }
+
+    // ================= The hiders' ready list =================
+
+    private static int readyStage;
+    private static float readyAt;
+    private static string readyOtherBanner;
+
+    private static void CheckReadyList()
+    {
+        if (!ReadyTest || Seeker || readyStage >= 9 || Net.Phase != MatchPhase.Hide) return;
+        float now = Time.realtimeSinceStartup;
+        OnlineRound round = OnlineRoundInstance();
+        var roster = Get<MecchaNetClient.RosterEntry[]>(round, "roster") ?? new MecchaNetClient.RosterEntry[0];
+        var humanHiders = roster.Where(e => e.Role == Role.Fugitive && !e.IsBot).Select(e => e.Slot).OrderBy(s => s).ToList();
+        byte other = humanHiders.FirstOrDefault(s => s != Net.LocalSlot);
+        bool first = humanHiders.Count > 0 && humanHiders[0] == Net.LocalSlot;
+        Text panel = FindByName("HidersReady")?.GetComponent<Text>();
+        Text banner = Get<Text>(round, "banner");
+
+        switch (readyStage)
+        {
+            case 0:
+                if (humanHiders.Count < 2 || panel == null || !panel.gameObject.activeInHierarchy) return;
+                Check(panel.text.Contains($"Ready to start: ") && panel.text.Contains("/5") && panel.text.Contains("(you)") && panel.text.Contains("hiding..."),
+                      $"in the hide phase every hider sees who is ready: '{panel.text.Replace("\n", " / ")}'");
+                // The first presses Start after 2 s, the other after 6 s.
+                readyAt = now + (first ? 2f : 6f);
+                readyStage = 1;
+                return;
+            case 1:
+                // The other one's Start, seen here: the banner then and their line in the list.
+                if (readyOtherBanner == null && Net.IsHiderReady(other) && banner != null)
+                {
+                    readyOtherBanner = banner.gameObject.activeInHierarchy ? banner.text : "(no banner)";
+                    Shot("ready_other");
+                    Check(readyOtherBanner.Contains("is ready") && panel != null && panel.text.Contains(": ready"),
+                          $"another hider pressing Start shows here at once: banner '{readyOtherBanner}', list '{(panel != null ? panel.text.Replace("\n", " / ") : "none")}'");
+                }
+                if (now >= readyAt && !pressedReadyStart)
+                {
+                    pressedReadyStart = true;
+                    Object.FindAnyObjectByType<BotSeekController>()?.SkipGrace();   // the Start button
+                }
+                if (pressedReadyStart && readyOtherBanner != null) readyStage = 9;
+                return;
+        }
+    }
+
+    private static bool pressedReadyStart;
+
     // ================= Next Player, bought once after being knocked out =================
 
     // -playtestNextPlayer: out of the round, Next player offers the feature first (a tap opens the
@@ -1372,6 +1550,9 @@ public static class OnlinePlayTest
         CheckSeekerBodyLiesDown();
         CheckFreeLookWhenOut();
         CheckNextPlayer();
+        CheckExit();
+        if (step != Step.Round) return;   // Exit left the match
+        CheckReadyList();
         CheckBodies();
         if (Kills || Mixed) WatchKillBullet();
         SampleMovement();
@@ -1411,13 +1592,29 @@ public static class OnlinePlayTest
         {
             if (Net.Phase != MatchPhase.Seek || Time.realtimeSinceStartup < nextAction) return;
 
-            // Switch to special bullet 2 once (the bullet label's tap), then keep shooting.
+            // Switch to special bullet 2 once with the bullet button, tapped where a finger would
+            // tap it (whatever is on top there gets the tap), then keep shooting.
             if (!chosenSpecial && Net.SpecialBullets.Special2 > 0)
             {
                 chosenSpecial = true;
-                Call(OnlineRoundInstance(), "CycleBullet");   // Default -> the next type owned: special bullet 2
+                Button bullets = FindByName("BulletSwitch")?.GetComponent<Button>();
+                string before = bullets != null ? bullets.GetComponentInChildren<Text>(true).text.Replace("\n", " / ") : "none";
+                GameObject hit = TapAt(bullets);
+                Check(bullets != null && bullets.gameObject.activeInHierarchy && before.Contains("Default bullets") && before.Contains("Tap to switch"),
+                      $"the seeker has a bullet button showing default bullets and that it switches ('{before}')");
+                Check(hit != null && hit.transform.IsChildOf(bullets.transform), $"a tap on it reaches it, nothing covers it (hit {(hit != null ? hit.name : "nothing")})");
                 nextAction = Time.realtimeSinceStartup + 0.6f;
+                bulletTapAt = Time.realtimeSinceStartup;
                 return;
+            }
+            if (chosenSpecial && bulletTapAt > 0f && Time.realtimeSinceStartup > bulletTapAt + 0.5f)
+            {
+                bulletTapAt = -1f;
+                Button bullets = FindByName("BulletSwitch")?.GetComponent<Button>();
+                string after = bullets != null ? bullets.GetComponentInChildren<Text>(true).text.Replace("\n", " / ") : "none";
+                Check(Net.ChosenBullet == BulletType.Special2 && after.Contains("Special bullet 2"),
+                      $"the tap switched to special bullet 2, and the button says so ('{after}', server: {Net.ChosenBullet})");
+                Shot("bullet_button");
             }
 
             Mode1FirstPersonGun gun = Object.FindAnyObjectByType<Mode1FirstPersonGun>();

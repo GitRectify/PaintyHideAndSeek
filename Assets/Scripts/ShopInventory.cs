@@ -425,6 +425,12 @@ public static class ShopInventory
             }
 
             bool bought = receipt.Status == PurchaseStatus.Completed || receipt.Status == PurchaseStatus.AlreadyCompleted;
+
+            // Special bullets just bought are the ones the next online match shoots; the bullet
+            // button in the round switches back to default bullets whenever the player likes.
+            if (bought && item.category == ShopCategory.Bullets && BulletSpecs.IsSpecial((BulletType)item.gameId))
+                PreferredBullet = (BulletType)item.gameId;
+
             Refresh(null);   // ownership and the balance as the server now has them
             done?.Invoke(bought, PurchaseText(receipt.Status, item));
         });

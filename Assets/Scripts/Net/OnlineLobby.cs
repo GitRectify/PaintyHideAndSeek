@@ -16,8 +16,9 @@ using UnityEngine.UI;
 // Rooms: Practice is free and bots take the empty seats. Standard costs an entry (20 coins on the
 // default server): real players only, no bots, so its lobby waits until every seat is taken, and
 // the server refunds the entry if it does not fill in time. The entry is confirmed before every
-// search (PayScreen), Next after a round included: the server never enters anyone into a paid
-// match they did not ask for. Leaving one before the round counts toward its early-leave cooldown.
+// search (PayScreen). After a match, Next and the round's Exit open the room list: the player
+// picks any room again (the server no longer queues anyone by itself). Leaving a lobby is never
+// held against anyone: there is no cooldown.
 //
 // Drops: a MatchFound for the round on screen is the server giving a held seat back (the round
 // resumes); a search lost with the connection is sent again once signed in; "signed in on another
@@ -319,10 +320,13 @@ public class OnlineLobby : MonoBehaviour
     private bool NotOwnedOnline(int character) =>
         profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0 && Array.IndexOf(profile.OwnedAvatars, character) < 0;
 
+    // Choosing the side, or the character after it: either way the side screen's buttons are
+    // this online match's. A side screen shown while the flow was still on the character step
+    // (a Back that did not go through SelectPlayerUI) must never start Single Play.
     private static OnlineLobby ChoosingRole()
     {
         OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
-        return lobby != null && lobby.step == Step.Role ? lobby : null;
+        return lobby != null && (lobby.step == Step.Role || lobby.step == Step.Body) ? lobby : null;
     }
 
     /// <summary>
@@ -701,26 +705,27 @@ public class OnlineLobby : MonoBehaviour
         GoHome();
     }
 
-    /// <summary>The result popup's Next: the next match in the same room.</summary>
-    public void PlayAgainFromRound()
+    /// <summary>The result popup's Next: the room list, to pick any room for the next match.</summary>
+    public void PlayAgainFromRound() => ExitToRoomsFromRound();
+
+    /// <summary>
+    /// Out of the match (the result's Next, or the round's Exit) and back to the room list, signed
+    /// in and on the same side and character. Leaves the match on the server first, and any lobby
+    /// an older server queued this player into meanwhile.
+    /// </summary>
+    public void ExitToRoomsFromRound()
     {
         AudioManager.ButtonTap();
         round.End();
-        if (home != null) home.GoHome();   // back to the menu scene state; the lobby covers it next
-
-        if (pendingLobby is { } pending)
-        {
-            // A free room already queued us and found the next lobby.
-            pendingLobby = null;
-            step = Step.Idle;
-            ShowLobby(pending);
-            return;
-        }
-
-        // A paid room's next match is a new entry: confirmed like the first.
-        if (room.EntryCents > 0) ConfirmEntry(StartSearch);
-        else StartSearch();
+        if (Net != null && InQueueOrMatch) Net.LeaveMatch();
+        pendingLobby = null;
+        if (matchmaking != null) matchmaking.EndOnline();
+        if (home != null) home.GoHome();   // back to the menu scene state; the room list covers it
+        ShowRoomScreen(null);
     }
+
+    /// <summary>The room of the match being played costs an entry (Standard).</summary>
+    public bool PaidRoom => room.EntryCents > 0;
 
     // ================= Match history =================
 

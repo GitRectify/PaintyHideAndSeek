@@ -85,6 +85,24 @@ public class SelectPlayerUI : MonoBehaviour
             }
         }
 
+        // The scene wires BtnExit straight to HomeUI.ShowRoleSelect, which brought the side screen
+        // back without telling whoever opened this one. Opened by Multiple Play, its flow stayed on
+        // the character step, so the next Seeker/Hider tap started Single Play instead of the
+        // online match. Back() does what the opener asked (Single Play: that same side screen).
+        Transform back = FindUnder(_canvas.transform, backButtonName);
+        Button backBtn = back != null ? back.GetComponent<Button>() : null;
+        if (backBtn != null)
+        {
+            for (int i = 0; i < backBtn.onClick.GetPersistentEventCount(); i++)
+                backBtn.onClick.SetPersistentListenerState(i, UnityEngine.Events.UnityEventCallState.Off);
+            backBtn.onClick.RemoveAllListeners();
+            backBtn.onClick.AddListener(() =>
+            {
+                AudioManager.ButtonTap();
+                Back();
+            });
+        }
+
         Transform play = FindUnder(_canvas.transform, playButtonName);
         if (play == null)
         {
@@ -194,7 +212,8 @@ public class SelectPlayerUI : MonoBehaviour
         Action cb = _onBack;
         _onBack = null;
         _onConfirm = null;
-        cb?.Invoke();
+        if (cb != null) cb.Invoke();
+        else FindAnyObjectByType<HomeUI>()?.ShowRoleSelect();   // opened with no way back: the side screen
     }
 
     public void PickCharacter(int i)

@@ -26,6 +26,7 @@ public enum GameAction
     FreeCamera,
     StartRound,
     Settings,
+    SwitchBullet,
 }
 
 /// <summary>
@@ -60,6 +61,7 @@ public static class KeyBindings
         { GameAction.FreeCamera, Key.V },
         { GameAction.StartRound, Key.Enter },
         { GameAction.Settings, Key.Escape },
+        { GameAction.SwitchBullet, Key.B },
     };
 
     // English names: the key of the translation table (L), so they show in the player's language.
@@ -83,6 +85,7 @@ public static class KeyBindings
         { GameAction.FreeCamera, "Free camera" },
         { GameAction.StartRound, "Start (end hiding)" },
         { GameAction.Settings, "Settings" },
+        { GameAction.SwitchBullet, "Switch bullet" },
     };
 
     private static Dictionary<GameAction, Key> current;

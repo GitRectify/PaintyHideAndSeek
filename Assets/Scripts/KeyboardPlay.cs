@@ -29,6 +29,7 @@ public sealed class KeyboardPlay : MonoBehaviour
         { GameAction.Poses, "Btn_DoiDang" },
         { GameAction.FreeCamera, "ButtonCamera" },
         { GameAction.StartRound, "ButtonStart" },
+        { GameAction.SwitchBullet, "BulletSwitch" },     // online seekers (OnlineRound)
     };
 
     // Held buttons: down while the key is, up when it is let go.

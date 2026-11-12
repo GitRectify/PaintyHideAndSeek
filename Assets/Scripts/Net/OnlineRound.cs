@@ -72,8 +72,8 @@ public partial class OnlineRound : MonoBehaviour
     [Tooltip("Spacing (texels) of that grid of dabs; smaller covers more evenly but sends more.")]
     [SerializeField] private int fillSpacing = 64;
 
-    [Tooltip("Top-right offset of the seeker's bullet count, under the HUD.")]
-    [SerializeField] private Vector2 bulletsOffset = new Vector2(-40f, -250f);
+    [Tooltip("Bottom-centre offset of the seeker's bullet button (what the next shot uses; tap to switch).")]
+    [SerializeField] private Vector2 bulletsOffset = new Vector2(0f, 24f);
 
     [Tooltip("Seconds after being caught before the camera starts following the players still in (BotSeekController.caughtPopupDelay offline).")]
     [SerializeField] private float spectateDelaySeconds = 3f;
@@ -113,7 +113,7 @@ public partial class OnlineRound : MonoBehaviour
 
     private Text banner;
     private float bannerUntil;
-    private Text bulletsLabel;
+    private Button bulletButton;   // the seeker's bullet: what the next shot uses, tap to switch
     private BulletType lastChosen = BulletType.Default;
     private BulletType firedBullet = BulletType.Default;   // the bullet the last shot used, for its size
 
@@ -284,6 +284,7 @@ public partial class OnlineRound : MonoBehaviour
         Net.OnLoadoutChanged += HandleLoadoutChanged;
         Net.OnAuthenticated += HandleReauthenticated;
         Net.OnBotHost += HandleBotHost;
+        Net.OnHidersReady += HandleHidersReady;
 
         // Start from the phase the client last heard (the ready gate, normally).
         nextWaitNoticeAt = Time.unscaledTime + WaitNoticeAfterSeconds;
@@ -291,7 +292,7 @@ public partial class OnlineRound : MonoBehaviour
         RefreshCounters();
         ShowBanner(hunter ? "You are a SEEKER. Wait for the hiders to hide..." : "You are a HIDER. Paint yourself and hide!", 4f);
 
-        bulletsLabel.gameObject.SetActive(hunter);
+        bulletButton.gameObject.SetActive(hunter);
         RefreshBullets();
 
         // Carry the equipped weapon and the preferred bullet, and fetch pose/weapon ownership as
@@ -336,6 +337,7 @@ public partial class OnlineRound : MonoBehaviour
             Net.OnLoadoutChanged -= HandleLoadoutChanged;
             Net.OnAuthenticated -= HandleReauthenticated;
             Net.OnBotHost -= HandleBotHost;
+            Net.OnHidersReady -= HandleHidersReady;
         }
 
         StopHostingBots();
@@ -366,7 +368,8 @@ public partial class OnlineRound : MonoBehaviour
         if (results != null) results.ClearOnline();
         if (gmm != null) gmm.EndNetworkRound();
         banner.gameObject.SetActive(false);
-        bulletsLabel.gameObject.SetActive(false);
+        bulletButton.gameObject.SetActive(false);
+        HideMatchControls();
     }
 
     private const float SpawnLift = 0.2f;           // markers lie on the floor; the feet go just above it
@@ -388,6 +391,7 @@ public partial class OnlineRound : MonoBehaviour
         ApplyCanvases();
         UpdateSpotView();
         UpdateSpectating();
+        UpdateMatchControls();
         WatchConnection();
         if (!active) return;   // a seat that ran out ends the round right there
         PumpPaintReplay();
@@ -704,16 +708,24 @@ public partial class OnlineRound : MonoBehaviour
         fireReleaseAt = Time.unscaledTime + 0.2f;
     }
 
-    // The bullet the next shot uses and, for a special type, how many are left. When the chosen
-    // special type runs out the server goes back to default bullets, which never run out.
+    // The bullet the next shot uses and, for a special type, how many are left; the button says
+    // when there is another type to switch to. When the chosen special type runs out the server
+    // goes back to default bullets, which never run out.
     private void RefreshBullets()
     {
-        if (bulletsLabel == null || Net == null) return;
+        if (bulletButton == null || Net == null) return;
 
         BulletType next = Net.NextBullet;
-        bulletsLabel.text = next == BulletType.Default
+        bool others = false;
+        for (int t = 1; t <= BulletSpecs.SpecialCount; t++)
+            if ((BulletType)t != next && Net.SpecialBullets[(BulletType)t] > 0) others = true;
+        if (next != BulletType.Default) others = true;   // default bullets are always there to go back to
+
+        string what = next == BulletType.Default
             ? "Default bullets: unlimited"
-            : $"{BulletName(next)}: {Net.SpecialBullets[next]}";
+            : $"{BulletName(next)}: {Net.SpecialBullets[next]} left";
+        OnlineUI.SetButtonText(bulletButton, others ? $"{what}\n<size=24>Tap to switch</size>" : what);
+        bulletButton.targetGraphic.color = next == BulletType.Default ? OnlineUI.Gray : new Color(0.85f, 0.52f, 0.12f, 0.97f);
 
         BulletType chosen = Net.ChosenBullet;
         if (hunter && BulletSpecs.IsSpecial(lastChosen) && chosen == BulletType.Default && Net.SpecialBullets[lastChosen] == 0)
@@ -724,8 +736,8 @@ public partial class OnlineRound : MonoBehaviour
     private static string BulletName(BulletType type) =>
         type == BulletType.Default ? "Default bullets" : $"Special bullet {(int)type}";
 
-    // Tapping the bullet label: the next type the player has (default bullets always), as the
-    // server decides; the choice is kept for the next match.
+    // The bullet button (or its key): the next type the player has (default bullets always), as
+    // the server decides; the choice is kept for the next match.
     private void CycleBullet()
     {
         if (!active || !hunter || localOut || Net == null) return;
@@ -738,7 +750,7 @@ public partial class OnlineRound : MonoBehaviour
             if (candidate != BulletType.Default && Net.SpecialBullets[candidate] <= 0) continue;
             ShopInventory.PreferredBullet = candidate;
             Net.SelectBullet(candidate);   // answered with LoadoutState
-            if (candidate == BulletType.Default && current != BulletType.Default) ShowBanner("Default bullets", 1.5f);
+            ShowBanner(candidate == BulletType.Default ? "Default bullets" : $"{BulletName(candidate)}: {Net.SpecialBullets[candidate]} left", 1.5f);
             return;
         }
     }
@@ -1091,17 +1103,18 @@ public partial class OnlineRound : MonoBehaviour
 
         banner.gameObject.SetActive(false);
 
-        // Seeker's bullet, top right under the HUD: online, special bullets are a server-counted
-        // stock. Tapping it switches bullet type.
-        bulletsLabel = OnlineUI.NewLabel(canvas.transform, "", 30, Vector2.zero, new Vector2(420f, 50f), TextAnchor.MiddleRight, true);
-        bulletsLabel.raycastTarget = true;
-        bulletsLabel.gameObject.AddComponent<Button>().onClick.AddListener(CycleBullet);
-        RectTransform brt = bulletsLabel.rectTransform;
-        brt.anchorMin = brt.anchorMax = brt.pivot = new Vector2(1f, 1f);
+        // Seeker's bullet, bottom centre, clear of the joystick, the fire buttons and the HUD
+        // column: online, special bullets are a server-counted stock. A tap switches between
+        // default bullets and the special types the player has (KeyBindings: Switch bullet).
+        bulletButton = OnlineUI.NewButton(canvas.transform, "", Vector2.zero, new Vector2(460f, 104f), OnlineUI.Gray, CycleBullet);
+        bulletButton.name = "BulletSwitch";
+        RectTransform brt = (RectTransform)bulletButton.transform;
+        brt.anchorMin = brt.anchorMax = brt.pivot = new Vector2(0.5f, 0f);
         brt.anchoredPosition = bulletsOffset;
-        Outline bulletsOutline = bulletsLabel.gameObject.AddComponent<Outline>();
-        bulletsOutline.effectColor = new Color(0f, 0f, 0f, 0.8f);
-        bulletsLabel.gameObject.SetActive(false);
+        bulletButton.GetComponentInChildren<Text>().fontSize = 32;
+        bulletButton.gameObject.SetActive(false);
+
+        BuildMatchControls(canvas.transform);
 
         // Spectating: switch to the next player still in, bottom centre (once Next Player is
         // unlocked; before that the button offers it).
