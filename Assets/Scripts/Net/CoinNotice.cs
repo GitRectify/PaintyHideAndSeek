@@ -12,7 +12,9 @@ using UnityEngine.UI;
 public sealed class CoinNotice : MonoBehaviour
 {
     private const float ShowSeconds = 6f;
-    private const float FadeSeconds = 0.25f;
+    private const float FadeSeconds = 0.3f;
+    private const float CardHeight = 150f;
+    private static readonly Vector2 Home = new Vector2(OnlineUI.NoticeRight, OnlineUI.NoticeTop);
 
     private static CoinNotice instance;
 
@@ -81,12 +83,13 @@ public sealed class CoinNotice : MonoBehaviour
     {
         card.SetActive(true);
         card.transform.SetAsLastSibling();
+        var rt = (RectTransform)card.transform;
         for (float t = 0f; t < FadeSeconds; t += Time.unscaledDeltaTime)
         {
-            group.alpha = t / FadeSeconds;
+            OnlineUI.SlideNotice(rt, group, Home, t / FadeSeconds);
             yield return null;
         }
-        group.alpha = 1f;
+        OnlineUI.SlideNotice(rt, group, Home, 1f);
 
         yield return new WaitForSecondsRealtime(seconds);
         yield return Hide();
@@ -94,9 +97,10 @@ public sealed class CoinNotice : MonoBehaviour
 
     private IEnumerator Hide()
     {
+        var rt = (RectTransform)card.transform;
         for (float t = FadeSeconds; t > 0f; t -= Time.unscaledDeltaTime)
         {
-            group.alpha = t / FadeSeconds;
+            OnlineUI.SlideNotice(rt, group, Home, t / FadeSeconds);
             yield return null;
         }
 
@@ -121,12 +125,10 @@ public sealed class CoinNotice : MonoBehaviour
     {
         Transform canvas = OnlineUI.CreateCanvas("CoinNoticeCanvas", transform, 90).transform;
 
+        // The notice slot (top right, under the coin balance), like every other notice (2026-11-13).
         Image bg = OnlineUI.NewImage("CoinNoticeCard", canvas, new Color(0.10f, 0.32f, 0.17f, 0.97f));
         RectTransform rt = bg.rectTransform;
-        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
-        rt.pivot = new Vector2(0.5f, 1f);
-        rt.anchoredPosition = new Vector2(0f, -40f);
-        rt.sizeDelta = new Vector2(980f, 250f);
+        OnlineUI.PlaceNotice(rt, CardHeight, keepWidth: true);
         card = bg.gameObject;
         group = card.AddComponent<CanvasGroup>();
 
@@ -134,12 +136,15 @@ public sealed class CoinNotice : MonoBehaviour
         outline.effectColor = new Color(0.49f, 0.99f, 0.6f, 0.9f);
         outline.effectDistance = new Vector2(3f, -3f);
 
-        title = OnlineUI.NewLabel(card.transform, "", 46, new Vector2(-70f, 72f), new Vector2(780f, 64f), TextAnchor.MiddleLeft, true);
+        title = OnlineUI.NewLabel(card.transform, "", 34, new Vector2(-60f, 46f), new Vector2(460f, 48f), TextAnchor.MiddleLeft, true);
         title.color = new Color(0.49f, 0.99f, 0.6f, 1f);
-        amount = OnlineUI.NewLabel(card.transform, "", 34, new Vector2(-70f, 5f), new Vector2(780f, 60f), TextAnchor.MiddleLeft);
-        balance = OnlineUI.NewLabel(card.transform, "", 30, new Vector2(-70f, -62f), new Vector2(780f, 50f), TextAnchor.MiddleLeft);
+        amount = OnlineUI.NewLabel(card.transform, "", 27, new Vector2(-60f, 2f), new Vector2(460f, 40f), TextAnchor.MiddleLeft);
+        amount.resizeTextForBestFit = true;
+        amount.resizeTextMinSize = 16;
+        amount.resizeTextMaxSize = 27;
+        balance = OnlineUI.NewLabel(card.transform, "", 24, new Vector2(-60f, -42f), new Vector2(460f, 36f), TextAnchor.MiddleLeft);
         balance.color = OnlineUI.Muted;
 
-        OnlineUI.NewButton(card.transform, "OK", new Vector2(390f, 0f), new Vector2(150f, 110f), OnlineUI.Green, Close);
+        OnlineUI.NewButton(card.transform, "OK", new Vector2(240f, 0f), new Vector2(110f, 96f), OnlineUI.Green, Close);
     }
 }

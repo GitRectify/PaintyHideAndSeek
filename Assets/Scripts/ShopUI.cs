@@ -278,8 +278,9 @@ public class ShopUI : MonoBehaviour
 
     private void ShowToast(string message) => ShowToast(message, false);
 
-    // A bought item says so in green, others in the shop's dark; both opaque, in the middle of the
-    // grid and above the cards (2026-11-13: the see-through strip over the buttons went unnoticed).
+    // A bought item says so in green, others in the shop's dark; both opaque, in the shop's header
+    // between its logo and the coin balance, clear of every card (2026-11-13: a see-through strip
+    // over the buttons went unnoticed, and one in the middle of the grid covered the cards).
     private void ShowToast(string message, bool success)
     {
         if (toastText == null) return;
@@ -291,11 +292,37 @@ public class ShopUI : MonoBehaviour
     private IEnumerator ToastRoutine(string message, float seconds)
     {
         toastText.text = message;
-        ToastObject.SetActive(true);
-        ToastObject.transform.SetAsLastSibling();
+        GameObject toast = ToastObject;
+        toast.SetActive(true);
+        toast.transform.SetAsLastSibling();
+
+        // Slides down into the header as it fades in, and back up as it goes.
+        var rt = toast.transform as RectTransform;
+        for (float t = 0f; t < ToastSlideSeconds; t += Time.unscaledDeltaTime)
+        {
+            PlaceToast(rt, t / ToastSlideSeconds);
+            yield return null;
+        }
+        PlaceToast(rt, 1f);
         yield return new WaitForSecondsRealtime(seconds);
-        ToastObject.SetActive(false);
+        for (float t = ToastSlideSeconds; t > 0f; t -= Time.unscaledDeltaTime)
+        {
+            PlaceToast(rt, t / ToastSlideSeconds);
+            yield return null;
+        }
+        toast.SetActive(false);
         _toast = null;
+    }
+
+    private const float ToastSlideSeconds = 0.25f;
+    private static readonly Vector2 ToastHome = new Vector2(0f, -22f);
+    private CanvasGroup toastGroup;
+
+    private void PlaceToast(RectTransform rt, float t)
+    {
+        float e = 1f - (1f - Mathf.Clamp01(t)) * (1f - Mathf.Clamp01(t));
+        if (rt != null) rt.anchoredPosition = ToastHome + Vector2.up * (1f - e) * 60f;
+        if (toastGroup != null) toastGroup.alpha = e;
     }
 
     private UnityEngine.UI.Image toastBackground;
@@ -318,10 +345,18 @@ public class ShopUI : MonoBehaviour
         }
         if (toast.transform is RectTransform rt)
         {
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = new Vector2(120f, -20f);       // the middle of the card grid
-            rt.sizeDelta = new Vector2(Mathf.Max(rt.sizeDelta.x, 820f), Mathf.Max(rt.sizeDelta.y, 110f));
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);     // the header, top centre
+            rt.anchoredPosition = ToastHome;
+            rt.sizeDelta = new Vector2(760f, 92f);
         }
-        if (toastText != null) toastText.fontSize = Mathf.Max(toastText.fontSize, 38);
+        toastGroup = toast.GetComponent<CanvasGroup>();
+        if (toastGroup == null) toastGroup = toast.AddComponent<CanvasGroup>();
+        if (toastText != null)
+        {
+            toastText.fontSize = 32;
+            toastText.resizeTextForBestFit = true;
+            toastText.resizeTextMinSize = 20;
+            toastText.resizeTextMaxSize = 32;
+        }
     }
 }

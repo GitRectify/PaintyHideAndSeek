@@ -220,6 +220,44 @@ public partial class OnlineRound : MonoBehaviour
     /// match (a free room re-queues).
     /// </summary>
     private string roomName = "";
+    private float placementWaitUntil;
+    private int placementsSettled;
+
+    /// <summary>
+    /// True from the start of an online round (or a rejoin) until the server has first placed this
+    /// player, 6 s at most: JoystickMover holds the body still meanwhile.
+    /// </summary>
+    public static bool AwaitingPlacement =>
+        Active && Net != null && Net.PositionPlacements == 0 && Time.unscaledTime < _instance.placementWaitUntil;
+
+    // Each time the server puts this player somewhere (a spawn, a rejoin, a correction): the feet
+    // are the server's, rounded to its grid, and can come out a little inside the floor; a
+    // CharacterController that starts inside a floor drops through it. Lifted onto the surface
+    // under them, with no fall speed carried over from before.
+    private void SettleOnFloor()
+    {
+        if (localView == null || localBody == null) return;
+
+        Vector3 feet = localView.FeetPosition;
+        float floor = float.NegativeInfinity;
+        foreach (RaycastHit hit in Physics.RaycastAll(feet + Vector3.up * 0.75f, Vector3.down, 1.5f, ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (hit.collider.transform.IsChildOf(localBody)) continue;                 // its own capsule and bones
+            if (hit.collider.GetComponentInParent<NetEntityView>() != null) continue;  // somebody else
+            floor = Mathf.Max(floor, hit.point.y);
+        }
+
+        if (floor > feet.y + 0.01f)
+        {
+            CharacterController cc = localBody.GetComponent<CharacterController>();
+            bool wasOn = cc != null && cc.enabled;
+            if (cc != null) cc.enabled = false;
+            localBody.position += Vector3.up * (floor - feet.y + 0.02f);
+            if (cc != null) cc.enabled = wasOn;
+        }
+
+        if (mover != null) mover.StopFalling();
+    }
 
     /// <summary>The match on screen, or -1.</summary>
     public int MatchId => active ? matchId : -1;
@@ -248,6 +286,8 @@ public partial class OnlineRound : MonoBehaviour
 
         lobby = owner;
         roomName = mapName ?? "";
+        placementWaitUntil = Time.unscaledTime + 6f;
+        placementsSettled = 0;
         gmm = FindAnyObjectByType<GameModeManager>();
         home = FindAnyObjectByType<HomeUI>();
         results = FindAnyObjectByType<HideModeResultUI>();
@@ -409,6 +449,12 @@ public partial class OnlineRound : MonoBehaviour
     private void Update()
     {
         if (!active) return;
+
+        if (Net.PositionPlacements != placementsSettled)
+        {
+            placementsSettled = Net.PositionPlacements;
+            SettleOnFloor();
+        }
 
         UpdateTimer();
         CheckPoseAnswer();

@@ -189,6 +189,42 @@ public static class OnlineUI
         return null;
     }
 
+    // ---- Notices (2026-11-13) ----
+    // Every notice goes to one place: the top right, under the coin balance and left of the round's
+    // button column, where no screen has anything that matters (the middle and the top centre hold
+    // the timer, titles and buttons). Reference units of a 1920 x 1080 canvas (CreateCanvas).
+
+    public const float NoticeWidth = 620f;
+    public const float NoticeRight = -150f;      // clear of the right-hand button column
+    public const float NoticeTop = -235f;        // under the coin balance and the round's banner line
+
+    /// <summary>
+    /// Puts a notice in the notice slot; <paramref name="below"/> stacks it under earlier ones. On a
+    /// narrow screen (a 4:3 tablet) it narrows too, so it never reaches the middle; a card laid out
+    /// for the full width keeps it (<paramref name="keepWidth"/>).
+    /// </summary>
+    public static void PlaceNotice(RectTransform rt, float height, float below = 0f, bool keepWidth = false)
+    {
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
+        rt.sizeDelta = new Vector2(keepWidth ? NoticeWidth : NoticeWidthFor(rt), height);
+        rt.anchoredPosition = new Vector2(NoticeRight, NoticeTop - below);
+    }
+
+    private static float NoticeWidthFor(RectTransform rt)
+    {
+        Canvas canvas = rt.GetComponentInParent<Canvas>();
+        float canvasWidth = canvas != null && canvas.rootCanvas.transform is RectTransform root && root.rect.width > 1f ? root.rect.width : 1920f;
+        return Mathf.Clamp(canvasWidth * 0.5f + NoticeRight - 20f, 380f, NoticeWidth);
+    }
+
+    /// <summary>A notice sliding in from the right as it fades in, and out the same way: t is 0 hidden, 1 in place.</summary>
+    public static void SlideNotice(RectTransform rt, CanvasGroup group, Vector2 home, float t)
+    {
+        float e = 1f - (1f - Mathf.Clamp01(t)) * (1f - Mathf.Clamp01(t));   // ease out
+        rt.anchoredPosition = home + Vector2.right * (1f - e) * 90f;
+        if (group != null) group.alpha = e;
+    }
+
     private static Sprite lockSprite;
 
     /// <summary>

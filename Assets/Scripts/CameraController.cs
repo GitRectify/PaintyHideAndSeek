@@ -130,8 +130,15 @@ public class CameraController : MonoBehaviour
     public float scoutFloorMargin = 2f;
     [Tooltip("How far (world units) below the roof the scout camera stops, so it doesn't poke through the ceiling.")]
     public float scoutCeilMargin = 3f;
+    [Tooltip("How quickly (world units/sec per sec, as a multiple of freePanSpeed) the free camera speeds up and slows down.")]
+    public float freeAcceleration = 5f;
+    [Tooltip("How far the free camera may look up (negative pitch) and down.")]
+    public float freeMinPitch = -80f;
+    public float freeMaxPitch = 85f;
     public bool _freeLook;
     private Vector3 _freePivot;
+    private Vector3 _freeVelocity;
+    private float _savedYaw, _savedPitch, _savedDistance;
     private float _scoutFloorY;
     private float _scoutRoofY;
     private Transform character;
@@ -242,7 +249,7 @@ public class CameraController : MonoBehaviour
         if (InMenu())
         {
             // Home screen: ease back to the authored pose.
-            _freeLook = false;
+            SetFreeLook(false);
             _wasInMenu = true;
             if (orbitButtons != null && orbitButtons.activeSelf)
             {
@@ -482,16 +489,15 @@ public class CameraController : MonoBehaviour
         }
         else
         {
-            // Free-look scout: orbit around the panned pivot, kept between floor and roof.
-            rot = Quaternion.Euler(pitch, yaw, 0f);
-            if (scoutClampToRoom)
-            {
-                float camAbove = Mathf.Max(0f, targetHeight + (rot * (Vector3.back * distance)).y);
-                float floor = _scoutFloorY + scoutFloorMargin;
-                float ceil = _scoutRoofY - scoutCeilMargin - camAbove;
-                _freePivot.y = Mathf.Clamp(_freePivot.y, floor, Mathf.Max(floor, ceil));
-            }
-            pivot = _freePivot;
+            // Free camera (2026-11-13): it flies, at its own position (_freePivot), looking along
+            // yaw / pitch; the joystick moves it along that view (PanFree), a drag turns it. Kept
+            // between the room's floor and roof.
+            ClampFree();
+            Quaternion look = Quaternion.Euler(pitch, yaw, 0f);
+            float ease = snap ? 1f : 1f - Mathf.Exp(-(followLerp * 2f * Time.deltaTime));
+            cam.transform.position = Vector3.Lerp(cam.transform.position, _freePivot, ease);
+            cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, look, ease);
+            return;
         }
 
         // Orbit: distance back along the yaw/pitch rotation, looking at pivot + targetHeight.
@@ -510,7 +516,10 @@ public class CameraController : MonoBehaviour
 
     public void OrbitPitch(float deltaPixels)
     {
-        pitch = Mathf.Clamp(pitch - orbitDragSpeed * deltaPixels, minPitch, maxPitch);
+        // The free camera may look straight up and down; the following camera keeps its range.
+        pitch = _freeLook
+            ? Mathf.Clamp(pitch - orbitDragSpeed * deltaPixels, freeMinPitch, freeMaxPitch)
+            : Mathf.Clamp(pitch - orbitDragSpeed * deltaPixels, minPitch, maxPitch);
     }
 
     public void Zoom(float deltaDistance)
@@ -556,7 +565,7 @@ public class CameraController : MonoBehaviour
     // from where the camera is when the view starts.
     public void SetSpotView(Transform bot, Transform target)
     {
-        _freeLook = false;
+        SetFreeLook(false);
         if (!spotView && target != null)
         {
             _spotZoomT = 0f;
@@ -598,18 +607,58 @@ public class CameraController : MonoBehaviour
 
     public bool IsFollowingOther => character != null && playerCharacter != null && character != playerCharacter;
 
-    // Turning free-look on starts the scout pivot at the character and measures the room.
+    // Turning the free camera on starts it where the camera is, looking where it looks, and
+    // measures the room; turning it off gives the following camera back its own framing.
     public void SetFreeLook(bool on)
     {
         if (_freeLook == on) return;
         _freeLook = on;
-        if (!on) return;
-        if (character != null)
+        _freeVelocity = Vector3.zero;
+
+        if (!on)
         {
-            _freePivot = character.position;
-            CacheScoutBounds();
+            yaw = _savedYaw;
+            pitch = _savedPitch;
+            distance = _savedDistance;
+            return;
+        }
+
+        _savedYaw = yaw;
+        _savedPitch = pitch;
+        _savedDistance = distance;
+
+        if (cam != null)
+        {
+            _freePivot = cam.transform.position;
+            Vector3 angles = cam.transform.eulerAngles;
+            yaw = angles.y;
+            pitch = Mathf.Clamp(Mathf.DeltaAngle(0f, angles.x), freeMinPitch, freeMaxPitch);
+        }
+        else if (character != null)
+        {
+            _freePivot = character.position + Vector3.up * targetHeight;
+        }
+
+        if (character != null) CacheScoutBounds();
+        ClampFree();
+    }
+
+    // The free camera between the room's floor and roof (and inside its walls' box).
+    private void ClampFree()
+    {
+        if (!scoutClampToRoom) return;
+        float floor = _scoutFloorY + scoutFloorMargin;
+        float ceil = Mathf.Max(floor, _scoutRoofY - scoutCeilMargin);
+        _freePivot.y = Mathf.Clamp(_freePivot.y, floor, ceil);
+
+        if (_freeRoom is Bounds room)
+        {
+            _freePivot.x = Mathf.Clamp(_freePivot.x, room.min.x + 1f, room.max.x - 1f);
+            _freePivot.z = Mathf.Clamp(_freePivot.z, room.min.z + 1f, room.max.z - 1f);
         }
     }
+
+    private Bounds? _freeRoom;
 
     // Floor = the LOWEST non-character surface straight down from the character, never below the
     // room: a hider up on a shelf or a wall used to give the shelf as the floor, and the camera
@@ -622,6 +671,7 @@ public class CameraController : MonoBehaviour
         if (character == null) return;
 
         Bounds? room = RoomBounds();
+        _freeRoom = room;
         Vector3 p = character.position;
         float lowest = float.MaxValue;
         foreach (RaycastHit hit in Physics.RaycastAll(p + Vector3.up * 2f, Vector3.down, 300f, ~0, QueryTriggerInteraction.Ignore))
@@ -670,28 +720,44 @@ public class CameraController : MonoBehaviour
         SetFreeLook(!_freeLook);
     }
 
-    // Joystick pan of the scout pivot: y along the camera forward, x along the level camera right.
+    // The joystick flies the free camera along its view: forward and back go where it looks (up or
+    // down with it), left and right sideways, level. It eases into speed and to a stop.
     public void PanFree(Vector2 input, float dt)
     {
         if (!_freeLook) return;
-        if (cam == null) return;
-        Vector3 fwd = cam.transform.forward;
-        Vector3 right = cam.transform.right;
-        right.y = 0f;
-        if (right.sqrMagnitude > 0.001f)
-        {
-            right = right.normalized;
-        }
-        _freePivot += (fwd * input.y + right * input.x) * (freePanSpeed * dt);
+        Vector3 forward = Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
+        Vector3 right = Quaternion.Euler(0f, yaw, 0f) * Vector3.right;
+        Vector3 wanted = (forward * input.y + right * input.x) * freePanSpeed;
+        if (wanted.sqrMagnitude > freePanSpeed * freePanSpeed) wanted = wanted.normalized * freePanSpeed;
+
+        _freeVelocity = Vector3.MoveTowards(_freeVelocity, wanted, freePanSpeed * freeAcceleration * dt);
+        _freePivot += _freeVelocity * dt;
+        ClampFree();
     }
+
+    /// <summary>The free camera's own position (where it flies), for tests.</summary>
+    public Vector3 FreePosition => _freePivot;
 
     public void SetAimPitch(float deg)
     {
         aimPitchDeg = deg;
     }
 
-    // Mouse wheel (one zoomScrollSpeed step per notch) and two-finger pinch.
+    // Mouse wheel (one zoomScrollSpeed step per notch) and two-finger pinch. The free camera has
+    // no distance to change: the same gesture moves it along its view instead.
     private void HandleZoomInput()
+    {
+        float before = distance;
+        HandleZoomGesture();
+        if (_freeLook && !Mathf.Approximately(before, distance))
+        {
+            _freePivot += Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward * ((before - distance) * 2f);
+            distance = before;
+            ClampFree();
+        }
+    }
+
+    private void HandleZoomGesture()
     {
         if (Mouse.current != null)
         {

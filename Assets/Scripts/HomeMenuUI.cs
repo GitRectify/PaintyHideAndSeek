@@ -93,10 +93,9 @@ public class HomeMenuUI : MonoBehaviour
     private void HandleTopUpSettled(PendingTopUp.Entry entry, PaymentState state)
     {
         if (state == PaymentState.Credited) return;   // CoinNotice confirms a credit, on every screen
-        if (toastText == null || ToastObject == null) return;
         if (homeCanvas != null && !homeCanvas.activeInHierarchy) return;
-        if (toast != null) StopCoroutine(toast);
-        toast = StartCoroutine(ShowToast(PendingTopUp.MessageFor(entry, state)));
+        // In the notice slot like every other notice (it was a box in the middle of Home).
+        OnlineMatches.Notify(PendingTopUp.MessageFor(entry, state));
     }
 
     private IEnumerator ShowToast(string message)

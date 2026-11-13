@@ -139,6 +139,13 @@ public class OnlineMatches : MonoBehaviour
         if (roleCoinPanel != null && roleCoinPanel.activeSelf) roleCoinPanel.SetActive(false);
     }
 
+    /// <summary>A short notice in the notice slot (top right), gone by itself; a tap dismisses it.</summary>
+    public static void Notify(string text)
+    {
+        if (instance == null) Create();
+        instance.Toast(text, 0, false);
+    }
+
     /// <summary>Opens the list of the player's matches (in progress and ended).</summary>
     public static void ShowList()
     {
@@ -169,7 +176,7 @@ public class OnlineMatches : MonoBehaviour
         Hook();
         UpdateModeObjects();
         bool quiet = InSinglePlay;
-        bool hideToasts = quiet || LoadingScreen.Holding;
+        bool hideToasts = quiet || LoadingScreen.Holding || listScreen.activeSelf || resultsScreen.activeSelf;
         if (toastStack.gameObject.activeSelf == hideToasts) toastStack.gameObject.SetActive(!hideToasts);
 
         // Nothing is asked of the server during Single Play.
@@ -416,17 +423,23 @@ public class OnlineMatches : MonoBehaviour
             toasts.RemoveAt(0);
         }
 
-        // Opaque with an edge, so it reads as a banner over whatever screen is under it.
-        Button b = OnlineUI.NewButton(toastStack, text, Vector2.zero, new Vector2(900f, 84f), new Color(0.10f, 0.12f, 0.18f, 1f), null);
+        // Opaque with an edge, so it reads as a card over whatever screen is under it; in the notice
+        // slot (top right, under the coin balance), two lines at most.
+        Button b = OnlineUI.NewButton(toastStack, text, Vector2.zero, new Vector2(OnlineUI.NoticeWidth, ToastHeight), new Color(0.10f, 0.12f, 0.18f, 1f), null);
         b.name = "Toast";
         Outline edge = b.gameObject.AddComponent<Outline>();
         edge.effectColor = new Color(0.85f, 0.52f, 0.12f, 1f);
         edge.effectDistance = new Vector2(3f, -3f);
         Text label = b.GetComponentInChildren<Text>();
-        label.fontSize = 28;
+        var labelRect = (RectTransform)label.transform;      // the card's width less a margin, whatever that width is
+        labelRect.anchorMin = Vector2.zero;
+        labelRect.anchorMax = Vector2.one;
+        labelRect.offsetMin = new Vector2(18f, 6f);
+        labelRect.offsetMax = new Vector2(-18f, -6f);
+        label.fontSize = 26;
         label.resizeTextForBestFit = true;
-        label.resizeTextMinSize = 20;
-        label.resizeTextMaxSize = 28;
+        label.resizeTextMinSize = 18;
+        label.resizeTextMaxSize = 26;
         CanvasGroup group = b.gameObject.AddComponent<CanvasGroup>();
         group.alpha = 0f;
         GameObject go = b.gameObject;
@@ -450,16 +463,13 @@ public class OnlineMatches : MonoBehaviour
         LayoutToasts();
     }
 
+    private const float ToastHeight = 92f;
+
+    // The newest on top of the notice slot, older ones under it.
     private void LayoutToasts()
     {
-        // In a round, under the round's banner; elsewhere, under the chip.
-        float top = OnlineRound.Active ? -250f : -120f;
         for (int i = 0; i < toasts.Count; i++)
-        {
-            var rt = (RectTransform)toasts[i].Go.transform;
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
-            rt.anchoredPosition = new Vector2(0f, top - i * 96f);
-        }
+            OnlineUI.PlaceNotice((RectTransform)toasts[i].Go.transform, ToastHeight, (toasts.Count - 1 - i) * (ToastHeight + 12f));
     }
 
     private void UpdateToasts()
@@ -471,9 +481,11 @@ public class OnlineMatches : MonoBehaviour
             if (t.Go == null) { toasts.RemoveAt(i); continue; }
             float left = t.Until - now;
             if (left <= 0f) { RemoveToast(t.Go); continue; }
-            // A quick fade in and out: nothing jumps on or off the screen.
+            // Slides in from the right as it fades in, and out the same way: nothing jumps.
             float age = ToastSeconds - left;
-            t.Group.alpha = Mathf.Clamp01(Mathf.Min(age / 0.25f, left / 0.4f));
+            var rt = (RectTransform)t.Go.transform;
+            Vector2 home = new Vector2(OnlineUI.NoticeRight, OnlineUI.NoticeTop - (toasts.Count - 1 - i) * (ToastHeight + 12f));
+            OnlineUI.SlideNotice(rt, t.Group, home, Mathf.Min(age / 0.3f, left / 0.4f));
         }
     }
 

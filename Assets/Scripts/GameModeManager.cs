@@ -478,6 +478,11 @@ public class GameModeManager : MonoBehaviour
     {
         if (playerTf == null) return;
 
+        // The body's own size first: the spawn height below is worked out from it. Done after,
+        // a body coming back from the other side (a hider is half size) was set down several
+        // units too low, half its capsule inside the floor, and dropped through it (2026-11-13).
+        if (playerHomeCaptured) playerTf.localScale = playerHomeScale;
+
         Vector3 position = Vector3.zero;
         Quaternion rotation = Quaternion.identity;
 
@@ -502,11 +507,6 @@ public class GameModeManager : MonoBehaviour
 
         CharacterController cc = playerTf.GetComponent<CharacterController>();
         if (cc != null) cc.enabled = false;
-
-        if (playerHomeCaptured)
-        {
-            playerTf.localScale = playerHomeScale;
-        }
 
         playerTf.SetPositionAndRotation(position, rotation);
 

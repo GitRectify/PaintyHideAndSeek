@@ -148,6 +148,17 @@ public class JoystickMover : MonoBehaviour
             return;
         }
 
+        // An online round before the server has put this player in place (a new match, a rejoin):
+        // the body stays where it was set down, with no gravity, so it cannot drop through a floor
+        // it is not standing on yet. The server's placement comes with its first snapshots.
+        if (OnlineRound.AwaitingPlacement)
+        {
+            _vy = 0f;
+            _moveVel = Vector3.zero;
+            SetSpeed(0f);
+            return;
+        }
+
         // Frozen player: joystick hidden, unless it is flying the free camera; frozen or seeker
         // hide countdown: no movement at all.
         bool frozen = gmm != null && gmm.PlayerFrozen;

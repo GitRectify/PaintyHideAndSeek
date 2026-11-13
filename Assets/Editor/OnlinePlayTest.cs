@@ -128,7 +128,11 @@ public static class OnlinePlayTest
     // -playtestAway: the room list's Back, the round's Shop button and coin balance, the paint panel
     // on top, Exit and Rejoin from the matches list, everyone's results at the end, the Shoot
     // button's countdown. -playtestAwayEnd: Exit, and the match ends while away (notification, results).
-    private static bool AwayTest => System.Environment.GetCommandLineArgs().Contains("-playtestAway");
+    private static bool AwayTest => System.Environment.GetCommandLineArgs().Contains("-playtestAway") || SwitchMapsTest;
+
+    // -playtestSwitchMaps: match A on the first map, Exit; match B on Room2, Exit; REJOIN A. The
+    // player must stand on A's floor where the server has them, and stay there.
+    private static bool SwitchMapsTest => System.Environment.GetCommandLineArgs().Contains("-playtestSwitchMaps");
     private static bool AwayEndTest => System.Environment.GetCommandLineArgs().Contains("-playtestAwayEnd");
     private static bool roomBackChecked, splashAtStart, splashChecked, cooldownSeen;
     private static int awayStage;
@@ -898,20 +902,126 @@ public static class OnlinePlayTest
 
             cam.SetFreeLook(false);
             cam.SetFreeLook(true);
-            typeof(CameraController).GetField("pitch", Any)?.SetValue(cam, cam.GetType().GetField("maxPitch", Any)?.GetValue(cam));   // looking down
+            SetPitch(cam, 80f);          // looking down
+            freeCamPhase = 0;
+            freeCamMinY = float.MaxValue;
+            freeCamMaxY = float.MinValue;
             return false;
         }
 
-        cam.PanFree(Vector2.up, Time.unscaledDeltaTime);     // forward = down, while looking down
-        if (InStep < 4f) return false;
+        // The real joystick flies it (JoystickMover feeds PanFree every frame).
+        float floorY = (float)typeof(CameraController).GetField("_scoutFloorY", Any).GetValue(cam) + cam.scoutFloorMargin;
+        float roofY = (float)typeof(CameraController).GetField("_scoutRoofY", Any).GetValue(cam) - cam.scoutCeilMargin;
+        Vector3 at = cam.FreePosition;
+        freeCamMinY = Mathf.Min(freeCamMinY, at.y);
+        freeCamMaxY = Mathf.Max(freeCamMaxY, at.y);
+        float pitchNow = (float)typeof(CameraController).GetField("pitch", Any).GetValue(cam);
+        Vector3 viewForward = Quaternion.Euler(pitchNow, cam.yaw, 0f) * Vector3.forward;
+        Vector3 levelRight = Quaternion.Euler(0f, cam.yaw, 0f) * Vector3.right;
 
-        float floorSeen = (float)typeof(CameraController).GetField("_scoutFloorY", Any).GetValue(cam);
-        Vector3 pivot = (Vector3)typeof(CameraController).GetField("_freePivot", Any).GetValue(cam);
-        Check(floorSeen < freeCamPerch - 3f && pivot.y < freeCamPerch - 3f,
-              $"the free camera goes down from a high place (perch {freeCamPerch:F1}, floor {freeCamFloor:F1}; it took the floor as {floorSeen:F1} and got down to {pivot.y:F1})");
-        Shot("free_cam_down");
-        cam.SetFreeLook(false);
+        switch (freeCamPhase)
+        {
+            case 0:     // looking down, stick forward: down from the perch to the floor
+                PushStick(Vector2.up);
+                if (InStep < 4f) return false;
+                float floorSeen = (float)typeof(CameraController).GetField("_scoutFloorY", Any).GetValue(cam);
+                Check(floorSeen < freeCamPerch - 3f && at.y < freeCamPerch - 3f,
+                      $"the free camera goes down from a high place (perch {freeCamPerch:F1}, floor {freeCamFloor:F1}; it took the floor as {floorSeen:F1} and got down to {at.y:F1})");
+                Shot("free_cam_down");
+                // Then level, a little above the floor, for the direction checks.
+                SetPitch(cam, 0f);
+                typeof(CameraController).GetField("_freePivot", Any).SetValue(cam, new Vector3(at.x, Mathf.Min(floorY + 8f, roofY - 1f), at.z));
+                PushStick(Vector2.zero);
+                freeCamPhase = 1;
+                freeCamAt = InStep + 0.6f;
+                return false;
+
+            case 1:     // settle, then forward while looking level
+                if (InStep < freeCamAt) return false;
+                freeCamFrom = at;
+                PushStick(Vector2.up);
+                freeCamPhase = 2;
+                freeCamAt = InStep + 1.2f;
+                return false;
+
+            case 2:
+                if (InStep < freeCamAt) return false;
+                {
+                    Vector3 moved = at - freeCamFrom;
+                    Vector3 flatForward = Vector3.ProjectOnPlane(viewForward, Vector3.up).normalized;
+                    Check(moved.magnitude > 5f && Vector3.Dot(moved.normalized, flatForward) > 0.95f && Mathf.Abs(moved.y) < 0.1f * moved.magnitude,
+                          $"looking level, forward flies straight ahead, not up or down ({moved.magnitude:F1} units, {Vector3.Dot(moved.normalized, flatForward):F2} along the view, rise {moved.y:F2})");
+                }
+                PushStick(Vector2.zero);
+                freeCamPhase = 3;
+                freeCamAt = InStep + 0.6f;
+                return false;
+
+            case 3:     // sideways
+                if (InStep < freeCamAt) return false;
+                freeCamFrom = at;
+                PushStick(Vector2.right);
+                freeCamPhase = 4;
+                freeCamAt = InStep + 1.2f;
+                return false;
+
+            case 4:
+                if (InStep < freeCamAt) return false;
+                {
+                    Vector3 moved = at - freeCamFrom;
+                    Check(moved.magnitude > 5f && Vector3.Dot(moved.normalized, levelRight) > 0.95f,
+                          $"right flies sideways to the view ({moved.magnitude:F1} units, {Vector3.Dot(moved.normalized, levelRight):F2} along its right)");
+                }
+                PushStick(Vector2.zero);
+                SetPitch(cam, -40f);     // looking up
+                freeCamPhase = 5;
+                freeCamAt = InStep + 0.6f;
+                return false;
+
+            case 5:
+                if (InStep < freeCamAt) return false;
+                freeCamFrom = at;
+                PushStick(Vector2.up);
+                freeCamPhase = 6;
+                freeCamAt = InStep + 0.8f;
+                return false;
+
+            case 6:
+                if (InStep < freeCamAt) return false;
+                {
+                    Vector3 moved = at - freeCamFrom;
+                    Check(moved.y > 3f && Vector3.Dot(moved.normalized, viewForward) > 0.9f,
+                          $"looking up, forward flies up along the view ({moved.magnitude:F1} units, rise {moved.y:F1}, {Vector3.Dot(moved.normalized, viewForward):F2} along the view)");
+                }
+                freeCamPhase = 7;
+                freeCamAt = InStep + 4f;     // on up, into the roof
+                return false;
+
+            case 7:
+                if (InStep < freeCamAt) return false;
+                PushStick(Vector2.zero);
+                Check(freeCamMinY >= floorY - 0.01f && freeCamMaxY <= roofY + 0.01f && freeCamMaxY > roofY - 1f,
+                      $"and it never leaves the room: between the floor and the roof ({freeCamMinY:F1} to {freeCamMaxY:F1}; allowed {floorY:F1} to {roofY:F1})");
+                Shot("free_cam_up");
+                cam.SetFreeLook(false);
+                return true;
+        }
         return true;
+    }
+
+    private static int freeCamPhase;
+    private static float freeCamAt, freeCamMinY, freeCamMaxY;
+    private static Vector3 freeCamFrom;
+
+    private static void SetPitch(CameraController cam, float degrees) =>
+        typeof(CameraController).GetField("pitch", Any)?.SetValue(cam, degrees);
+
+    // The on-screen joystick held in one direction, as a thumb holds it.
+    private static void PushStick(Vector2 direction)
+    {
+        JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+        Joystick stick = mover != null ? Get<Joystick>(mover, "joystick") : null;
+        if (stick != null) typeof(Joystick).GetField("input", Any).SetValue(stick, direction);
     }
 
     // -playtestAgain: ask for another match after the first (the path every returning player takes).
@@ -1674,6 +1784,21 @@ public static class OnlinePlayTest
                 Check(FindByName("LoadingCanvas") is not { activeInHierarchy: true }, "no loading screen on the way out");
                 Check(FindByName("MatchesChip") is { activeInHierarchy: true } chip && chip.GetComponentInChildren<Text>().text.Contains("in progress"),
                       "a chip says a match is in progress");
+                {
+                    // Notices sit top right, under the coin balance: never the middle of the screen.
+                    var notices = Object.FindObjectsByType<Button>(FindObjectsInactive.Exclude).Where(b => b.name == "Toast").ToList();
+                    bool placed = notices.Count > 0 && notices.All(b =>
+                    {
+                        // In the canvas's own space (in batch mode Screen is not the picture's size).
+                        var canvasRect = (RectTransform)b.GetComponentInParent<Canvas>().rootCanvas.transform;
+                        var corners = new Vector3[4];
+                        ((RectTransform)b.transform).GetWorldCorners(corners);
+                        Vector3 low = canvasRect.InverseTransformPoint(corners[0]);
+                        Rect r = canvasRect.rect;
+                        return low.x > r.center.x && low.y > r.center.y + r.height * 0.05f;
+                    });
+                    Check(placed, $"its notice is in the top-right corner, clear of the middle ({notices.Count} shown)");
+                }
                 Shot("away_rooms");
                 if (AwayEndTest)
                 {
@@ -1681,11 +1806,161 @@ public static class OnlinePlayTest
                     awayStage = 20;
                     return;
                 }
+                if (SwitchMapsTest)
+                {
+                    awayStage = 30;
+                    awayAt = now + 0.5f;
+                    return;
+                }
                 OnlineMatches.ShowList();
                 awayAt = now + 1.5f;
                 awayStage = 5;
                 return;
 
+            // ---- -playtestSwitchMaps ----
+            case 30:    // match B: Practice, on another map (and with -playtestSwitchSides the other side)
+                if (now < awayAt) return;
+                if (System.Environment.GetCommandLineArgs().Contains("-playtestSwitchSides"))
+                {
+                    OnlineLobby lobby = Object.FindAnyObjectByType<OnlineLobby>();
+                    typeof(OnlineLobby).GetField("role", Any).SetValue(lobby, Seeker ? RolePreference.Hider : RolePreference.Seeker);
+                    report.Add($"INFO  the second match is played on the other side ({(Seeker ? "hider" : "seeker")})");
+                }
+                {
+                    Button practice = FindButton("RoomScreen", "Practice");
+                    Check(practice != null, "the room list offers Practice for a second match");
+                    practice?.onClick.Invoke();
+                }
+                awayAt = now + 1f;
+                awayStage = 31;
+                return;
+
+            case 31:
+                if (now < awayAt) return;
+                {
+                    MapSelectPopup popup = MapSelectPopup.Instance;
+                    if (popup == null || !popup.Ready) { Check(false, "the map picker opens for the second match"); Go(Step.Done); return; }
+                    popup.SelectMap(SwitchMapB);
+                    popup.Confirm();
+                }
+                awayAt = now + 40f;
+                awayStage = 32;
+                return;
+
+            case 32:    // in match B
+                {
+                    OnlineRound roundB = OnlineRoundInstance();
+                    int idB = OnlineRound.Active ? (int)typeof(OnlineRound).GetField("matchId", Any).GetValue(roundB) : -1;
+                    if (!OnlineRound.Active || idB == awayMatch || roundB == null || !roundB.IsSettled)
+                    {
+                        if (now < awayAt) return;
+                        Check(false, $"a second match starts on another map (active {OnlineRound.Active}, id {idB})");
+                        Go(Step.Done);
+                        return;
+                    }
+                    switchMatchB = idB;
+                    string roomB = LevelManager.Instance.RoomNameAt(SwitchMapB);
+                    Check(LevelManager.Instance.CurrentRoomName == roomB, $"the second match ({idB}) is on {roomB} ({LevelManager.Instance.CurrentRoomName})");
+                }
+                awayAt = now + 5f;
+                awayStage = 33;
+                return;
+
+            case 33:    // a few seconds walking in B, then Exit
+                if (now < awayAt)
+                {
+                    DriveJoystick(true);
+                    return;
+                }
+                DriveJoystick(false);
+                TapAt(FindByName("ExitMatch")?.GetComponent<Button>());
+                awayAt = now + 0.6f;
+                awayStage = 34;
+                return;
+
+            case 34:
+                if (now < awayAt) return;
+                FindButton("ExitMatchConfirm", "LEAVE")?.onClick.Invoke();
+                awayAt = now + 3f;
+                awayStage = 35;
+                return;
+
+            case 35:    // both listed; REJOIN the first
+                if (now < awayAt) return;
+                {
+                    Check(!OnlineRound.Active && Net.MyMatches.Count(m => m.State == MyMatchState.Away) >= 2,
+                          $"both matches go on and are listed ({string.Join(", ", Net.MyMatches.Select(m => m.MatchId + ":" + m.State + ":" + m.Map))})");
+                    OnlineMatches.ShowList();
+                }
+                awayAt = now + 1.5f;
+                awayStage = 36;
+                return;
+
+            case 36:
+                if (now < awayAt) return;
+                {
+                    Transform row = FindByName("MyMatchesScreen")?.GetComponentsInChildren<Transform>(false).FirstOrDefault(t => t.name == "Match_" + awayMatch);
+                    Button rejoinA = row != null ? row.GetComponentsInChildren<Button>(false).FirstOrDefault(b => b.name == "Rejoin") : null;
+                    Check(rejoinA != null, $"the first match ({awayMatch}) can be rejoined from the list");
+                    if (rejoinA == null) { Go(Step.Done); return; }
+                    rejoinA.onClick.Invoke();
+                    rejoinWatchFrom = now;
+                    rejoinCoveredAtTap = FindByName("LoadingCanvas") is { activeInHierarchy: true };
+                }
+                awayAt = now + 20f;
+                awayStage = 37;
+                return;
+
+            case 37:    // back in A, settled
+                {
+                    OnlineRound roundA = OnlineRoundInstance();
+                    int idA = OnlineRound.Active ? (int)typeof(OnlineRound).GetField("matchId", Any).GetValue(roundA) : -1;
+                    if (idA != awayMatch || !roundA.IsSettled)
+                    {
+                        if (now < awayAt) return;
+                        Check(false, $"the first match comes back ({idA})");
+                        Go(Step.Done);
+                        return;
+                    }
+                    string roomA = LevelManager.Instance.RoomNameAt(MapIndex);
+                    Check(LevelManager.Instance.CurrentRoomName == roomA, $"the first match is on its own map again ({LevelManager.Instance.CurrentRoomName}, expected {roomA})");
+                    switchRescuesBefore = FallGuard.Rescues;
+                    switchLowest = float.MaxValue;
+                    switchUnderFloor = 0;
+                    switchSamples = 0;
+                }
+                awayAt = now + 6f;
+                awayStage = 38;
+                return;
+
+            case 38:    // six seconds standing in A: on its floor, never falling through
+                {
+                    NetEntityView local = NetEntityRegistry.Get(Net.LocalSlot);
+                    Transform body = PlayerRef.Active;
+                    if (local != null && body != null)
+                    {
+                        Vector3 feet = local.FeetPosition;
+                        switchSamples++;
+                        switchLowest = Mathf.Min(switchLowest, feet.y);
+                        bool floorUnder = Physics.Raycast(feet + Vector3.up * 1.5f, Vector3.down, out RaycastHit hit, 4f, ~0, QueryTriggerInteraction.Ignore)
+                                          && hit.collider.GetComponentInParent<Animator>() == null;
+                        if (!floorUnder) switchUnderFloor++;
+                        if (switchSamples == 1 || switchSamples % 600 == 0)
+                            report.Add($"INFO  rejoined A: feet {feet}, server {local.LastServerFeet}, floor under {floorUnder}{(floorUnder ? " at " + hit.point.y.ToString("F1") : "")}, placements {Net.PositionPlacements}, scale {body.localScale.y:F2}");
+                    }
+                    if (now < awayAt) return;
+                    Check(FallGuard.Rescues == switchRescuesBefore && switchUnderFloor == 0,
+                          $"after switching maps and rejoining, the player stays on the floor ({switchUnderFloor} of {switchSamples} samples without floor under the feet, lowest feet {switchLowest:F1}, {FallGuard.Rescues - switchRescuesBefore} falls caught)");
+                    Shot("rejoined_first");
+                }
+                // The round was begun again: other bodies are new objects.
+                proneBody = null;
+                hostedSeeker = null;
+                bodyViews = null;
+                if (!bodiesChecked) bodyStage = 0;
+                awayStage = 9;
+                Go(Step.Round);
+                return;
             case 5:
                 if (now < awayAt) return;
                 Button rejoin = FindByName("MyMatchesScreen")?.GetComponentsInChildren<Button>(false).FirstOrDefault(b => b.name == "Rejoin");
@@ -3334,6 +3609,9 @@ public static class OnlinePlayTest
 
     // ================= Rejoin: never the wrong scene =================
 
+    private static int switchMatchB = -1, switchRescuesBefore, switchUnderFloor, switchSamples;
+    private static int SwitchMapB => MapIndex == 1 ? 2 : 1;      // always another map than the first match's
+    private static float switchLowest;
     private static float rejoinWatchFrom = -1f;
     private static bool rejoinCoveredAtTap;
     private static int rejoinExposedFrames, rejoinWatchFrames;
@@ -3483,6 +3761,15 @@ public static class OnlinePlayTest
                     if (!confirmed && now - purchaseTappedAt < 3f) return;
                     Check(confirmed && now - purchaseTappedAt < 1.5f, $"the purchase says so at once ('{toast}' after {(now - purchaseTappedAt) * 1000f:F0} ms)");
                     Image banner = Get<Image>(ShopScreen, "toastBackground");
+                    if (banner != null && FindByName("Grid") is GameObject grid)
+                    {
+                        var bannerCorners = new Vector3[4];
+                        var gridCorners = new Vector3[4];
+                        ((RectTransform)banner.transform).GetWorldCorners(bannerCorners);
+                        ((RectTransform)grid.transform).GetWorldCorners(gridCorners);
+                        Check(bannerCorners[0].y >= gridCorners[1].y - 2f,
+                              $"in the shop's header, above the cards (banner bottom {bannerCorners[0].y:F0}, cards top {gridCorners[1].y:F0})");
+                    }
                     Check(banner != null && banner.color.a > 0.9f && banner.color.g > banner.color.r && banner.transform.GetSiblingIndex() == banner.transform.parent.childCount - 1,
                           $"as an opaque green banner over the cards ({(banner != null ? banner.color.ToString() : "none")})");
                     ShopItemCard card = CardFor(purchaseCard);
