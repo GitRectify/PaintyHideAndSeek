@@ -248,22 +248,20 @@ public class HomeUI : MonoBehaviour
     // if it's null by then - the natural NRE on popup.Show reproduces that.
     private void AfterSelectPlayer(int mode)
     {
-        // Confirmation must close the player picker before loading / map selection.
+        // Confirmation must close the player picker before map selection. No loading screen here
+        // (2026-11-13): it shows only at launch and between matchmaking and the match.
         SetSelectPlayer(false);
         SetRoleSelect(false);
         SetHome(false);
 
-        LoadingScreen.Run(() =>
+        MapSelectPopup popup = MapSelectPopup.Instance;
+        if (popup != null && popup.Ready)
         {
-            MapSelectPopup popup = MapSelectPopup.Instance;
-            if (popup != null && popup.Ready)
-            {
-                popup.Show(() => RunMatch(mode), () => BackToSelectPlayer(mode));
-                return;
-            }
+            popup.Show(() => RunMatch(mode), () => BackToSelectPlayer(mode));
+            return;
+        }
 
-            RunMatch(mode);
-        });
+        RunMatch(mode);
     }
 
     // RoleSelectCanvas buttons: Hider = 2, Seeker = 1.
@@ -352,18 +350,16 @@ public class HomeUI : MonoBehaviour
         SetRoleSelect(false);
         SetHome(false);
 
-        LoadingScreen.Run(() =>
+        // Straight to matchmaking; the loading screen comes between it and the match.
+        if (matchmaking == null)
         {
-            if (matchmaking == null)
-            {
-                LoadingScreen.Run(() => StartMode(mode));
-                return;
-            }
+            LoadingScreen.Run(() => StartMode(mode));
+            return;
+        }
 
-            matchmaking.Begin(mode == 1, () =>
-            {
-                LoadingScreen.Run(() => StartMode(mode));
-            });
+        matchmaking.Begin(mode == 1, () =>
+        {
+            LoadingScreen.Run(() => StartMode(mode));
         });
     }
 

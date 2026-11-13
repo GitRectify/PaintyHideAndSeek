@@ -106,7 +106,7 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited, Away }
 
     // -playtestNext: the result's Next. -playtestExit: the round's Exit, Stay, then Leave.
     // -playtestReady: two hiders see each other press Start.
@@ -115,6 +115,16 @@ public static class OnlinePlayTest
     private static bool ReadyTest => System.Environment.GetCommandLineArgs().Contains("-playtestReady");
     private static int matchesAtNext;
     private static bool modeBackDone, modeBackChecked;
+
+    // -playtestAway: the room list's Back, the round's Shop button and coin balance, the paint panel
+    // on top, Exit and Rejoin from the matches list, everyone's results at the end, the Shoot
+    // button's countdown. -playtestAwayEnd: Exit, and the match ends while away (notification, results).
+    private static bool AwayTest => System.Environment.GetCommandLineArgs().Contains("-playtestAway");
+    private static bool AwayEndTest => System.Environment.GetCommandLineArgs().Contains("-playtestAwayEnd");
+    private static bool roomBackChecked, splashAtStart, splashChecked, cooldownSeen;
+    private static int awayStage;
+    private static float awayAt;
+    private static int awayMatch = -1;
 
     // -playtestStandard: the paid room (20 coins, real players only). -playtestLobbyMark <file>:
     // written once this game sits in a lobby, so a runner can send the other players in after it.
@@ -394,6 +404,18 @@ public static class OnlinePlayTest
                     Check(poseAnim != null && poseAnim.transform.IsChildOf(body), "the pose picker drives the new body's animator");
                 }
                 Check(FindButton("RoomScreen", "HISTORY") != null, "room screen has the HISTORY button");
+                if ((AwayTest || AwayEndTest) && !roomBackChecked)
+                {
+                    // BACK is the screen before: the character choice, then Play comes back here.
+                    roomBackChecked = true;
+                    FindButton("RoomScreen", "BACK")?.onClick.Invoke();
+                    Check(FindByName("SelectPlayerCanvas") is { activeInHierarchy: true } && FindByName("RoomScreen") is not { activeInHierarchy: true },
+                          "the room list's BACK goes to the character screen");
+                    SelectPlayerUI.Instance.Confirm();
+                    Check(FindButton("RoomScreen", "Practice") != null && FindButton("RoomScreen", "MATCHES") != null && FindButton("RoomScreen", "SHOP") != null,
+                          "and Play there comes back to the room list (with MATCHES and SHOP)");
+                    return;
+                }
                 if (Standard)
                 {
                     // The paid room: open now, real players only, its entry confirmed before the search.
@@ -447,6 +469,12 @@ public static class OnlinePlayTest
 
             case Step.Match:
                 if (!lobbyLaidOut) { lobbyLaidOut = true; CheckLobbyLayout(); }
+                if (OnlineRound.Active && !splashChecked)
+                {
+                    splashChecked = true;
+                    splashAtStart = FindByName("LoadingCanvas") is { activeInHierarchy: true };
+                    Check(splashAtStart, "the loading screen shows between the lobby and the match");
+                }
                 if (!OnlineRound.Active && Net.LocalSlot != 0xFF && Net.MatchSeats > 0)
                 {
                     if (!lobbyMarked && !string.IsNullOrEmpty(LobbyMark)) { lobbyMarked = true; File.WriteAllText(LobbyMark, "lobby"); }
@@ -495,6 +523,7 @@ public static class OnlinePlayTest
                 bool shown = round != null && (bool)typeof(OnlineRound).GetField("resultShown", Any).GetValue(round);
                 bool hasPopup = typeof(OnlineRound).GetField("results", Any).GetValue(round) != null;
                 Check(shown && hasPopup, "Single Play's result popup (HideModeResultUI) shows the online result");
+                if (AwayTest) CheckResultsScreen("at the end the results screen shows");
                 if (NextTest)
                 {
                     // Next is the room list now, not the same room again.
@@ -510,6 +539,10 @@ public static class OnlinePlayTest
             case Step.Exited:
                 if (InStep < 1f) return;
                 Go(Step.Done);
+                return;
+
+            case Step.Away:
+                PlayAway();
                 return;
 
             case Step.NextRooms:
@@ -877,7 +910,12 @@ public static class OnlinePlayTest
             }
         }
 
-        if (hiderBotsMeasured) return;
+        if (!hiderBotsMeasured) MeasureHiderBots();
+    }
+
+    // Where Single Play's hide logic put the hider bots this game runs, and whether they took on paint.
+    private static void MeasureHiderBots()
+    {
         hiderBotsMeasured = true;
 
         GameObject room = Object.FindAnyObjectByType<LevelManager>().CurrentRoomInstance;
@@ -1368,6 +1406,182 @@ public static class OnlinePlayTest
         }
     }
 
+    // ================= Away: Exit, the matches list, Rejoin, results =================
+
+    private static void CheckAway()
+    {
+        if (!(AwayTest || AwayEndTest) || awayStage >= 9) return;
+        float now = Time.realtimeSinceStartup;
+        OnlineRound round = OnlineRoundInstance();
+
+        switch (awayStage)
+        {
+            case 0:     // a few seconds into the hide: the HUD's Shop and coin balance
+                if (Net.Phase != MatchPhase.Hide) return;
+                if (awayAt == 0f) { awayAt = now + 3f; return; }
+                if (now < awayAt) return;
+                awayMatch = (int)typeof(OnlineRound).GetField("matchId", Any).GetValue(round);
+                Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } pill && pill.GetComponentInChildren<Text>().text.StartsWith("Coins: "),
+                      "the coin balance shows in the round (top right)");
+                Button shop = FindByName("Btn_Shop")?.GetComponent<Button>();
+                Check(shop != null && shop.GetComponentsInChildren<Text>(true).Any(t => t.text == "SHOP"), "the HUD's Ad button is now SHOP");
+                Shot("hud_shop");
+                if (shop != null) TapAt(shop);
+                awayAt = now + 1.5f;
+                awayStage = 1;
+                return;
+
+            case 1:
+                if (now < awayAt) return;
+                ShopUI shopUi = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+                Canvas shopCanvas = shopUi != null ? shopUi.GetComponentInParent<Canvas>(true) : null;
+                Check(shopUi != null && shopUi.gameObject.activeInHierarchy && shopCanvas != null && shopCanvas.sortingOrder > 39,
+                      $"it opens the shop over the round (canvas order {(shopCanvas != null ? shopCanvas.sortingOrder : -1)})");
+                Shot("shop_in_round");
+                shopUi?.Close();
+                Check(FindByName("HomeCanvas") is not { activeInHierarchy: true } && OnlineRound.Active, "closing it goes back to the round, not Home");
+
+                // The paint panel above the round's Exit, ready list and notifications.
+                ChameleonPaint paint = Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include);
+                if (!Seeker && paint != null)
+                {
+                    paint.OpenDrawing();
+                    Canvas panel = FindByName("PickerPanel")?.GetComponent<Canvas>();
+                    Canvas roundCanvas = FindByName("OnlineRoundCanvas")?.GetComponent<Canvas>();
+                    Canvas overlay = FindByName("OnlineMatchesOverlay")?.GetComponent<Canvas>();
+                    Check(panel != null && roundCanvas != null && overlay != null && panel.sortingOrder > roundCanvas.sortingOrder && panel.sortingOrder > overlay.sortingOrder,
+                          $"the paint panel draws above the round's buttons and notifications ({(panel != null ? panel.sortingOrder : -1)} over {(roundCanvas != null ? roundCanvas.sortingOrder : -1)}, {(overlay != null ? overlay.sortingOrder : -1)})");
+                    awayAt = now + 1f;      // the panel slides in: shoot it once it is in place
+                    awayStage = 7;      // below 9: CheckAway stops at 9
+                    return;
+                }
+                awayAt = now + 1f;
+                awayStage = 2;
+                return;
+
+            case 7:
+                if (now < awayAt) return;
+                Shot("paint_on_top");
+                Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include)?.CloseDrawingNow();
+                awayAt = now + 1f;
+                awayStage = 2;
+                return;
+
+            case 2:     // Exit: the match goes on, the seat is kept
+                if (now < awayAt) return;
+                // Hider bots already placed need no host, so they are not this game's to run after it
+                // comes back: they are looked at before it leaves.
+                if (!hiderBotsMeasured && Object.FindAnyObjectByType<BotHideController>() is { OnlineHidingDone: true }) MeasureHiderBots();
+                TapAt(FindByName("ExitMatch")?.GetComponent<Button>());
+                awayAt = now + 0.5f;
+                awayStage = 3;
+                return;
+
+            case 3:
+                if (now < awayAt) return;
+                FindButton("ExitMatchConfirm", "LEAVE")?.onClick.Invoke();
+                awayAt = now + 3f;
+                awayStage = 4;
+                Go(Step.Away);
+                return;
+        }
+    }
+
+    // The rest happens off the round (Step.Away): the list, rejoining, or the match ending meanwhile.
+    private static void PlayAway()
+    {
+        float now = Time.realtimeSinceStartup;
+        switch (awayStage)
+        {
+            case 4:
+                if (now < awayAt) return;
+                MyMatchEntry kept = Net.MyMatches.FirstOrDefault(m => m.MatchId == (uint)awayMatch);
+                Check(!OnlineRound.Active && FindByName("RoomScreen") is { activeInHierarchy: true } && kept.State == MyMatchState.Away && kept.SecondsLeft > 0,
+                      $"after Exit the match goes on and is listed as in progress ({kept.State}, {kept.Phase}, {kept.SecondsLeft} s left)");
+                Check(FindByName("LoadingCanvas") is not { activeInHierarchy: true }, "no loading screen on the way out");
+                Check(FindByName("MatchesChip") is { activeInHierarchy: true } chip && chip.GetComponentInChildren<Text>().text.Contains("in progress"),
+                      "a chip says a match is in progress");
+                Shot("away_rooms");
+                if (AwayEndTest)
+                {
+                    awayAt = now + 120f;
+                    awayStage = 20;
+                    return;
+                }
+                OnlineMatches.ShowList();
+                awayAt = now + 1.5f;
+                awayStage = 5;
+                return;
+
+            case 5:
+                if (now < awayAt) return;
+                Button rejoin = FindByName("MyMatchesScreen")?.GetComponentsInChildren<Button>(false).FirstOrDefault(b => b.name == "Rejoin");
+                Check(rejoin != null, "the matches list has the match, with REJOIN");
+                Shot("my_matches");
+                rejoin?.onClick.Invoke();
+                awayAt = now + 4f;
+                awayStage = 6;
+                return;
+
+            case 6:
+                if (now < awayAt) return;
+                int matchNow = OnlineRound.Active ? (int)typeof(OnlineRound).GetField("matchId", Any).GetValue(OnlineRoundInstance()) : -1;
+                Check(OnlineRound.Active && matchNow == awayMatch, $"REJOIN puts the player back in that match ({matchNow})");
+                // The round was begun again: other bodies are new objects.
+                proneBody = null;
+                hostedSeeker = null;
+                bodyViews = null;
+                if (!bodiesChecked) bodyStage = 0;      // a body check under way starts over on the new bodies
+                awayStage = 9;
+                Go(Step.Round);
+                return;
+
+            case 20:    // away until the match ends: a notification, then its results
+                GameObject toast = Object.FindObjectsByType<Button>().Select(b => b.gameObject)
+                    .FirstOrDefault(g => g.name == "Toast" && g.GetComponentInChildren<Text>().text.Contains("ended"));
+                if (toast == null)
+                {
+                    if (now < awayAt) return;
+                    Check(false, "a notification says the match ended while away");
+                    Go(Step.Done);
+                    return;
+                }
+                Check(true, $"a notification says the match ended while away ('{toast.GetComponentInChildren<Text>().text}')");
+                Shot("ended_toast");
+                toast.GetComponent<Button>().onClick.Invoke();
+                awayAt = now + 3f;
+                awayStage = 21;
+                return;
+
+            case 21:
+                if (now < awayAt) return;
+                CheckResultsScreen("tapping it opens the full results");
+                awayStage = 9;
+                Go(Step.Done);
+                return;
+        }
+    }
+
+    private static void CheckResultsScreen(string what)
+    {
+        GameObject screen = FindByName("MatchResultsScreen");
+        int rows = screen != null ? screen.GetComponentsInChildren<Text>(true).Count(t => t.text.StartsWith("#")) : 0;
+        Check(screen != null && screen.activeInHierarchy && rows >= 8, $"{what}: every player's rank, score and coins ({rows} ranked rows)");
+        Shot("results_" + (AwayEndTest ? "away" : "end"));
+    }
+
+    // A seeker's shot: the seconds to the next one count down on the Shoot button.
+    private static void CheckFireCooldown()
+    {
+        if (!(AwayTest || AwayEndTest) || !Seeker || cooldownSeen || Net.Phase != MatchPhase.Seek) return;
+        Text count = FindByName("CooldownText")?.GetComponent<Text>();
+        if (count == null || !count.gameObject.activeInHierarchy) return;
+        if (!float.TryParse(count.text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float left)) return;
+        cooldownSeen = true;
+        Check(left > 0f && left <= 3.05f, $"after a shot the Shoot button counts down the cooldown ({count.text})");
+        Shot("cooldown");
+    }
+
     // ================= The hiders' ready list =================
 
     private static int readyStage;
@@ -1551,6 +1765,8 @@ public static class OnlinePlayTest
         CheckFreeLookWhenOut();
         CheckNextPlayer();
         CheckExit();
+        CheckAway();
+        CheckFireCooldown();
         if (step != Step.Round) return;   // Exit left the match
         CheckReadyList();
         CheckBodies();
@@ -2828,7 +3044,8 @@ public static class OnlinePlayTest
     private static void CheckRound()
     {
         DriveJoystick(false);
-        Check(animRestarts == 0, $"no animation started over on any body ({animRestarts}{(animNotes.Count > 0 ? ": " + string.Join("; ", animNotes) : "")})");
+        if (AwayTest || AwayEndTest) report.Add($"INFO  animations restarted {animRestarts} times (the round was begun again on Rejoin)");
+        else Check(animRestarts == 0, $"no animation started over on any body ({animRestarts}{(animNotes.Count > 0 ? ": " + string.Join("; ", animNotes) : "")})");
         report.Add($"INFO  bodies that went back to a state within 0.3 s: {animBounces}, over {animTracks.Count} bodies");
         if (switchStage < 4) report.Add("INFO  the animation switching check did not finish");
         CheckOwnFalls();

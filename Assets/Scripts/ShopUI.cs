@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -99,11 +100,35 @@ public class ShopUI : MonoBehaviour
             : null;
     }
 
-    public void Open()
+    private bool _homeWasShown;
+    private Action _onClosed;
+    private Canvas _canvas;
+    private bool _canvasOverride;
+    private int _canvasOrder;
+
+    public void Open() => OpenFrom(null);
+
+    /// <summary>
+    /// Opens the shop over whatever is on screen (Home, the rooms, a round's HUD), above it all but
+    /// the paint panel; Close puts back exactly what was there and calls <paramref name="onClosed"/>.
+    /// </summary>
+    public void OpenFrom(Action onClosed)
     {
         AudioManager.ButtonTap();
+        _onClosed = onClosed;
+        _homeWasShown = homeCanvas != null && homeCanvas.activeSelf;
         if (homeCanvas != null) homeCanvas.SetActive(false);
-        (root != null ? root : gameObject).SetActive(true);
+        GameObject shown = root != null ? root : gameObject;
+        shown.SetActive(true);
+
+        _canvas = shown.GetComponent<Canvas>();
+        if (_canvas != null)
+        {
+            _canvasOverride = _canvas.overrideSorting;
+            _canvasOrder = _canvas.sortingOrder;
+            if (!_canvas.isRootCanvas) _canvas.overrideSorting = true;
+            _canvas.sortingOrder = 58;
+        }
 
         // Prices, ownership and the balance as the server has them now.
         ShopInventory.Refresh(error =>
@@ -116,7 +141,17 @@ public class ShopUI : MonoBehaviour
     {
         AudioManager.ButtonTap();
         (root != null ? root : gameObject).SetActive(false);
-        if (homeCanvas != null) homeCanvas.SetActive(true);
+        if (_canvas != null)
+        {
+            _canvas.sortingOrder = _canvasOrder;
+            if (!_canvas.isRootCanvas) _canvas.overrideSorting = _canvasOverride;
+        }
+
+        // Back to what was there: Home only if it was showing (not over a round, not the rooms).
+        if (homeCanvas != null && _homeWasShown) homeCanvas.SetActive(true);
+        Action closed = _onClosed;
+        _onClosed = null;
+        closed?.Invoke();
     }
 
     public void SelectTab(int index)

@@ -373,3 +373,37 @@ Ready to start: {0}/{1}	准备开始：{0}/{1}	Готовы к началу: {0}
 Special bullet {0}: {1} left	特殊子弹 {0}：剩余 {1}	Особая пуля {0}: осталось {1}
 Tap to switch	点击切换	Нажмите, чтобы сменить
 Switch bullet	切换子弹	Сменить пулю
+NEXT	下一局	ДАЛЕЕ
+HOME	主页	ДОМОЙ
+SHOP	商店	МАГАЗИН
+MATCHES	比赛	МАТЧИ
+Hiders	躲藏者	Прячущиеся
+Seekers	寻找者	Искатели
+Score	得分	Очки
+Side	阵营	Сторона
+Hiding	躲藏中	Прячутся
+Seeking	搜寻中	Поиск
+Starting	即将开始	Начинается
+RESULTS	结果	ИТОГИ
+Match results	比赛结果	Итоги матча
+Your matches	你的比赛	Ваши матчи
+No matches in progress	没有进行中的比赛	Нет идущих матчей
+A match you left goes on without you: rejoin it while it runs.	你离开的比赛会继续进行：在比赛结束前可以重新加入。	Матч, который вы покинули, идёт без вас: вернитесь, пока он не закончился.
+You have a match in progress. Tap to rejoin it.	你有一场进行中的比赛。点击重新加入。	У вас идёт матч. Нажмите, чтобы вернуться.
+You have {0} matches in progress. Tap to see them.	你有 {0} 场进行中的比赛。点击查看。	У вас идёт матчей: {0}. Нажмите, чтобы посмотреть.
+1 match in progress: VIEW	1 场比赛进行中：查看	1 матч идёт: СМОТРЕТЬ
+{0} matches in progress: VIEW	{0} 场比赛进行中：查看	Идёт матчей: {0}: СМОТРЕТЬ
+Your match in {0} ended: you won.	你在 {0} 的比赛已结束：你赢了。	Ваш матч в {0} закончился: вы победили.
+Your match in {0} ended: you lost.	你在 {0} 的比赛已结束：你输了。	Ваш матч в {0} закончился: вы проиграли.
+Tap for the results.	点击查看结果。	Нажмите, чтобы увидеть итоги.
+Ended: you won	已结束：你赢了	Закончен: вы победили
+Ended: you lost	已结束：你输了	Закончен: вы проиграли
+In progress: {0}, {1} left	进行中：{0}，剩余 {1}	Идёт: {0}, осталось {1}
+Hiders win	躲藏者获胜	Победа прячущихся
+Seekers win	寻找者获胜	Победа искателей
+No winner	没有胜者	Без победителя
+{0} pts	{0} 分	{0} очк.
+Coins: {0}	金币：{0}	Монеты: {0}
+That match has already ended. Its result is in your matches.	那场比赛已经结束。结果在你的比赛列表中。	Этот матч уже закончился. Итог — в ваших матчах.
+The match goes on without you and your place is kept: rejoin it from your matches while it runs.	比赛会在没有你的情况下继续，你的位置会被保留：比赛结束前可从你的比赛列表重新加入。	Матч продолжится без вас, ваше место сохранится: вернитесь в него из ваших матчей, пока он идёт.
+You go back to the room list.	你将回到房间列表。	Вы вернётесь к списку комнат.

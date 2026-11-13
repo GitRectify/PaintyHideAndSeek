@@ -79,6 +79,46 @@ public class OnlineLobby : MonoBehaviour
     }
 
     /// <summary>
+    /// Back into one of the player's matches in progress (OnlineMatches' list): signs in if need
+    /// be, leaves the round on screen (the server keeps that seat too) and asks for the seat.
+    /// MatchFound then brings the round back as after a reconnect.
+    /// </summary>
+    public static void RejoinMatch(uint matchId)
+    {
+        OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
+        if (lobby == null) lobby = new GameObject("OnlineLobby").AddComponent<OnlineLobby>();
+        lobby.StartRejoinTo(matchId);
+    }
+
+    private void StartRejoinTo(uint matchId)
+    {
+        if (OnlineRound.Active) round.End();
+        flowVersion++;
+        onClosed = null;
+        pendingLobby = null;
+
+        NetBootstrap.Ensure();
+        Hook();
+        step = Step.Rejoin;
+        rejoinDeadline = 0f;
+        HideScreens();
+        if (matchmaking != null) matchmaking.EndOnline();
+        if (home != null) home.GoHome();
+
+        int version = flowVersion;
+        OnlineSignIn.Open(signedIn =>
+        {
+            profile = signedIn;
+            if (version != flowVersion || step != Step.Rejoin) return;
+            rejoinDeadline = Time.unscaledTime + 8f;
+            Net.RejoinMatch(matchId);
+        }, () =>
+        {
+            if (version == flowVersion && step == Step.Rejoin) GoHome();
+        });
+    }
+
+    /// <summary>
     /// Called once when Home first shows: if an online round was running moments ago (the app was
     /// closed or crashed), asks whether to rejoin it while the server still holds the seat.
     /// </summary>
@@ -563,11 +603,26 @@ public class OnlineLobby : MonoBehaviour
         AudioManager.ButtonTap();
         Net.LeaveMatch();
         if (matchmaking != null) matchmaking.EndOnline();
-        ShowRoomScreen(null);
+
+        // Back where the search started: the map picker, Play there searches (and rejoins this
+        // lobby while it has a seat) again. A paid room goes back to the rooms, so its entry is
+        // confirmed again before it is paid again.
+        if (room.EntryCents == 0 && string.IsNullOrEmpty(room.Map) && MapSelectPopup.Instance is { Ready: true } &&
+            LevelManager.Instance != null && ServerHasAnyMapOf(LevelManager.Instance))
+            PickMap();
+        else
+            ShowRoomScreen(null);
     }
 
     private void HandleFindMatchFailed(FindMatchError error)
     {
+        if (step == Step.Rejoin && error == FindMatchError.MatchEnded)
+        {
+            rejoinDeadline = 0f;
+            EndWithNotice("That match has already ended. Its result is in your matches.");
+            return;
+        }
+
         if (step != Step.Searching && step != Step.Lobby) return;
 
         // A held seat was restored on sign-in before this request landed: MatchFound follows.
@@ -688,6 +743,7 @@ public class OnlineLobby : MonoBehaviour
             pendingLobby = null;
         }
 
+        bool fromLobby = step == Step.Lobby || step == Step.Searching;
         step = Step.Match;
         HideScreens();
         if (matchmaking != null) matchmaking.EndOnline();
@@ -696,6 +752,9 @@ public class OnlineLobby : MonoBehaviour
         // Sent on every MatchStart: a reconnect during the ready gate gets MatchStart again and
         // must answer again. The room is loaded synchronously by Begin, so it is ready by now.
         Net.SendPlayerReady();
+
+        // The loading screen, between the lobby and the match (2026-11-13: there and at launch only).
+        if (fromLobby) LoadingScreen.Run(() => { });
     }
 
     /// <summary>The result popup's Home, or leaving mid-round (OnlineRound confirms first).</summary>
@@ -741,6 +800,27 @@ public class OnlineLobby : MonoBehaviour
         });
     }
 
+    // The room screen's BACK: the character screen, as it was (the side stays chosen).
+    private void BackToCharacters()
+    {
+        AudioManager.ButtonTap();
+        HideScreens();
+        PickRole(role);
+    }
+
+    // The shop, from the rooms: the room screen comes back when it closes.
+    private void ShowShop()
+    {
+        ShopUI shop = FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+        if (shop == null) return;
+        int version = flowVersion;
+        roomScreen.SetActive(false);
+        shop.OpenFrom(() =>
+        {
+            if (version == flowVersion && step == Step.Room) roomScreen.SetActive(true);
+        });
+    }
+
     // Deposits, withdrawals and the coin ledger (OnlineWallet), over the room screen.
     private void ShowWallet()
     {
@@ -773,9 +853,12 @@ public class OnlineLobby : MonoBehaviour
         OnlineUI.Place(roomList, Vector2.zero, new Vector2(1000f, 600f));
         roomError = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -260f), new Vector2(980f, 70f));
         roomError.color = OnlineUI.Warning;
-        OnlineUI.NewButton(p, "BACK", new Vector2(-330f, -345f), new Vector2(300f, 80f), OnlineUI.Gray, ShowRoleScreen);
-        OnlineUI.NewButton(p, "WALLET", new Vector2(0f, -345f), new Vector2(300f, 80f), OnlineUI.Green, ShowWallet);
-        OnlineUI.NewButton(p, "HISTORY", new Vector2(330f, -345f), new Vector2(300f, 80f), OnlineUI.Blue, ShowHistory);
+        // Back is the screen before this one: the character choice.
+        OnlineUI.NewButton(p, "BACK", new Vector2(-416f, -345f), new Vector2(196f, 80f), OnlineUI.Gray, BackToCharacters);
+        OnlineUI.NewButton(p, "MATCHES", new Vector2(-208f, -345f), new Vector2(196f, 80f), new Color(0.85f, 0.52f, 0.12f, 0.97f), OnlineMatches.ShowList);
+        OnlineUI.NewButton(p, "WALLET", new Vector2(0f, -345f), new Vector2(196f, 80f), OnlineUI.Green, ShowWallet);
+        OnlineUI.NewButton(p, "HISTORY", new Vector2(208f, -345f), new Vector2(196f, 80f), OnlineUI.Blue, ShowHistory);
+        OnlineUI.NewButton(p, "SHOP", new Vector2(416f, -345f), new Vector2(196f, 80f), new Color(0.52f, 0.30f, 0.80f, 0.97f), ShowShop);
 
         // Lobby: a bar under MatchmakingUI's panel (this canvas sorts above it).
         Image bar = OnlineUI.NewImage("LobbyBar", canvas, OnlineUI.PanelColor);
@@ -859,6 +942,7 @@ public class OnlineLobby : MonoBehaviour
             case FindMatchError.LobbyNotFilled: return "Not enough players joined. Entry refunded.";
             case FindMatchError.NotEnoughCoins: return "Not enough coins for this room.";
             case FindMatchError.LeaveCooldown: return "You left too many matches early. Try again in a few minutes.";
+            case FindMatchError.MatchEnded: return "That match has already ended.";
             case FindMatchError.PaidRoomsUnavailable: return "Paid rooms are closed on this server.";
             case FindMatchError.UnknownMap: return "That map isn't available online yet. Pick another map.";
             case FindMatchError.NoServerAvailable: return "All servers are busy. Try again in a moment.";

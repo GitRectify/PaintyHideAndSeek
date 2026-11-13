@@ -285,6 +285,7 @@ public partial class OnlineRound : MonoBehaviour
         Net.OnAuthenticated += HandleReauthenticated;
         Net.OnBotHost += HandleBotHost;
         Net.OnHidersReady += HandleHidersReady;
+        Net.OnMatchResults += HandleMatchResults;
 
         // Start from the phase the client last heard (the ready gate, normally).
         nextWaitNoticeAt = Time.unscaledTime + WaitNoticeAfterSeconds;
@@ -338,7 +339,10 @@ public partial class OnlineRound : MonoBehaviour
             Net.OnAuthenticated -= HandleReauthenticated;
             Net.OnBotHost -= HandleBotHost;
             Net.OnHidersReady -= HandleHidersReady;
+            Net.OnMatchResults -= HandleMatchResults;
         }
+        OnlineMatches.HideResults();
+        HideFireCooldown();
 
         StopHostingBots();
         ClearSpot();
@@ -392,6 +396,7 @@ public partial class OnlineRound : MonoBehaviour
         UpdateSpotView();
         UpdateSpectating();
         UpdateMatchControls();
+        UpdateFireCooldown();
         WatchConnection();
         if (!active) return;   // a seat that ran out ends the round right there
         PumpPaintReplay();
@@ -1023,7 +1028,10 @@ public partial class OnlineRound : MonoBehaviour
 
         if (gmm != null) gmm.PlayerFrozen = true;
 
-        string score = hunter ? info.Eliminations.ToString() : info.SurvivalSeconds + "s";
+        // The score is the reward rule's points (hider 0.2-1, seeker 1 + 0.8 per catch).
+        string score = info.PointsHundredths > 0
+            ? (info.PointsHundredths / 100m).ToString(info.PointsHundredths % 100 == 0 ? "0" : "0.00", System.Globalization.CultureInfo.InvariantCulture) + " pts"
+            : hunter ? info.Eliminations.ToString() : info.SurvivalSeconds + "s";
         ShowResult(info.Won, info.Rank, score, info.CoinCentsAwarded);
 
         if (info.Status != MatchStatus.Completed && info.Status != MatchStatus.Reconnected)

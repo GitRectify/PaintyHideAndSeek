@@ -47,6 +47,7 @@ public class HomeMenuUI : MonoBehaviour
 
         CoinBalance.Bind(coinText);
         OnlineWallet.MakeOpener(coinText);
+        MakeHudShopButton();
 
         // The role screen (Single Play's and Multiple Play's) has a coin pill of its own, which
         // nothing updated: it showed the number it was saved with in the scene.
@@ -134,5 +135,56 @@ public class HomeMenuUI : MonoBehaviour
     {
         if (shopUI == null) return;
         OnlineSignIn.Open(_ => shopUI.Open(), null);
+    }
+
+    // The round's HUD had an Ad button under Settings (Btn_ADS, which did nothing): it is the Shop
+    // now, so the shop opens at any time, mid-round included. Restyled here, from the scene's own
+    // purple button and coin art, so the scene file is left as it is.
+    private void MakeHudShopButton()
+    {
+        GameObject ads = FindSceneObject("Btn_ADS");
+        if (ads == null || shopUI == null) return;
+
+        ads.name = "Btn_Shop";
+        UnityEngine.UI.Image bg = ads.GetComponent<UnityEngine.UI.Image>();
+        UnityEngine.UI.Image purple = shopButton != null ? shopButton.GetComponent<UnityEngine.UI.Image>() : null;
+        UnityEngine.UI.Image coin = FindSceneObject("CoinIcon")?.GetComponent<UnityEngine.UI.Image>();
+        if (bg != null && purple != null && purple.sprite != null)
+        {
+            bg.sprite = purple.sprite;
+            bg.type = UnityEngine.UI.Image.Type.Sliced;
+            bg.color = Color.white;
+            bg.preserveAspect = false;
+        }
+
+        if (coin != null && coin.sprite != null)
+        {
+            var icon = new GameObject("Icon", typeof(RectTransform), typeof(UnityEngine.UI.Image));
+            icon.transform.SetParent(ads.transform, false);
+            var irt = (RectTransform)icon.transform;
+            irt.anchorMin = irt.anchorMax = new Vector2(0.5f, 0.5f);
+            irt.anchoredPosition = new Vector2(0f, 12f);
+            irt.sizeDelta = new Vector2(52f, 52f);
+            var image = icon.GetComponent<UnityEngine.UI.Image>();
+            image.sprite = coin.sprite;
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+        }
+
+        UnityEngine.UI.Text label = OnlineUI.NewLabel(ads.transform, "SHOP", 22, new Vector2(0f, -32f), new Vector2(100f, 30f), TextAnchor.MiddleCenter, true);
+        label.raycastTarget = false;
+
+        UnityEngine.UI.Button button = ads.GetComponent<UnityEngine.UI.Button>();
+        if (button == null) button = ads.AddComponent<UnityEngine.UI.Button>();
+        button.targetGraphic = bg;
+        button.onClick.RemoveAllListeners();
+        button.onClick.AddListener(() => OnlineSignIn.Open(_ => shopUI.OpenFrom(null), null));
+    }
+
+    private static GameObject FindSceneObject(string name)
+    {
+        foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+            if (t.name == name && t.gameObject.scene.IsValid()) return t.gameObject;
+        return null;
     }
 }

@@ -732,19 +732,17 @@ public class HideModeResultUI : MonoBehaviour
 
         HideAll();
 
-        LoadingScreen.Run(() =>
+        // No loading screen (2026-11-13): it shows only at launch and between matchmaking and a match.
+        if (homeUI != null)
         {
-            if (homeUI != null)
-            {
-                homeUI.StartMode(seeker ? 1 : 2);
-                return;
-            }
+            homeUI.StartMode(seeker ? 1 : 2);
+            return;
+        }
 
-            if (gmm != null)
-            {
-                gmm.BeginRound(seeker);
-            }
-        });
+        if (gmm != null)
+        {
+            gmm.BeginRound(seeker);
+        }
     }
 
     // The rewarded-ad success path (unused while ads are off). Single Play has no coins to
@@ -781,19 +779,17 @@ public class HideModeResultUI : MonoBehaviour
     {
         EnsureRefs();
         HideAll();
-        LoadingScreen.Run(() =>
+        // Straight Home: no loading screen (it shows only at launch and before a match).
+        if (homeUI != null)
         {
-            if (homeUI != null)
-            {
-                homeUI.GoHome();
-                return;
-            }
+            homeUI.GoHome();
+            return;
+        }
 
-            if (gmm != null)
-            {
-                gmm.ShowMenu();
-            }
-        });
+        if (gmm != null)
+        {
+            gmm.ShowMenu();
+        }
     }
 
     // FIX (confirmed from raw): same as OnHomeClicked - a null RootManager throws.

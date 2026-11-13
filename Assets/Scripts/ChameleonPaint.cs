@@ -392,6 +392,42 @@ public class ChameleonPaint : MonoBehaviour
         }
     }
 
+    // The paint panel (and the eyedropper's loupe and cursor) above every other piece of UI: the
+    // round's Exit and ready list, notifications, the coin balance. Only those, not the canvas's
+    // full-screen "Scene" catcher, which must stay under the other buttons so they still get taps.
+    private const int PanelSortingOrder = 80;
+    private bool raisePanelsAfterBuild;
+
+    private readonly List<(Canvas Canvas, int Order)> raisedPanels = new List<(Canvas, int)>();
+
+    private void RaisePanels()
+    {
+        raisePanelsAfterBuild = false;
+        if (uiRoot == null) return;
+        foreach (string name in new[] { "PickerPanel", "EyedropLoupe", "CursorIcon" })
+        {
+            Transform t = uiRoot.Find(name);
+            if (t == null) continue;
+            Canvas c = t.GetComponent<Canvas>();
+            if (c == null) c = t.gameObject.AddComponent<Canvas>();
+            if (name == "PickerPanel" && t.GetComponent<GraphicRaycaster>() == null) t.gameObject.AddComponent<GraphicRaycaster>();
+            raisedPanels.Add((c, name == "PickerPanel" ? PanelSortingOrder : PanelSortingOrder + 1));
+        }
+        KeepPanelsOnTop();
+    }
+
+    // A nested canvas takes its sorting only while it is active, and the panel starts closed: so it
+    // is set (again) whenever the panel shows.
+    private void KeepPanelsOnTop()
+    {
+        foreach ((Canvas c, int order) in raisedPanels)
+        {
+            if (c == null || !c.isActiveAndEnabled || (c.overrideSorting && c.sortingOrder == order)) continue;
+            c.overrideSorting = true;
+            c.sortingOrder = order;
+        }
+    }
+
     // A non-skinned character root with no collider gets a MeshCollider from its MeshFilter.
     private void EnsureCollider()
     {
@@ -647,6 +683,8 @@ public class ChameleonPaint : MonoBehaviour
     // Uploads the paint buffer once per frame after stamping.
     private void LateUpdate()
     {
+        if (raisePanelsAfterBuild) RaisePanels();
+        KeepPanelsOnTop();
         if (dirty && paintTex != null)
         {
             paintTex.SetPixels32(paintBuf);
@@ -1102,6 +1140,7 @@ public class ChameleonPaint : MonoBehaviour
         drawingOn = true;
         BeginPaintCollider();
         SlidePickerPanel(true);
+        KeepPanelsOnTop();   // above every other piece of UI from the first frame it shows
         if (paintGateImg != null && gateOnSprite != null)
         {
             paintGateImg.sprite = gateOnSprite;
@@ -1438,6 +1477,7 @@ public class ChameleonPaint : MonoBehaviour
         Image scene = NewImage("Scene", uiRoot, new Color(1f, 1f, 1f, 0f), null);
         Stretch(scene, 0f);
         scene.raycastTarget = true;
+        raisePanelsAfterBuild = true;
         UIDrag sceneDrag = SceneUI.GetOrAdd<UIDrag>(scene.gameObject);
         sceneDrag.cb = OnScenePointer;
         sceneDrag.onMove = OnScenePointerMove;
