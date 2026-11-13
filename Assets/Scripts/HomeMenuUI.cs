@@ -47,7 +47,12 @@ public class HomeMenuUI : MonoBehaviour
 
         CoinBalance.Bind(coinText);
         OnlineWallet.MakeOpener(coinText);
-        MakeHudShopButton();
+
+        // Every Ad button is a Shop button (2026-11-13): the round's HUD, the side screen and the
+        // matchmaking screen. They need the server, so they show in Multiple Play only.
+        MakeShopButton(FindSceneObject("Btn_ADS"), "Btn_Shop");
+        MakeShopButton(FindSceneChild("RoleSelectCanvas", "AdBtn"), "RoleShopBtn");
+        MakeShopButton(FindSceneChild("MatchmakingCanvas", "AdBtn"), "LobbyShopBtn");
 
         // The role screen (Single Play's and Multiple Play's) has a coin pill of its own, which
         // nothing updated: it showed the number it was saved with in the scene.
@@ -137,15 +142,16 @@ public class HomeMenuUI : MonoBehaviour
         OnlineSignIn.Open(_ => shopUI.Open(), null);
     }
 
-    // The round's HUD had an Ad button under Settings (Btn_ADS, which did nothing): it is the Shop
-    // now, so the shop opens at any time, mid-round included. Restyled here, from the scene's own
-    // purple button and coin art, so the scene file is left as it is.
-    private void MakeHudShopButton()
+    // An Ad button (they did nothing: ads are off) made a Shop button, so the shop opens at any
+    // time, mid-round included. Restyled here, from the scene's own purple button and coin art, so
+    // the scene file is left as it is. Shown in Multiple Play only (OnlineMatches keeps it so).
+    private void MakeShopButton(GameObject ads, string newName)
     {
-        GameObject ads = FindSceneObject("Btn_ADS");
         if (ads == null || shopUI == null) return;
 
-        ads.name = "Btn_Shop";
+        ads.name = newName;
+        OnlineMatches.MultiplayerOnly(ads);
+        bool small = ((RectTransform)ads.transform).sizeDelta.y < 90f;   // the side and lobby screens' 76 x 78
         UnityEngine.UI.Image bg = ads.GetComponent<UnityEngine.UI.Image>();
         UnityEngine.UI.Image purple = shopButton != null ? shopButton.GetComponent<UnityEngine.UI.Image>() : null;
         UnityEngine.UI.Image coin = FindSceneObject("CoinIcon")?.GetComponent<UnityEngine.UI.Image>();
@@ -163,22 +169,32 @@ public class HomeMenuUI : MonoBehaviour
             icon.transform.SetParent(ads.transform, false);
             var irt = (RectTransform)icon.transform;
             irt.anchorMin = irt.anchorMax = new Vector2(0.5f, 0.5f);
-            irt.anchoredPosition = new Vector2(0f, 12f);
-            irt.sizeDelta = new Vector2(52f, 52f);
+            irt.anchoredPosition = new Vector2(0f, small ? 9f : 12f);
+            irt.sizeDelta = small ? new Vector2(40f, 40f) : new Vector2(52f, 52f);
             var image = icon.GetComponent<UnityEngine.UI.Image>();
             image.sprite = coin.sprite;
             image.preserveAspect = true;
             image.raycastTarget = false;
         }
 
-        UnityEngine.UI.Text label = OnlineUI.NewLabel(ads.transform, "SHOP", 22, new Vector2(0f, -32f), new Vector2(100f, 30f), TextAnchor.MiddleCenter, true);
+        UnityEngine.UI.Text label = OnlineUI.NewLabel(ads.transform, "SHOP", small ? 17 : 22, new Vector2(0f, small ? -24f : -32f),
+                                                      new Vector2(100f, 30f), TextAnchor.MiddleCenter, true);
         label.raycastTarget = false;
 
         UnityEngine.UI.Button button = ads.GetComponent<UnityEngine.UI.Button>();
         if (button == null) button = ads.AddComponent<UnityEngine.UI.Button>();
         button.targetGraphic = bg;
         button.onClick.RemoveAllListeners();
+        for (int i = 0; i < button.onClick.GetPersistentEventCount(); i++)
+            button.onClick.SetPersistentListenerState(i, UnityEngine.Events.UnityEventCallState.Off);   // the remove-ads popup
         button.onClick.AddListener(() => OnlineSignIn.Open(_ => shopUI.OpenFrom(null), null));
+    }
+
+    private static GameObject FindSceneChild(string canvasName, string childName)
+    {
+        foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+            if (t.name == childName && t.gameObject.scene.IsValid() && t.parent != null && t.parent.name == canvasName) return t.gameObject;
+        return null;
     }
 
     private static GameObject FindSceneObject(string name)

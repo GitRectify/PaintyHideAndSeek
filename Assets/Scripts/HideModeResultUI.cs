@@ -145,6 +145,49 @@ public class HideModeResultUI : MonoBehaviour
         EnsureTimeUp();
         EnsureResult(victory, "VictoryPopup", bannerVictory);
         EnsureResult(defeat, "DefeatPopup", bannerDefeat);
+
+        // Revive and +30s cost a rewarded ad; ads are gone, and both are free now (2026-11-13).
+        MakeAdFree(caughtRoot, "Get one more chance.");
+        MakeAdFree(timeUpRoot, "Get 30 extra seconds.");
+        SetMiddleButton(false);
+    }
+
+    private static void MakeAdFree(GameObject popup, string body)
+    {
+        Transform panel = popup != null ? popup.transform.Find("Panel") : null;
+        if (panel == null) return;
+
+        Transform ads = panel.Find("ActionBtn/Ads");
+        if (ads != null) ads.gameObject.SetActive(false);
+        if (panel.Find("ActionBtn/Label") is RectTransform label) label.anchoredPosition = new Vector2(0f, label.anchoredPosition.y);
+        Text bodyText = panel.Find("Body")?.GetComponent<Text>();
+        if (bodyText != null) bodyText.text = body;
+    }
+
+    // The result popup's middle button was X2 Gold, a rewarded ad. Online it is the Shop
+    // (2026-11-13); Single Play has no coins and no shop, so there it is not shown.
+    private void SetMiddleButton(bool shop)
+    {
+        foreach (ResultUI rr in new[] { victory, defeat })
+        {
+            Transform gold = rr.root != null ? rr.root.transform.Find("GoldBtn") : null;
+            if (gold == null) continue;
+
+            gold.gameObject.SetActive(shop);
+            if (!shop) continue;
+
+            Text label = gold.Find("Label")?.GetComponent<Text>();
+            if (label != null) label.text = "Shop";
+            Image icon = gold.Find("Icon")?.GetComponent<Image>();
+            Sprite coin = OnlineUI.SceneSprite("CoinIcon");
+            if (icon != null && coin != null) icon.sprite = coin;
+        }
+    }
+
+    private void OpenShop()
+    {
+        ShopUI shop = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+        if (shop != null) OnlineSignIn.Open(_ => shop.OpenFrom(null), null);
     }
 
     // FIX (confirmed from raw): a null victory or defeat throws (the fx call is only reached when
@@ -215,6 +258,7 @@ public class HideModeResultUI : MonoBehaviour
         if (rr.value[0] != null) rr.value[0].text = rank;
         if (rr.value[1] != null) rr.value[1].text = score;
         SetGoldRowVisible(rr, false);
+        SetMiddleButton(false);
 
         ShowOnly(rr.root);
     }
@@ -235,34 +279,49 @@ public class HideModeResultUI : MonoBehaviour
         _onlineNext = onNext;
 
         ResultUI rr = won ? victory : defeat;
-        SetGoldButtonVisible(false);
+        SetMiddleButton(true);
 
         string coins = CoinBalance.Format(coinCents);
         if (rr.value[0] != null) rr.value[0].text = rank;
-        if (rr.value[1] != null) rr.value[1].text = score;
+        SetScoreRow(rr, true, score);
         if (rr.value[2] != null) rr.value[2].text = "+" + coins;
         SetGoldRowVisible(rr, true);
 
         ShowOnly(rr.root);
     }
 
-    /// <summary>Back to the Single Play popup: hides it and restores X2 Gold.</summary>
+    /// <summary>The online popup's rank and score, put right once the match's full results arrive.</summary>
+    public void UpdateOnlineFigures(string rank, string score)
+    {
+        if (!_online) return;
+        foreach (ResultUI rr in new[] { victory, defeat })
+        {
+            if (rr.root == null || !rr.root.activeSelf) continue;
+            if (rr.value[0] != null) rr.value[0].text = rank;
+            SetScoreRow(rr, true, score);
+        }
+    }
+
+    // Online the middle row is the match score ("120s / 150s", "3 Hiders Caught"): a wider value
+    // than Single Play's paint score, so it may run left over the label's free space.
+    private static void SetScoreRow(ResultUI rr, bool online, string value)
+    {
+        if (rr.label[1] != null) rr.label[1].text = online ? "Score" : "Paint Score";
+        if (rr.value[1] == null) return;
+        rr.value[1].horizontalOverflow = online ? HorizontalWrapMode.Overflow : HorizontalWrapMode.Wrap;
+        if (value != null) rr.value[1].text = value;
+    }
+
+    /// <summary>Back to the Single Play popup: hides it; Single Play shows no Shop and no coins.</summary>
     public void ClearOnline()
     {
         _online = false;
         _onlineHome = null;
         _onlineNext = null;
-        SetGoldButtonVisible(true);
+        SetMiddleButton(false);
+        SetScoreRow(victory, false, null);
+        SetScoreRow(defeat, false, null);
         HideAll();
-    }
-
-    private void SetGoldButtonVisible(bool visible)
-    {
-        foreach (ResultUI rr in new[] { victory, defeat })
-        {
-            Transform gold = rr.root != null ? UiFind.Require(rr.root.transform, "GoldBtn") : null;
-            if (gold != null) gold.gameObject.SetActive(visible);
-        }
     }
 
     public void ShowDefeat(string rank, int timeLeftSecs, int found)
@@ -704,10 +763,16 @@ public class HideModeResultUI : MonoBehaviour
     public void OnExtraClicked() => _onExtra?.Invoke();
     public void OnGiveUp2Clicked() => _onGiveUp2?.Invoke();
 
-    // With an AdMgr, shows a rewarded ad (success = GrantDoubleReward, fail = RewardFail - the only
-    // two delegate targets this method registers); with none, goes straight to replaying the mode.
+    // The middle button (wired in the scene): the Shop online. It was X2 Gold, a rewarded ad, which
+    // with no AdMgr went straight to replaying the mode; Single Play no longer shows it.
     public void OnX2GoldClicked()
     {
+        if (_online)
+        {
+            OpenShop();
+            return;
+        }
+
         // if (AdMgr.Instance != null)
         // {
         //     AdMgr.Instance.OnRewardView(GrantDoubleReward, RewardFail);

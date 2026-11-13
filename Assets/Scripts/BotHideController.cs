@@ -776,21 +776,17 @@ public class BotHideController : MonoBehaviour
         Debug.Log("[BotHide] Time's up.");
     }
 
-    // Rewarded ad for +30 s of hunting. A null AdMgr throws.
+    // +30 s of hunting from the Time's Up popup. It took a rewarded ad; ads are gone and it is free
+    // (2026-11-13, the user's answer).
     private void AddSeekTime()
     {
-        // if (!AdMgr.Instance.IsRewardReady) return;
-
-        // <AddSeekTime>b__79_0
-        // AdMgr.Instance.OnRewardView(() =>
-        // {
-            // hideUI.HideAll();
-            // seeking = true;
-            // over = false;
-            // seekTimer += 30f;
-            // RootManager.Instance?.SetNumber(1);
-            // Debug.Log("[BotHide] +30s — keep hunting!");
-        // }, RewardFail);
+        HideModeResultUI popup = resultUI != null ? resultUI : hideUI;   // the one that showed the popup
+        if (popup != null) popup.HideAll();
+        seeking = true;
+        over = false;
+        seekTimer += 30f;
+        RootManager.Instance?.SetNumber(1);
+        Debug.Log("[BotHide] +30s — keep hunting!");
     }
 
     private void RewardFail()

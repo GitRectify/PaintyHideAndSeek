@@ -169,6 +169,94 @@ public static class OnlineUI
     }
 
     /// <summary>"1 coin", "5 coins", "0.50 coins", "1,250 coins": the server counts in cents.</summary>
+    private static readonly System.Collections.Generic.Dictionary<string, Sprite> sceneSprites =
+        new System.Collections.Generic.Dictionary<string, Sprite>();
+
+    /// <summary>
+    /// The sprite of a scene image found by its object name, shown or hidden ("LockIcon": the shop
+    /// cards' lock, "CoinIcon": Home's coin), so art made for one screen serves another. Null when
+    /// the scene has none.
+    /// </summary>
+    public static Sprite SceneSprite(string objectName)
+    {
+        if (sceneSprites.TryGetValue(objectName, out Sprite cached) && cached != null) return cached;
+        foreach (Image image in Resources.FindObjectsOfTypeAll<Image>())
+        {
+            if (image.name != objectName || image.sprite == null || !image.gameObject.scene.IsValid()) continue;
+            sceneSprites[objectName] = image.sprite;
+            return image.sprite;
+        }
+        return null;
+    }
+
+    private static Sprite lockSprite;
+
+    /// <summary>
+    /// A padlock, for anything locked until bought (maps and poses online, shop cards). The scene's
+    /// lock images carry no picture and the project has no lock art, so it is drawn here once: a
+    /// gold padlock with a dark edge, 64 x 64.
+    /// </summary>
+    public static Sprite LockSprite()
+    {
+        if (lockSprite != null) return lockSprite;
+
+        const int size = 64;
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "Padlock",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        var pixels = new Color32[size * size];
+        var gold = new Color32(255, 209, 64, 255);
+        var edge = new Color32(48, 34, 12, 255);
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                Color32 c = new Color32(0, 0, 0, 0);
+                if (InPadlock(x, y)) c = InKeyhole(x, y) ? edge : gold;
+                else if (NearPadlock(x, y)) c = edge;
+                pixels[y * size + x] = c;
+            }
+        }
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        lockSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
+        lockSprite.name = "Padlock";
+        return lockSprite;
+    }
+
+    // The body (a rounded box) and the shackle (the top half of a ring, its legs into the body).
+    private static bool InPadlock(int x, int y)
+    {
+        if (x >= 12 && x <= 51 && y >= 6 && y <= 36)
+        {
+            const float r = 6f;
+            float cx = Mathf.Clamp(x, 12 + r, 51 - r), cy = Mathf.Clamp(y, 6 + r, 36 - r);
+            return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r;
+        }
+
+        float dx = x - 31.5f, dy = y - 37f;
+        float d = Mathf.Sqrt(dx * dx + dy * dy);
+        if (y >= 37 && d >= 9f && d <= 16f) return true;
+        return y >= 30 && y < 37 && ((x >= 16 && x <= 22) || (x >= 41 && x <= 47));
+    }
+
+    private static bool InKeyhole(int x, int y)
+    {
+        float dx = x - 31.5f, dy = y - 24f;
+        return dx * dx + dy * dy <= 16f || (x >= 30 && x <= 33 && y >= 13 && y <= 24);
+    }
+
+    private static bool NearPadlock(int x, int y)
+    {
+        for (int j = -2; j <= 2; j++)
+            for (int i = -2; i <= 2; i++)
+                if (i * i + j * j <= 5 && InPadlock(x + i, y + j)) return true;
+        return false;
+    }
+
     public static string CoinsText(long cents) => CoinBalance.Format(cents) + (cents == 100 ? " coin" : " coins");
 
     public static void Place(RectTransform rt, Vector2 pos, Vector2 size)

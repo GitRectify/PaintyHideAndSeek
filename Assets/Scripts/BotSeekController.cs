@@ -2789,31 +2789,26 @@ public class BotSeekController : MonoBehaviour
         }
     }
 
-    // "Revive" on the Caught popup: rewarded ad, then the round restarts from the grace phase.
-    // A null AdMgr throws.
+    // "Revive" on the Caught popup: the round restarts from the grace phase. It took a rewarded ad;
+    // ads are gone and it is free (2026-11-13, the user's answer).
     private void RevivePlayer()
     {
-        // if (!AdMgr.Instance.IsRewardReady) return;
-
-        // // <RevivePlayer>b__187_0
-        // AdMgr.Instance.OnRewardView(() =>
-        // {
-            // hideUI.HideAll();
-            // RestorePlayerRagdoll();
-            // GroundPlayer();
-            // ResetBots();
-            // _lastGraceSec = -1;
-            // state = State.Grace;
-            // timeLeft = roundTime;
-            // graceLeft = graceTime;
-            // SetStatusVisible(chasePlayer);
-            // if (resultText != null)
-            // {
-            //     resultText.text = "";
-            // }
-            // RootManager.Instance?.SetNumber(1);
-            // Debug.Log("[BotSeek] Player revived — hide again!");
-        // }, RewardFail);
+        HideModeResultUI popup = resultUI != null ? resultUI : hideUI;   // the one that showed the popup
+        if (popup != null) popup.HideAll();
+        RestorePlayerRagdoll();
+        GroundPlayer();
+        ResetBots();
+        _lastGraceSec = -1;
+        state = State.Grace;
+        timeLeft = roundTime;
+        graceLeft = graceTime;
+        SetStatusVisible(chasePlayer);
+        if (resultText != null)
+        {
+            resultText.text = "";
+        }
+        RootManager.Instance?.SetNumber(1);
+        Debug.Log("[BotSeek] Player revived — hide again!");
     }
 
     private void RewardFail()

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Meccha.Client;
 using Meccha.Shared.Game;
 using Meccha.Shared.Protocol;
@@ -82,6 +83,62 @@ public class OnlineMatches : MonoBehaviour
 
     // ================= Public =================
 
+    // ================= Multiple Play only =================
+    //
+    // Single Play runs without the server (2026-11-13): no coin balance, no Shop button, no match
+    // notices, no polling. What needs the server shows only while OnlineLobby.InMultiplayer.
+
+    private static readonly List<GameObject> multiplayerOnly = new List<GameObject>();
+
+    /// <summary>Shows this object only in Multiple Play (a Shop button made from an Ad button).</summary>
+    public static void MultiplayerOnly(GameObject go)
+    {
+        if (go != null && !multiplayerOnly.Contains(go)) multiplayerOnly.Add(go);
+    }
+
+    private static GameObject homeCanvas;
+    private static float nextHomeLook;
+
+    // Home (the hub, before either mode) keeps its own coin pill and Shop button. This overlay is
+    // made while the Loading scene is up, so Home is looked for until it is there (once a second).
+    private static bool HomeShowing
+    {
+        get
+        {
+            if (homeCanvas == null && Time.unscaledTime >= nextHomeLook)
+            {
+                nextHomeLook = Time.unscaledTime + 1f;
+                homeCanvas = SceneObject("HomeCanvas");
+            }
+            return homeCanvas != null && homeCanvas.activeInHierarchy;
+        }
+    }
+
+    /// <summary>Single Play's screens: neither Home nor any part of Multiple Play.</summary>
+    public static bool InSinglePlay => !OnlineLobby.InMultiplayer && !HomeShowing;
+
+    private static GameObject SceneObject(string name)
+    {
+        foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+            if (t.name == name && t.gameObject.scene.IsValid()) return t.gameObject;
+        return null;
+    }
+
+    private void UpdateModeObjects()
+    {
+        bool online = OnlineLobby.InMultiplayer;
+        for (int i = multiplayerOnly.Count - 1; i >= 0; i--)
+        {
+            GameObject go = multiplayerOnly[i];
+            if (go == null) { multiplayerOnly.RemoveAt(i); continue; }
+            if (go.activeSelf != online) go.SetActive(online);
+        }
+
+        // The side screen's own coin panel is another design: Multiple Play shows Home's pill
+        // instead (coinPill), and Single Play no balance at all.
+        if (roleCoinPanel != null && roleCoinPanel.activeSelf) roleCoinPanel.SetActive(false);
+    }
+
     /// <summary>Opens the list of the player's matches (in progress and ended).</summary>
     public static void ShowList()
     {
@@ -110,8 +167,12 @@ public class OnlineMatches : MonoBehaviour
     private void Update()
     {
         Hook();
+        UpdateModeObjects();
+        bool quiet = InSinglePlay;
+        if (toastStack.gameObject.activeSelf == quiet) toastStack.gameObject.SetActive(!quiet);
 
-        if (Net != null && Net.IsConnected && !string.IsNullOrEmpty(Net.SessionToken) && Time.unscaledTime >= nextPollAt)
+        // Nothing is asked of the server during Single Play.
+        if (!quiet && Net != null && Net.IsConnected && !string.IsNullOrEmpty(Net.SessionToken) && Time.unscaledTime >= nextPollAt)
         {
             nextPollAt = Time.unscaledTime + (listScreen.activeSelf ? 2f : PollSeconds);
             Net.RequestMyMatches();
@@ -149,6 +210,13 @@ public class OnlineMatches : MonoBehaviour
     {
         matches = list ?? Array.Empty<MyMatchEntry>();
         matchesAt = Time.unscaledTime;
+
+        // Single Play hears nothing of online matches: the notices wait until it is over.
+        if (InSinglePlay)
+        {
+            if (listScreen.activeSelf) RefreshList();
+            return;
+        }
 
         // Once a session: matches still going from before (left, or the app was closed).
         int away = AwayCount;
@@ -233,24 +301,94 @@ public class OnlineMatches : MonoBehaviour
         if (Net == null || !Net.IsConnected) return;
         wantResultsFor = matchId;
         Net.RequestMatchResults(matchId);
+
+        // Looked at: a match that ended while away leaves the list now (2026-11-13). The server
+        // drops it on this request too and sends the list again.
+        matches = Array.FindAll(matches, m => !(m.State == MyMatchState.Ended && m.MatchId == matchId));
+        if (listScreen.activeSelf) RefreshList();
     }
 
     // ================= Coin balance everywhere =================
 
-    // Shown when nothing else on screen shows the balance (and never over the loading screen).
+    // Home's coin pill, the same on every Multiple Play screen (2026-11-13): shown there unless a
+    // pill of that design is already up (Home's, the shop's), never over the loading screen, and
+    // never in Single Play, which has no coins.
+    private float nextPillLook;
+
     private void UpdateCoinPill()
     {
-        bool other = false;
-        foreach (CoinLabel label in FindObjectsByType<CoinLabel>(FindObjectsInactive.Exclude))
+        // Home's pill is copied once Home is loaded (this overlay is made during the Loading scene).
+        if (homePill == null && Time.unscaledTime >= nextPillLook)
         {
-            if (label.transform.IsChildOf(coinPill.transform)) continue;
-            Canvas c = label.GetComponentInParent<Canvas>();
-            if (c != null && c.isActiveAndEnabled) { other = true; break; }
+            nextPillLook = Time.unscaledTime + 1f;
+            GameObject copy = BuildHomePill();
+            if (copy != null)
+            {
+                if (coinPill != null) Destroy(coinPill);
+                coinPill = copy;
+                coinPill.SetActive(false);
+            }
         }
 
+        bool other = (homePill != null && homePill.activeInHierarchy) || (shopPill != null && shopPill.activeInHierarchy);
         GameObject loading = GameObject.Find("LoadingCanvas");
-        bool show = !other && (loading == null || !loading.activeInHierarchy);
+        bool show = OnlineLobby.InMultiplayer && !other && (loading == null || !loading.activeInHierarchy);
         if (coinPill.activeSelf != show) coinPill.SetActive(show);
+        if (show) MatchHomePill();
+    }
+
+    private GameObject homePill, shopPill, roleCoinPanel;
+    private RectTransform pillSource;
+
+    // A copy of Home's pill, so its look is Home's exactly. Home's canvas scales by another
+    // reference size than this overlay, so the copy is scaled to stand where and as large as Home's.
+    private GameObject BuildHomePill()
+    {
+        homePill = SceneObject("HomeCoinPill");
+        shopPill = SceneObject("ShopCoinPill");
+        GameObject role = SceneObject("RoleSelectCanvas");
+        roleCoinPanel = role != null ? role.transform.Find("CoinPanel")?.gameObject : null;
+        if (homePill == null) return null;
+
+        GameObject copy = Instantiate(homePill, overlayCanvas.transform, false);
+        copy.name = "GlobalCoinPill";
+        copy.SetActive(true);
+        pillSource = (RectTransform)homePill.transform;
+
+        // The label: the server's balance, and a tap opens the wallet, as on Home.
+        Text text = copy.transform.Find("CoinText")?.GetComponent<Text>();
+        if (text != null)
+        {
+            Button copiedButton = text.GetComponent<Button>();
+            if (copiedButton != null) DestroyImmediate(copiedButton);
+            CoinBalance.Bind(text);
+            OnlineWallet.MakeOpener(text);
+        }
+        return copy;
+    }
+
+    private void MatchHomePill()
+    {
+        if (pillSource == null) return;
+        var rt = (RectTransform)coinPill.transform;
+        float ratio = ScaleOf(pillSource.GetComponentInParent<CanvasScaler>(true)) / Mathf.Max(0.0001f, ScaleOf(overlayCanvas.GetComponent<CanvasScaler>()));
+        rt.anchorMin = pillSource.anchorMin;
+        rt.anchorMax = pillSource.anchorMax;
+        rt.pivot = pillSource.pivot;
+        rt.sizeDelta = pillSource.sizeDelta;
+        rt.anchoredPosition = pillSource.anchoredPosition * ratio;
+        rt.localScale = Vector3.one * ratio;
+    }
+
+    // A canvas's scale for this screen, from its scaler's settings (right even while it is hidden).
+    private static float ScaleOf(CanvasScaler scaler)
+    {
+        if (scaler == null) return 1f;
+        if (scaler.uiScaleMode != CanvasScaler.ScaleMode.ScaleWithScreenSize) return scaler.scaleFactor;
+        Vector2 reference = scaler.referenceResolution;
+        float logWidth = Mathf.Log(Screen.width / Mathf.Max(1f, reference.x), 2f);
+        float logHeight = Mathf.Log(Screen.height / Mathf.Max(1f, reference.y), 2f);
+        return Mathf.Pow(2f, Mathf.Lerp(logWidth, logHeight, scaler.matchWidthOrHeight));
     }
 
     // ================= The chip: matches in progress =================
@@ -259,7 +397,7 @@ public class OnlineMatches : MonoBehaviour
     {
         int away = AwayCount;
         GameObject loading = GameObject.Find("LoadingCanvas");
-        bool show = away > 0 && !OnlineRound.Active && !listScreen.activeSelf && !resultsScreen.activeSelf &&
+        bool show = away > 0 && !OnlineRound.Active && !InSinglePlay && !listScreen.activeSelf && !resultsScreen.activeSelf &&
                     (loading == null || !loading.activeInHierarchy);
         if (chip.activeSelf != show) chip.SetActive(show);
         if (show) chipText.text = away == 1 ? "1 match in progress: VIEW" : $"{away} matches in progress: VIEW";
@@ -421,7 +559,8 @@ public class OnlineMatches : MonoBehaviour
         if (m.State == MyMatchState.Ended)
         {
             string coins = m.CoinCents > 0 ? $"  <color=#FFD24A>+{OnlineUI.CoinsText(m.CoinCents)}</color>" : "";
-            return $"{where}\n<size=26>{(m.Won ? "Ended: you won" : "Ended: you lost")}  ·  #{m.Rank}  ·  {Points(m.PointsHundredths)} pts</size>{coins}";
+            return $"{where}\n<size=26>{(m.Won ? "Ended: you won" : "Ended: you lost")}  ·  #{m.Rank}  ·  " +
+                   $"{ScoreText(m.Role, m.SurvivedSeconds, m.SeekSeconds, m.Catches, m.PointsHundredths)}</size>{coins}";
         }
 
         int left = Mathf.Max(0, m.SecondsLeft - Mathf.FloorToInt(Time.unscaledTime - matchesAt));
@@ -442,29 +581,29 @@ public class OnlineMatches : MonoBehaviour
                        : table.Outcome == MatchOutcome.SeekersWin ? "Seekers win" : "No winner";
         resultsTitle.text = $"{RoomTitle(table.RoomId)}  ·  {MapTitle(table.Map)}  ·  {outcome}";
 
-        // One row per player, grouped by side, best first; this player's row in green. Columns are
-        // labels of their own, so any name (Latin, Cyrillic, Chinese) lines up.
+        // One ranking for everyone, whichever side (most coins first; the server orders the rows),
+        // this player's row in green. A hider's score is seconds survived of the seek, a seeker's the
+        // hiders caught. Columns are labels of their own, so any name (Latin, Cyrillic, Chinese) lines up.
         for (int i = resultsRows.childCount - 1; i >= 0; i--) Destroy(resultsRows.GetChild(i).gameObject);
         byte me = Net != null && Net.InMatch ? Net.LocalSlot : (byte)0xFE;
         string myName = Net != null ? Net.UserId : null;
 
-        float y = 290f;
-        ResultRow(y, "Rank", "Player", "Side", "Score", "Coins", OnlineUI.Muted, false);
-        Role? side = null;
-        foreach (MatchResultEntry p in table.Players ?? Array.Empty<MatchResultEntry>())
-        {
-            if (side != p.Role)
-            {
-                side = p.Role;
-                y -= 52f;
-                ResultRow(y, "", p.Role == Role.Hunter ? "Seekers" : "Hiders", "", "", "", new Color(1f, 0.85f, 0.45f, 1f), true);
-            }
+        MatchResultEntry[] players = table.Players ?? Array.Empty<MatchResultEntry>();
+        // By rank; equal ranks keep the server's order (OrderBy is stable, List.Sort is not).
+        List<MatchResultEntry> ordered = players.OrderBy(a => a.Rank == 0 ? int.MaxValue : a.Rank).ToList();
 
-            y -= 46f;
+        float y = 300f;
+        float step = Mathf.Min(56f, 620f / Mathf.Max(1, ordered.Count));
+        ResultRow(y, "Rank", "Player", "Side", "Score", "Coins", OnlineUI.Muted, false);
+        y -= 12f;
+        foreach (MatchResultEntry p in ordered)
+        {
+            y -= step;
             bool mine = (me != 0xFE && p.Slot == me) || (!p.IsBot && !string.IsNullOrEmpty(myName) && p.Name == myName);
             string name = SafeName(p.Name) + (p.IsBot ? " (bot)" : "") + (p.Away ? " (away)" : "") + (p.Slot == 0xFF ? " (left)" : "");
-            ResultRow(y, p.Rank > 0 ? "#" + p.Rank : "-", Clip(name, 28), p.Role == Role.Hunter ? "Seeker" : "Hider",
-                      Points(p.PointsHundredths), p.CoinCents > 0 ? "+" + CoinBalance.Format(p.CoinCents) : "0",
+            ResultRow(y, p.Rank > 0 ? "#" + p.Rank : "-", Clip(name, 24), p.Role == Role.Hunter ? "Seeker" : "Hider",
+                      ScoreText(p.Role, p.SurvivedSeconds, table.SeekSeconds, p.Catches, p.PointsHundredths),
+                      p.CoinCents > 0 ? "+" + CoinBalance.Format(p.CoinCents) : "0",
                       mine ? new Color(0.49f, 0.95f, 0.6f, 1f) : Color.white, mine);
         }
 
@@ -481,11 +620,11 @@ public class OnlineMatches : MonoBehaviour
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
         }
 
-        Cell(rank, -590f, 110f, TextAnchor.MiddleLeft);
-        Cell(player, -230f, 600f, TextAnchor.MiddleLeft);
-        Cell(side, 200f, 180f, TextAnchor.MiddleLeft);
-        Cell(score, 400f, 160f, TextAnchor.MiddleRight);
-        Cell(coins, 590f, 180f, TextAnchor.MiddleRight);
+        Cell(rank, -640f, 100f, TextAnchor.MiddleLeft);
+        Cell(player, -330f, 500f, TextAnchor.MiddleLeft);
+        Cell(side, 30f, 170f, TextAnchor.MiddleLeft);
+        Cell(score, 330f, 320f, TextAnchor.MiddleRight);
+        Cell(coins, 600f, 170f, TextAnchor.MiddleRight);
     }
 
     // ================= UI =================
@@ -495,17 +634,21 @@ public class OnlineMatches : MonoBehaviour
         overlayCanvas = OnlineUI.CreateCanvas("OnlineMatchesOverlay", transform, 56);
         screenCanvas = OnlineUI.CreateCanvas("OnlineMatchesScreens", transform, 57);
 
-        // The coin balance, top right, left of the HUD's Settings column.
-        Image pill = OnlineUI.NewImage("GlobalCoinPill", overlayCanvas.transform, new Color(0.08f, 0.09f, 0.13f, 0.82f));
-        RectTransform prt = pill.rectTransform;
-        prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(1f, 1f);
-        prt.anchoredPosition = new Vector2(-170f, -46f);
-        prt.sizeDelta = new Vector2(240f, 64f);
-        pill.raycastTarget = false;
-        Text coins = OnlineUI.NewLabel(pill.transform, "", 32, Vector2.zero, new Vector2(220f, 60f), TextAnchor.MiddleCenter, true);
-        coins.name = "CoinText";
-        CoinBalance.Bind(coins, "Coins: {0}");
-        coinPill = pill.gameObject;
+        // The coin balance, top right, left of the HUD's Settings column: Home's own pill once Home
+        // is loaded (UpdateCoinPill), a plain one until then.
+        {
+            Image pill = OnlineUI.NewImage("GlobalCoinPill", overlayCanvas.transform, new Color(0.08f, 0.09f, 0.13f, 0.82f));
+            RectTransform prt = pill.rectTransform;
+            prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(1f, 1f);
+            prt.anchoredPosition = new Vector2(-170f, -46f);
+            prt.sizeDelta = new Vector2(240f, 64f);
+            pill.raycastTarget = false;
+            Text coins = OnlineUI.NewLabel(pill.transform, "", 32, Vector2.zero, new Vector2(220f, 60f), TextAnchor.MiddleCenter, true);
+            coins.name = "CoinText";
+            CoinBalance.Bind(coins);
+            coinPill = pill.gameObject;
+        }
+        coinPill.SetActive(false);
 
         // The chip: matches in progress, top centre.
         Button chipButton = OnlineUI.NewButton(overlayCanvas.transform, "", Vector2.zero, new Vector2(560f, 70f), new Color(0.85f, 0.52f, 0.12f, 0.95f), OpenList);
@@ -584,6 +727,18 @@ public class OnlineMatches : MonoBehaviour
         Color c = image.color;
         c.a = 1f;
         image.color = c;
+    }
+
+    /// <summary>
+    /// A player's score as the results show it (2026-11-13): a hider's seconds survived of the seek
+    /// ("120s / 150s"), a seeker's hiders caught ("3 Hiders Caught"). An older server sends neither
+    /// figure (no seek length): the reward rule's points then.
+    /// </summary>
+    public static string ScoreText(Role role, int survivedSeconds, int seekSeconds, int catches, int pointsHundredths)
+    {
+        if (seekSeconds <= 0) return Points(pointsHundredths) + " pts";
+        if (role == Role.Hunter) return catches == 1 ? "1 Hider Caught" : $"{catches} Hiders Caught";
+        return $"{Mathf.Clamp(survivedSeconds, 0, seekSeconds)}s / {seekSeconds}s";
     }
 
     private static string Points(int hundredths) =>

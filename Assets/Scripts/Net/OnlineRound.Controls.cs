@@ -120,6 +120,18 @@ public partial class OnlineRound
     private void HandleMatchResults(MatchResultTable table)
     {
         if (!active || table.MatchId != (uint)matchId) return;
+
+        // The popup under the results shows this player's line as the table has it: the rank among
+        // everyone, and the score as seconds of the seek or hiders caught.
+        foreach (MatchResultEntry p in table.Players ?? System.Array.Empty<MatchResultEntry>())
+        {
+            if (p.Slot != Net.LocalSlot) continue;
+            if (results != null)
+                results.UpdateOnlineFigures(p.Rank > 0 ? $"#{p.Rank}/{Net.MatchSeats}" : "-",
+                                            OnlineMatches.ScoreText(p.Role, p.SurvivedSeconds, table.SeekSeconds, p.Catches, p.PointsHundredths));
+            break;
+        }
+
         OnlineMatches.ShowResults(table, () => lobby.PlayAgainFromRound(), () => lobby.GoHomeFromRound());
     }
 

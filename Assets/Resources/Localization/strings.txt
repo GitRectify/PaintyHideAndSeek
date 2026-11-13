@@ -407,3 +407,16 @@ Coins: {0}	金币：{0}	Монеты: {0}
 That match has already ended. Its result is in your matches.	那场比赛已经结束。结果在你的比赛列表中。	Этот матч уже закончился. Итог — в ваших матчах.
 The match goes on without you and your place is kept: rejoin it from your matches while it runs.	比赛会在没有你的情况下继续，你的位置会被保留：比赛结束前可从你的比赛列表重新加入。	Матч продолжится без вас, ваше место сохранится: вернитесь в него из ваших матчей, пока он идёт.
 You go back to the room list.	你将回到房间列表。	Вы вернётесь к списку комнат.
+Get one more chance.	再获得一次机会。	Ещё один шанс.
+Get 30 extra seconds.	再获得 30 秒。	Ещё 30 секунд.
+{0} Hiders Caught	抓到 {0} 名躲藏者	Поймано прячущихся: {0}
+1 Hider Caught	抓到 1 名躲藏者	Пойман 1 прячущийся
+{0}s / {1}s	{0} 秒 / {1} 秒	{0} с / {1} с
+{0} is locked. Buy it once for {1} and play it online whenever you like.	{0} 尚未解锁。一次性花费 {1} 购买，即可随时在线游玩。	{0} закрыта. Купите её один раз за {1} и играйте онлайн когда угодно.
+BUY {0}	购买 {0}	КУПИТЬ {0}
+That map is locked. Buy it to play it online.	该地图尚未解锁。购买后即可在线游玩。	Эта карта закрыта. Купите её, чтобы играть онлайн.
+Not enough coins for {0}. Top up in WALLET.	金币不足，无法购买 {0}。请在钱包中充值。	Не хватает монет на {0}. Пополните в КОШЕЛЬКЕ.
+Room 2	房间 2	Комната 2
+Room 3	房间 3	Комната 3
+Room 4	房间 4	Комната 4
+Room 5	房间 5	Комната 5

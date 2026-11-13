@@ -46,10 +46,19 @@ public class MapSelectPopup : MonoBehaviour
         }
     }
 
-    public void Show(Action onConfirm, Action onBack)
+    public void Show(Action onConfirm, Action onBack) => Show(onConfirm, onBack, null);
+
+    /// <summary>
+    /// Online (2026-11-13): <paramref name="lockedPrice"/> gives, per map index, the price in cents
+    /// of a map this account has not bought yet, 0 for one it may play. Single Play passes none:
+    /// every map is free there.
+    /// </summary>
+    public void Show(Action onConfirm, Action onBack, Func<int, long> lockedPrice)
     {
         _onConfirm = onConfirm;
         _onBack = onBack;
+        _lockedPrice = lockedPrice;
+        RefreshLocks();
 
         if (_canvas == null)
         {
@@ -94,6 +103,86 @@ public class MapSelectPopup : MonoBehaviour
     {
         if (_roomName == null || _lm == null) return;
         _roomName.text = _lm.CurrentDisplayName;
+    }
+
+    // ---- Locks ----
+    // Each map card has a badge ("Image", bottom right) made as the rewarded-ad sign for maps 2-5.
+    // Single Play's maps are all free, so it is hidden there; online it is a lock on a map not
+    // bought yet, with the price under the picture.
+
+    private Func<int, long> _lockedPrice;
+
+    /// <summary>Puts the locks and prices right, for instance once the shop's listing has arrived.</summary>
+    public void RefreshLocks()
+    {
+        if (_maps == null) return;
+
+        for (int i = 0; i < _maps.Length; i++)
+        {
+            Transform map = _maps[i];
+            if (map == null) continue;
+
+            long price = _lockedPrice != null ? _lockedPrice(i) : 0;
+            bool locked = price > 0;
+
+            Transform badge = map.Find("Image");
+            if (badge != null)
+            {
+                Image badgeImage = badge.GetComponent<Image>();
+                Sprite lockSprite = OnlineUI.LockSprite();
+                if (locked && badgeImage != null && lockSprite != null)
+                {
+                    badgeImage.sprite = lockSprite;
+                    badgeImage.preserveAspect = true;
+                }
+                badge.gameObject.SetActive(locked && lockSprite != null);
+            }
+
+            Image picture = map.Find("Map")?.GetComponent<Image>();
+            if (picture != null) picture.color = locked ? new Color(0.62f, 0.62f, 0.62f, 1f) : Color.white;
+
+            Text label = PriceLabel(map);
+            label.gameObject.SetActive(locked);
+            if (locked) label.text = CoinBalance.Format(price) + (price == 100 ? " coin" : " coins");
+        }
+    }
+
+    /// <summary>The picture of the map at this index, as its card in the picker shows it.</summary>
+    public Sprite ThumbnailAt(int index)
+    {
+        if (_maps == null || index < 0 || index >= _maps.Length || _maps[index] == null) return null;
+        Image picture = _maps[index].Find("Map")?.GetComponent<Image>();
+        return picture != null ? picture.sprite : null;
+    }
+
+    /// <summary>Whether the map at this index is locked for this account (online only).</summary>
+    public bool IsLocked(int index) => _lockedPrice != null && _lockedPrice(index) > 0;
+
+    private Text PriceLabel(Transform map)
+    {
+        Transform existing = map.Find("LockPrice");
+        if (existing != null) return existing.GetComponent<Text>();
+
+        var go = new GameObject("LockPrice", typeof(RectTransform));
+        go.transform.SetParent(map, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(-24f, -150f);
+        rt.sizeDelta = new Vector2(280f, 54f);
+
+        Text text = go.AddComponent<Text>();
+        text.font = UIFont.Default;
+        text.fontSize = 36;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = new Color(1f, 0.86f, 0.3f, 1f);
+        text.raycastTarget = false;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+        Outline outline = go.AddComponent<Outline>();
+        outline.effectColor = new Color(0f, 0f, 0f, 0.8f);
+        outline.effectDistance = new Vector2(2f, -2f);
+        return text;
     }
 
     // A label built just above the scene's Play button, in its panel, so it moves with it.

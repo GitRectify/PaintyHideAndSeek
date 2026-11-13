@@ -309,6 +309,52 @@ public static class ShopInventory
         return false;
     }
 
+    // ================= Maps =================
+
+    /// <summary>
+    /// The maps the server sells (kind Map; GameId = the game's map number, Room2 = 2), as shop cards
+    /// in map order; none before the listing has arrived. A map the server does not sell is free,
+    /// and so is the first map always.
+    /// </summary>
+    public static List<ShopItem> MapItems()
+    {
+        var list = new List<ShopItem>();
+        LevelManager levels = LevelManager.Instance;
+        MapSelectPopup picker = MapSelectPopup.Instance;
+        foreach (MetaItem item in listing.Values)
+        {
+            if (item.Kind != ItemKind.Map) continue;
+            int number = (int)item.GameId;
+            list.Add(new ShopItem
+            {
+                id = "map_" + item.Id,
+                category = ShopCategory.Extras,
+                displayName = levels != null && number >= 1 && number <= levels.Count ? levels.DisplayNameAt(number - 1) : "Room " + number,
+                icon = picker != null ? picker.ThumbnailAt(number - 1) : null,
+                serverId = item.Id,
+                gameId = number,
+                quantity = 1,
+            });
+        }
+        list.Sort((a, b) => a.gameId.CompareTo(b.gameId));
+        return list;
+    }
+
+    /// <summary>The card that buys this map (the game's map number); null when the server does not sell it.</summary>
+    public static ShopItem MapItem(int mapNumber) => MapItems().Find(i => i.gameId == mapNumber);
+
+    /// <summary>
+    /// Online: whether this map has to be bought first and this account has not, as the server last
+    /// listed it. False for a map the server does not sell, and before the listing has arrived (the
+    /// server then says so itself: FindMatchError.MapLocked).
+    /// </summary>
+    public static bool MapLocked(int mapNumber)
+    {
+        foreach (MetaItem item in listing.Values)
+            if (item.Kind == ItemKind.Map && (int)item.GameId == mapNumber) return !item.Owned;
+        return false;
+    }
+
     private static bool OwnsWeapon(int weaponId)
     {
         if (weaponId <= 0) return true;

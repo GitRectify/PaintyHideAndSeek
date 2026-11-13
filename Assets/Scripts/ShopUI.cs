@@ -54,6 +54,14 @@ public class ShopUI : MonoBehaviour
 
         CoinBalance.Bind(coinText);
         OnlineWallet.MakeOpener(coinText);
+
+        // The cards' lock images carry no picture in the scene (they showed as white squares).
+        foreach (UnityEngine.UI.Image image in (root != null ? root : gameObject).GetComponentsInChildren<UnityEngine.UI.Image>(true))
+        {
+            if (image.name != "LockIcon" || image.sprite != null) continue;
+            image.sprite = OnlineUI.LockSprite();
+            image.preserveAspect = true;
+        }
     }
 
     private void OnEnable()
@@ -137,6 +145,13 @@ public class ShopUI : MonoBehaviour
         });
     }
 
+    /// <summary>Closes the shop if it is open: a match is starting under it.</summary>
+    public static void CloseOpen()
+    {
+        ShopUI shop = FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+        if (shop != null && (shop.root != null ? shop.root : shop.gameObject).activeInHierarchy) shop.Close();
+    }
+
     public void Close()
     {
         AudioManager.ButtonTap();
@@ -165,6 +180,7 @@ public class ShopUI : MonoBehaviour
         }
 
         List<ShopItem> items = catalog != null ? catalog.GetItems(_current) : new List<ShopItem>();
+        if (_current == ShopCategory.Extras) items.AddRange(ShopInventory.MapItems());   // maps for online play (2026-11-13)
         for (int i = 0; i < cards.Length; i++)
         {
             if (cards[i] == null) continue;

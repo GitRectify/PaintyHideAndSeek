@@ -64,6 +64,7 @@ public class OnlineLobby : MonoBehaviour
     private Text payTitle, payBody, payStatus;
     private Button payButton;
     private Action afterPay;
+    private Action payBack;                 // the pay screen's BACK; the rooms when null
     private Text roomBalance, roomError, lobbyMessage, noticeText;
     private RectTransform roomList;
 
@@ -133,8 +134,19 @@ public class OnlineLobby : MonoBehaviour
 
     // ================= Lifecycle =================
 
+    private static OnlineLobby current;
+
+    /// <summary>
+    /// True while the player is in Multiple Play: choosing a side, body, room or map, searching, in a
+    /// lobby or an online round, rejoining. False at Home and in Single Play. What needs the server
+    /// (the coin balance, Shop buttons, match notices) shows only then (2026-11-13: Single Play runs
+    /// without the server and shows none of it).
+    /// </summary>
+    public static bool InMultiplayer => OnlineRound.Active || (current != null && current.step != Step.Idle);
+
     private void Awake()
     {
+        current = this;
         matchmaking = FindAnyObjectByType<MatchmakingUI>();
         gmm = FindAnyObjectByType<GameModeManager>();
         characters = FindAnyObjectByType<CharacterSelect>();
@@ -471,6 +483,7 @@ public class OnlineLobby : MonoBehaviour
         HideScreens();
         if (home != null) home.SetHomeVisible(true);
         afterPay = onPay;
+        payBack = null;
         payTitle.text = RoomTitle(room.Id);
         payBody.text = $"Entry {fee}. Real players only, no bots: the match starts once all {GameTuning.TotalPlayers} seats are taken " +
                        $"({GameTuning.HunterSlots} seekers, {GameTuning.FugitiveSlots} hiders).\nIf it does not fill in time, your entry is refunded.";
@@ -524,6 +537,13 @@ public class OnlineLobby : MonoBehaviour
                 return;
             }
 
+            // Every map but the first is bought once before it is played online (2026-11-13).
+            if (ShopInventory.MapLocked(MapNumber(map)))
+            {
+                ConfirmMapPurchase(map);
+                return;
+            }
+
             chosenMap = map;
             StartSearch();
         },
@@ -531,6 +551,69 @@ public class OnlineLobby : MonoBehaviour
         {
             if (version != flowVersion || step != Step.Map) return;
             ShowRoomScreen(null);
+        },
+        index => ShopInventory.MapLocked(index + 1) ? ShopInventory.PriceCents(ShopInventory.MapItem(index + 1)) : 0);
+
+        // The locks as the server has them now (bought on another device, say).
+        ShopInventory.Refresh(_ =>
+        {
+            if (version == flowVersion && step == Step.Map) popup.RefreshLocks();
+        });
+    }
+
+    // The game's map number: Room = 1, Room2 = 2 ... (the shop's GameId for a map).
+    private static int MapNumber(string map)
+    {
+        LevelManager levels = LevelManager.Instance;
+        if (levels == null) return 0;
+        for (int i = 0; i < levels.Count; i++)
+            if (levels.RoomNameAt(i) == map) return i + 1;
+        return 0;
+    }
+
+    // A map this account has not bought: its price, then BUY buys it in the shop and the search
+    // starts; BACK goes back to the map picker.
+    private void ConfirmMapPurchase(string map)
+    {
+        ShopItem item = ShopInventory.MapItem(MapNumber(map));
+        if (item == null)
+        {
+            ShowRoomScreen($"<color=#FFC759>{FindMatchErrorText(FindMatchError.MapLocked)}</color>");
+            return;
+        }
+
+        string price = OnlineUI.CoinsText(ShopInventory.PriceCents(item));
+        step = Step.Room;
+        HideScreens();
+        if (home != null) home.SetHomeVisible(true);
+        payTitle.text = MapTitle(map);
+        payBody.text = $"{MapTitle(map)} is locked. Buy it once for {price} and play it online whenever you like.";
+        OnlineUI.SetButtonText(payButton, $"BUY {price}");
+        afterPay = () => BuyMap(item, map);
+        payBack = PickMap;
+        payScreen.SetActive(true);
+    }
+
+    private void BuyMap(ShopItem item, string map)
+    {
+        if (CoinBalance.Known && CoinBalance.Cents < ShopInventory.PriceCents(item))
+        {
+            ShowRoomScreen($"<color=#FFC759>Not enough coins for {MapTitle(map)}. Top up in WALLET.</color>");
+            return;
+        }
+
+        int version = flowVersion;
+        ShopInventory.Purchase(item, (bought, message) =>
+        {
+            if (version != flowVersion) return;
+            if (!bought)
+            {
+                ShowRoomScreen($"<color=#FFC759>{message}</color>");
+                return;
+            }
+
+            chosenMap = map;
+            StartSearch();
         });
     }
 
@@ -629,6 +712,20 @@ public class OnlineLobby : MonoBehaviour
         if (error == FindMatchError.AlreadyInMatch) return;
 
         if (matchmaking != null) matchmaking.EndOnline();
+
+        // A map the shop listing had not yet shown as locked: offer it to buy, with the listing fresh.
+        if (error == FindMatchError.MapLocked && !string.IsNullOrEmpty(chosenMap))
+        {
+            lobbyBar.SetActive(false);
+            string map = chosenMap;
+            int version = flowVersion;
+            ShopInventory.Refresh(_ =>
+            {
+                if (version == flowVersion) ConfirmMapPurchase(map);
+            });
+            return;
+        }
+
         ShowRoomScreen($"<color=#FFC759>{FindMatchErrorText(error)}</color>");
     }
 
@@ -735,6 +832,7 @@ public class OnlineLobby : MonoBehaviour
     {
         if (gmm != null && gmm.RoundActive && !OnlineRound.Active) return;   // Single Play
         if (step == Step.Idle) return;
+        ShopUI.CloseOpen();   // opened from the lobby's Shop button: the match is starting
 
         if (pendingLobby is { } pending)
         {
@@ -880,7 +978,10 @@ public class OnlineLobby : MonoBehaviour
         {
             AudioManager.ButtonTap();
             afterPay = null;
-            ShowRoomScreen(null);
+            Action back = payBack;
+            payBack = null;
+            if (back != null) back();
+            else ShowRoomScreen(null);
         });
 
         // A notice after a round ended on its own (seat ran out, another device).
@@ -943,6 +1044,7 @@ public class OnlineLobby : MonoBehaviour
             case FindMatchError.NotEnoughCoins: return "Not enough coins for this room.";
             case FindMatchError.LeaveCooldown: return "You left too many matches early. Try again in a few minutes.";
             case FindMatchError.MatchEnded: return "That match has already ended.";
+            case FindMatchError.MapLocked: return "That map is locked. Buy it to play it online.";
             case FindMatchError.PaidRoomsUnavailable: return "Paid rooms are closed on this server.";
             case FindMatchError.UnknownMap: return "That map isn't available online yet. Pick another map.";
             case FindMatchError.NoServerAvailable: return "All servers are busy. Try again in a moment.";

@@ -1016,8 +1016,7 @@ public partial class OnlineRound : MonoBehaviour
     {
         if (gmm != null) gmm.PlayerFrozen = true;
 
-        string score = hunter ? info.Eliminations.ToString() : info.SurvivalSeconds + "s";
-        ShowResult(info.Won, info.Rank, score, 0);
+        ShowResult(info.Won, info.Rank, ScoreUntilResults(info.Eliminations, info.SurvivalSeconds), 0);
     }
 
     private void HandleMatchEnd(MecchaNetClient.MatchEndInfo info)
@@ -1028,17 +1027,18 @@ public partial class OnlineRound : MonoBehaviour
 
         if (gmm != null) gmm.PlayerFrozen = true;
 
-        // The score is the reward rule's points (hider 0.2-1, seeker 1 + 0.8 per catch).
-        string score = info.PointsHundredths > 0
-            ? (info.PointsHundredths / 100m).ToString(info.PointsHundredths % 100 == 0 ? "0" : "0.00", System.Globalization.CultureInfo.InvariantCulture) + " pts"
-            : hunter ? info.Eliminations.ToString() : info.SurvivalSeconds + "s";
-        ShowResult(info.Won, info.Rank, score, info.CoinCentsAwarded);
+        // The score as the results show it (2026-11-13): hiders caught, or seconds survived; the full
+        // results that follow put "of the seek" on it (HandleMatchResults).
+        ShowResult(info.Won, info.Rank, ScoreUntilResults(info.Eliminations, info.SurvivalSeconds), info.CoinCentsAwarded);
 
         if (info.Status != MatchStatus.Completed && info.Status != MatchStatus.Reconnected)
             ShowBanner(StatusText(info.Status), 6f);
         else if (!string.IsNullOrEmpty(info.Explanation))
             ShowBanner(info.Explanation, 8f);
     }
+
+    private string ScoreUntilResults(int catches, int survivedSeconds) =>
+        hunter ? (catches == 1 ? "1 Hider Caught" : $"{catches} Hiders Caught") : $"{survivedSeconds}s";
 
     private void ShowResult(bool won, int rank, string score, long coinCents)
     {

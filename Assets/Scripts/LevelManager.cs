@@ -144,6 +144,12 @@ public class LevelManager : MonoBehaviour
     }
 
     // The room (prefab name, as the server names maps) of level i, or null.
+    /// <summary>The name players see for the map at this index ("Room 2"); its prefab name if it has none.</summary>
+    public string DisplayNameAt(int i) =>
+        levels != null && i >= 0 && i < levels.Length
+            ? (string.IsNullOrEmpty(levels[i].displayName) ? levels[i].roomName : levels[i].displayName)
+            : "";
+
     public string RoomNameAt(int i) =>
         levels != null && i >= 0 && i < levels.Length ? levels[i].roomName : null;
 

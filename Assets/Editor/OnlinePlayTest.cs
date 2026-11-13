@@ -106,7 +106,11 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited, Away }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited, Away, BuyMap }
+
+    // -playtestMapsSold: the server sells Room 2-5 (play.py with PLAY_MAPS=1); with -playtestMap N
+    // (N >= 1) the test buys that map when it picks it.
+    private static bool MapsSold => System.Environment.GetCommandLineArgs().Contains("-playtestMapsSold");
 
     // -playtestNext: the result's Next. -playtestExit: the round's Exit, Stay, then Leave.
     // -playtestReady: two hiders see each other press Start.
@@ -332,6 +336,12 @@ public static class OnlinePlayTest
                 if (InStep < 1f) return;
                 GameObject roleCanvas = FindByName("RoleSelectCanvas");
                 Check(roleCanvas != null && roleCanvas.activeInHierarchy, "online side choice is Single Play's RoleSelectCanvas");
+                Check(FindByName("RoleShopBtn") is { activeInHierarchy: true } && roleCanvas.transform.Find("AdBtn") == null,
+                      "its Ad button is a Shop button in Multiplayer");
+                Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } rolePill && rolePill.transform.Find("CoinIcon") != null
+                      && roleCanvas.transform.Find("CoinPanel") is not { gameObject: { activeSelf: true } },
+                      "and the coin balance is Home's pill (the side screen's own coin panel is hidden)");
+                Shot("role_online");
                 Object.FindAnyObjectByType<HomeUI>().BeginMatch(Seeker ? 1 : 2);   // its Seeker / Hider button
                 Go(Step.Body);
                 return;
@@ -454,16 +464,45 @@ public static class OnlinePlayTest
                 MapSelectPopup popup = MapSelectPopup.Instance;
                 if (popup != null && popup.Ready)
                 {
+                    if (MapsSold)
+                    {
+                        int locked = Enumerable.Range(2, 4).Count(n => ShopInventory.MapLocked(n));
+                        int priced = Object.FindObjectsByType<Text>(FindObjectsInactive.Exclude).Count(t => t.name == "LockPrice" && t.text.EndsWith("coins"));
+                        Check(locked == 4 && priced == 4 && !ShopInventory.MapLocked(1),
+                              $"Room is free and Room 2-5 show a lock and their price ({locked} locked, {priced} prices)");
+                        Shot("map_locks");
+                    }
                     popup.SelectMap(MapIndex);
                     Text roomName = FindByName("SelectedRoomName")?.GetComponent<Text>();
                     LevelManager levels = Object.FindAnyObjectByType<LevelManager>();
                     Check(roomName != null && roomName.gameObject.activeInHierarchy && levels != null && !string.IsNullOrEmpty(roomName.text)
                           && roomName.text == levels.CurrentDisplayName,
                           $"the chosen room's name shows above Play ('{roomName?.text}')");
+                    bool mustBuy = MapsSold && MapIndex > 0 && ShopInventory.MapLocked(MapIndex + 1);
                     popup.Confirm();
                     Check(true, "map chosen in Single Play's map picker");
+                    if (mustBuy)
+                    {
+                        Go(Step.BuyMap);
+                        return;
+                    }
                 }
                 else Check(true, "no map picker in the scene: the server picks the map");
+                Go(Step.Match);
+                return;
+
+            case Step.BuyMap:
+                if (InStep < 0.5f) return;
+                {
+                    GameObject buyScreen = FindByName("PayScreen");
+                    Button buy = buyScreen != null ? buyScreen.GetComponentsInChildren<Button>(false).FirstOrDefault(b => b.GetComponentInChildren<Text>().text.StartsWith("BUY ")) : null;
+                    Check(buyScreen != null && buyScreen.activeInHierarchy && buy != null, $"a locked map asks to be bought first ('{buy?.GetComponentInChildren<Text>().text}')");
+                    Shot("buy_map");
+                    if (buy == null) { Go(Step.Done); return; }
+                    long before = Net.CoinCents;
+                    mapCoinsBefore = before;
+                    buy.onClick.Invoke();
+                }
                 Go(Step.Match);
                 return;
 
@@ -566,6 +605,9 @@ public static class OnlinePlayTest
                       && Authored("FugitiveBox") == GameTuning.FugitiveSlots && Authored("HunterBox") == GameTuning.HunterSlots,
                       $"lobby screen is back to Single Play's 3 + 5 ({Authored("HunterBox")} + {Authored("FugitiveBox")})");
                 Check(ShopInventory.Loaded, "wallet refreshed from the server after the round");
+                if (mapCoinsBefore >= 0)
+                    Check(!ShopInventory.MapLocked(MapIndex + 1) && mapCoinsBefore - Net.CoinCents >= 50000,
+                          $"the map bought before the match is owned now, paid once ({mapCoinsBefore} -> {Net.CoinCents} cents)");
                 if (Seeker && !Chase && !Pair && !Kills)
                     Check(ShopInventory.SpecialBullets(BulletType.Special2) < stockBeforeRound.Special2,
                           $"special bullets spent in the round are gone from the wallet ({stockBeforeRound.Special2} -> {ShopInventory.SpecialBullets(BulletType.Special2)})");
@@ -688,6 +730,23 @@ public static class OnlinePlayTest
         {
             case 0:
                 Check(!OnlineRound.Active, "no online round is left running before Single Play");
+                // Screens the online checks left open (the shop, the match history) are closed first.
+                ShopUI.CloseOpen();
+                if (FindByName("HistoryScreen") is { activeSelf: true } history) history.SetActive(false);
+                {
+                    // Single Play's map picker: every map free, no ad sign, no lock, no price.
+                    MapSelectPopup picker = MapSelectPopup.Instance;
+                    if (picker != null && picker.Ready)
+                    {
+                        picker.Show(() => { }, () => { });
+                        int badges = Enumerable.Range(2, 4).Count(n => FindByName("Map" + n)?.transform.Find("Image") is { gameObject: { activeSelf: true } });
+                        int prices = Object.FindObjectsByType<Text>(FindObjectsInactive.Exclude).Count(t => t.name == "LockPrice");
+                        Check(badges == 0 && prices == 0 && !Enumerable.Range(0, 5).Any(picker.IsLocked),
+                              $"Single Play: every map is free, with no ad sign, lock or price ({badges} badges, {prices} prices)");
+                        Shot("single_maps");
+                        picker.Back();
+                    }
+                }
                 gmm.ShowMenu();
                 gmm.BeginRound(false);      // Play Now: the player hides, the bots hunt
                 singleBots = manager.Bots.ToList();
@@ -706,6 +765,26 @@ public static class OnlinePlayTest
                 if (InStep < 0.3f) return;
                 seekerStarts = singleBots.Skip(singleBots.Count - GameTuning.HunterSlots).Select(b => b.position).ToList();
                 Check(seek.chasePlayer, "Single Play's seekers hunt the player again after an online round");
+                {
+                    // This test starts the round straight from GameModeManager; with Home still up
+                    // underneath, notices may show (Home is the hub), so they are judged only without it.
+                    bool homeUp = FindByName("HomeCanvas") is { activeInHierarchy: true };
+                    Check(FindByName("Btn_Shop") is not { activeInHierarchy: true } && FindByName("GlobalCoinPill") is not { activeInHierarchy: true }
+                          && (homeUp || (FindByName("MatchesChip") is not { activeInHierarchy: true } && FindByName("Toasts") is not { activeInHierarchy: true })),
+                          $"Single Play shows no Shop button, no coin balance and no match notices (Home up: {homeUp})");
+                }
+                {
+                    GameObject caught = FindByName("CaughtPopup"), timeUp = FindByName("TimeUpPopup");
+                    bool adFree = caught != null && timeUp != null
+                                  && caught.transform.Find("Panel/ActionBtn/Ads") is not { gameObject: { activeSelf: true } }
+                                  && timeUp.transform.Find("Panel/ActionBtn/Ads") is not { gameObject: { activeSelf: true } }
+                                  && caught.transform.Find("Panel/Body")?.GetComponent<Text>().text == "Get one more chance."
+                                  && timeUp.transform.Find("Panel/Body")?.GetComponent<Text>().text == "Get 30 extra seconds.";
+                    Check(adFree, "Revive and +30s carry no ad sign and say they are free");
+                    Check(FindByName("VictoryPopup")?.transform.Find("GoldBtn") is not { gameObject: { activeSelf: true } }
+                          && FindByName("DefeatPopup")?.transform.Find("GoldBtn") is not { gameObject: { activeSelf: true } },
+                          "Single Play's result popup has no X2 Gold or Shop button");
+                }
                 Check(WallsOpen(), "Single Play: a hider can use the walls");
                 singlePlayStage = 2;
                 return;
@@ -717,7 +796,14 @@ public static class OnlinePlayTest
                 bool spotted = (bool)typeof(BotSeekController).GetField("_spotting", Any).GetValue(seek) || gmm.PlayerFrozen;
                 if (InStep < 12f && !spotted) return;
                 Check(singleWalked > 3f || spotted, $"Single Play: the seeker bots hunted (furthest {singleWalked:F0} units, spotted the player: {spotted})");
-                Check(Net.HostedBots.Length == 0, "Single Play sends nothing to the server about its bots");
+                Check(Net == null || Net.HostedBots.Length == 0, "Single Play sends nothing to the server about its bots");
+                {
+                    // Revive (the Caught popup's button) costs nothing now: the round goes back to the grace.
+                    typeof(BotSeekController).GetMethod("RevivePlayer", Any).Invoke(seek, null);
+                    object state = typeof(BotSeekController).GetField("state", Any).GetValue(seek);
+                    Check(state.ToString() == "Grace" && FindByName("CaughtPopup") is not { activeInHierarchy: true },
+                          $"Revive is free: the round starts again from the grace ({state})");
+                }
                 gmm.ShowMenu();
                 OpenPanelsBeforeRound();
                 gmm.BeginRound(true);       // the player seeks, the bots hide
@@ -738,6 +824,14 @@ public static class OnlinePlayTest
             case 3:
                 if (InStep < 3f) return;
                 Check(hide.BotCount > 0 && hide.Active, $"Single Play: the hider bots took their places ({hide.BotCount})");
+                {
+                    // +30s (the Time's Up popup's button) costs nothing now.
+                    FieldInfo seekTimer = typeof(BotHideController).GetField("seekTimer", Any);
+                    float before = (float)seekTimer.GetValue(hide);
+                    typeof(BotHideController).GetMethod("AddSeekTime", Any).Invoke(hide, null);
+                    float after = (float)seekTimer.GetValue(hide);
+                    Check(after - before > 29f, $"+30s is free: 30 more seconds to seek ({before:F0} -> {after:F0})");
+                }
                 Check(WallsOpen(), "Single Play: a seeker can use the walls");
                 Check(FallGuard.Rescues == 0, $"Single Play: nobody fell out of the room ({FallGuard.Rescues} times put back)");
                 gmm.ShowMenu();
@@ -752,6 +846,7 @@ public static class OnlinePlayTest
     private static int matchesFound, matchesAtAgain;
 
     private static bool signedIn, bought, boughtAnswered, submittedName, reboughtAnswered, posesAnswered;
+    private static long mapCoinsBefore = -1;
     private static bool lobbyLaidOut, homeChecked;
 
     // The lobby screen with every seat taken: bots fill a lobby in the same tick the round starts,
@@ -1421,7 +1516,8 @@ public static class OnlinePlayTest
                 if (awayAt == 0f) { awayAt = now + 3f; return; }
                 if (now < awayAt) return;
                 awayMatch = (int)typeof(OnlineRound).GetField("matchId", Any).GetValue(round);
-                Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } pill && pill.GetComponentInChildren<Text>().text.StartsWith("Coins: "),
+                Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } pill && pill.transform.Find("CoinIcon") != null
+                      && pill.transform.Find("CoinText")?.GetComponent<Text>().text == CoinBalance.Text,
                       "the coin balance shows in the round (top right)");
                 Button shop = FindByName("Btn_Shop")?.GetComponent<Button>();
                 Check(shop != null && shop.GetComponentsInChildren<Text>(true).Any(t => t.text == "SHOP"), "the HUD's Ad button is now SHOP");
@@ -1556,6 +1652,14 @@ public static class OnlinePlayTest
             case 21:
                 if (now < awayAt) return;
                 CheckResultsScreen("tapping it opens the full results");
+                awayAt = now + 2.5f;
+                awayStage = 22;
+                return;
+
+            case 22:
+                if (now < awayAt) return;
+                Check(!Net.MyMatches.Any(m => m.MatchId == (uint)awayMatch && m.State == MyMatchState.Ended) && OnlineMatches.AwayCount == 0,
+                      "once its results are viewed the match leaves the matches list");
                 awayStage = 9;
                 Go(Step.Done);
                 return;
@@ -1565,8 +1669,17 @@ public static class OnlinePlayTest
     private static void CheckResultsScreen(string what)
     {
         GameObject screen = FindByName("MatchResultsScreen");
-        int rows = screen != null ? screen.GetComponentsInChildren<Text>(true).Count(t => t.text.StartsWith("#")) : 0;
-        Check(screen != null && screen.activeInHierarchy && rows >= 8, $"{what}: every player's rank, score and coins ({rows} ranked rows)");
+        Text[] texts = screen != null ? screen.GetComponentsInChildren<Text>(true) : new Text[0];
+        List<int> ranks = texts.Where(t => t.text.StartsWith("#")).Select(t => int.TryParse(t.text.Substring(1), out int r) ? r : 0).ToList();
+        Check(screen != null && screen.activeInHierarchy && ranks.Count >= 8, $"{what}: every player's rank, score and coins ({ranks.Count} ranked rows)");
+
+        // One ranking for everyone (no Seekers / Hiders groups), best first; a hider's score is
+        // seconds survived of the seek, a seeker's the hiders caught.
+        bool grouped = texts.Any(t => t.text == "Seekers" || t.text == "Hiders");
+        int hiderScores = texts.Count(t => System.Text.RegularExpressions.Regex.IsMatch(t.text, @"^\d+s / \d+s$"));
+        int seekerScores = texts.Count(t => System.Text.RegularExpressions.Regex.IsMatch(t.text, @"^\d+ Hiders? Caught$"));
+        Check(!grouped && ranks.SequenceEqual(ranks.OrderBy(r => r)) && ranks[0] == 1 && hiderScores == GameTuning.FugitiveSlots && seekerScores == GameTuning.HunterSlots,
+              $"one ranking, best first ({string.Join(",", ranks)}); scores as seconds of the seek ({hiderScores}) and hiders caught ({seekerScores})");
         Shot("results_" + (AwayEndTest ? "away" : "end"));
     }
 
@@ -3181,6 +3294,12 @@ public static class OnlinePlayTest
             Check(!CoinBalance.Known && home != null && home.text == CoinBalance.Unknown, $"with no server in reach Home shows no number ('{home?.text}')");
             Check(Net != null && !Net.IsConnected && !Net.IsInvoking("Connect"), "the game stopped trying to connect");
             Check(noScreens, "and showed no online screen or error");
+            if (SinglePlay)
+            {
+                // Single Play with no server at all (2026-11-13).
+                Go(Step.SinglePlay);
+                return;
+            }
         }
 
         Check(errorsLogged == 0, $"no errors logged ({errorsLogged}{(errors.Count > 0 ? ": " + string.Join(" | ", errors) : "")})");

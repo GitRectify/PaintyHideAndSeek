@@ -110,7 +110,11 @@ public class PoseSelectorUI : MonoBehaviour
     private void RefreshLocks()
     {
         GameController gc = SingletonMonoBehavior<GameController>.Instance;
-        if (gc == null) return;
+        if (gc == null)
+        {
+            RefreshAdBadges(OnlineRound.Active);
+            return;
+        }
 
         GameObject[] locks = { gc.poseReward3, gc.poseReward4, gc.poseReward5, gc.poseReward6,
                                gc.poseReward7, gc.poseReward8, gc.poseReward9 };
@@ -130,6 +134,30 @@ public class PoseSelectorUI : MonoBehaviour
         }
 
         if (!online) offlineLocks = null;
+        RefreshAdBadges(online);
+    }
+
+    // Slots 3-9 carry an "ad3".."ad9" badge, the rewarded-ad sign they were made with (the lock
+    // fields above are not wired in the scene). Ads are gone (2026-11-13): Single Play's poses are
+    // all free, so the badge is hidden there; online it is a lock on a pose this account does not
+    // own, in the shop's lock art.
+    private void RefreshAdBadges(bool online)
+    {
+        if (panelRoot == null) return;
+        Sprite lockSprite = OnlineUI.LockSprite();
+
+        foreach (Transform t in panelRoot.GetComponentsInChildren<Transform>(true))
+        {
+            if (t.name.Length != 3 || !t.name.StartsWith("ad", StringComparison.Ordinal) || !char.IsDigit(t.name[2])) continue;
+            int poseId = t.name[2] - '0';     // ad3 = Slot3 = pose id 3
+            bool locked = online && lockSprite != null && !ShopInventory.OwnsPose(poseId);
+            if (locked && t.GetComponent<Image>() is Image badge)
+            {
+                badge.sprite = lockSprite;
+                badge.preserveAspect = true;
+            }
+            t.gameObject.SetActive(locked);
+        }
     }
 
     // An online pick: only owned poses, and the server is told (it answers in LoadoutState,
