@@ -55,6 +55,16 @@ public class ShopUI : MonoBehaviour
         CoinBalance.Bind(coinText);
         OnlineWallet.MakeOpener(coinText);
 
+        // Keys never move between the shop's buttons (a key meant for the round could press a tab).
+        foreach (UnityEngine.UI.Button button in (root != null ? root : gameObject).GetComponentsInChildren<UnityEngine.UI.Button>(true))
+        {
+            UnityEngine.UI.Navigation none = button.navigation;
+            none.mode = UnityEngine.UI.Navigation.Mode.None;
+            button.navigation = none;
+        }
+
+        StyleToast();
+
         // The cards' lock images carry no picture in the scene (they showed as white squares).
         foreach (UnityEngine.UI.Image image in (root != null ? root : gameObject).GetComponentsInChildren<UnityEngine.UI.Image>(true))
         {
@@ -129,6 +139,11 @@ public class ShopUI : MonoBehaviour
         GameObject shown = root != null ? root : gameObject;
         shown.SetActive(true);
 
+        // The paint panel draws above everything in a round, the shop included: it would sit over
+        // the tabs and take their taps. The shop puts it away (it opens again from its button).
+        ChameleonPaint paint = FindAnyObjectByType<ChameleonPaint>();
+        if (paint != null && paint.DrawingActive) paint.CloseDrawingNow();
+
         _canvas = shown.GetComponent<Canvas>();
         if (_canvas != null)
         {
@@ -172,6 +187,7 @@ public class ShopUI : MonoBehaviour
     public void SelectTab(int index)
     {
         _current = (ShopCategory)index;
+        if (UnityEngine.EventSystems.EventSystem.current != null) UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(null);
 
         for (int i = 0; i < tabBackgrounds.Length; i++)
         {
@@ -203,10 +219,25 @@ public class ShopUI : MonoBehaviour
 
         if (!ShopInventory.IsForSale(item))
         {
-            ShowToast(item.category == ShopCategory.Coins ? "Coin top-ups aren't available yet" : "Coming soon");
+            // The card may be older than the server's list (a refresh still on its way, a list from
+            // before a sign-in): ask again before saying it is not for sale.
+            _busy = true;
+            ShowToast("Checking...");
+            ShopInventory.Refresh(error =>
+            {
+                _busy = false;
+                if (this == null || !isActiveAndEnabled) return;
+                if (ShopInventory.IsForSale(item)) Buy(item);
+                else ShowToast(error ?? (item.category == ShopCategory.Coins ? "Coin top-ups aren't available yet" : "Coming soon"));
+            });
             return;
         }
 
+        Buy(item);
+    }
+
+    private void Buy(ShopItem item)
+    {
         if (item.category == ShopCategory.Coins)
         {
             // Real money: the provider's checkout opens, and PendingTopUp reports the outcome.
@@ -230,7 +261,8 @@ public class ShopUI : MonoBehaviour
             // A bought weapon is carried at once, as the local shop did; an avatar waits for
             // Equip (a tap on its card), which swaps the body.
             if (bought && item.category == ShopCategory.Weapons) ShopInventory.Equip(item);
-            ShowToast(message);
+            RefreshCards();
+            ShowToast(message, bought);
         });
     }
 
@@ -244,19 +276,52 @@ public class ShopUI : MonoBehaviour
 
     private void HandleChanged() => RefreshCards();
 
-    private void ShowToast(string message)
+    private void ShowToast(string message) => ShowToast(message, false);
+
+    // A bought item says so in green, others in the shop's dark; both opaque, in the middle of the
+    // grid and above the cards (2026-11-13: the see-through strip over the buttons went unnoticed).
+    private void ShowToast(string message, bool success)
     {
         if (toastText == null) return;
         if (_toast != null) StopCoroutine(_toast);
-        _toast = StartCoroutine(ToastRoutine(message));
+        if (toastBackground != null) toastBackground.color = success ? new Color(0.13f, 0.58f, 0.27f, 0.98f) : new Color(0.09f, 0.11f, 0.17f, 0.96f);
+        _toast = StartCoroutine(ToastRoutine(message, success ? Mathf.Max(toastSeconds, 2.4f) : toastSeconds));
     }
 
-    private IEnumerator ToastRoutine(string message)
+    private IEnumerator ToastRoutine(string message, float seconds)
     {
         toastText.text = message;
         ToastObject.SetActive(true);
-        yield return new WaitForSecondsRealtime(toastSeconds);
+        ToastObject.transform.SetAsLastSibling();
+        yield return new WaitForSecondsRealtime(seconds);
         ToastObject.SetActive(false);
         _toast = null;
+    }
+
+    private UnityEngine.UI.Image toastBackground;
+
+    private void StyleToast()
+    {
+        GameObject toast = ToastObject;
+        if (toast == null) return;
+        toastBackground = toast.GetComponent<UnityEngine.UI.Image>();
+        if (toastBackground != null)
+        {
+            // Its sprite is a dark, see-through pill that no tint can lighten: a plain panel with an
+            // edge instead, coloured per message.
+            toastBackground.sprite = null;
+            toastBackground.type = UnityEngine.UI.Image.Type.Simple;
+            UnityEngine.UI.Outline edge = toast.GetComponent<UnityEngine.UI.Outline>();
+            if (edge == null) edge = toast.AddComponent<UnityEngine.UI.Outline>();
+            edge.effectColor = new Color(0f, 0f, 0f, 0.55f);
+            edge.effectDistance = new Vector2(3f, -3f);
+        }
+        if (toast.transform is RectTransform rt)
+        {
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(120f, -20f);       // the middle of the card grid
+            rt.sizeDelta = new Vector2(Mathf.Max(rt.sizeDelta.x, 820f), Mathf.Max(rt.sizeDelta.y, 110f));
+        }
+        if (toastText != null) toastText.fontSize = Mathf.Max(toastText.fontSize, 38);
     }
 }

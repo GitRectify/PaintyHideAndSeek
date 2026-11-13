@@ -135,7 +135,32 @@ public static class ShopInventory
     private static bool TryListing(ShopItem item, out MetaItem listed)
     {
         listed = default;
-        return item != null && !string.IsNullOrEmpty(item.serverId) && listing.TryGetValue(item.serverId, out listed);
+        if (item == null || string.IsNullOrEmpty(item.serverId)) return false;     // no server id: not for sale anywhere
+        if (listing.TryGetValue(item.serverId, out listed)) return true;
+
+        // A server whose catalog names the item otherwise still sells the same thing: its kind and
+        // the game's own number say which (2026-11-13: such cards said "Coming soon").
+        if (!KindOf(item.category, out ItemKind kind)) return false;
+        int gameId = kind == ItemKind.Bullets && item.gameId == 0 ? (int)BulletType.Special1 : item.gameId;
+        foreach (MetaItem candidate in listing.Values)
+        {
+            if (candidate.Kind != kind || (int)candidate.GameId != gameId) continue;
+            listed = candidate;
+            return true;
+        }
+        return false;
+    }
+
+    private static bool KindOf(ShopCategory category, out ItemKind kind)
+    {
+        switch (category)
+        {
+            case ShopCategory.Avatars: kind = ItemKind.Avatar; return true;
+            case ShopCategory.Poses: kind = ItemKind.Pose; return true;
+            case ShopCategory.Weapons: kind = ItemKind.Weapon; return true;
+            case ShopCategory.Bullets: kind = ItemKind.Bullets; return true;
+            default: kind = default; return false;
+        }
     }
 
     /// <summary>Bullets this card buys (1 for everything else).</summary>
@@ -471,6 +496,15 @@ public static class ShopInventory
             }
 
             bool bought = receipt.Status == PurchaseStatus.Completed || receipt.Status == PurchaseStatus.AlreadyCompleted;
+
+            // Owned from this moment on every card: the refresh below only confirms it, a round trip later.
+            if ((bought || receipt.Status == PurchaseStatus.AlreadyOwned) && item.category != ShopCategory.Bullets &&
+                listing.TryGetValue(listed.Id, out MetaItem owned))
+            {
+                owned.Owned = true;
+                listing[listed.Id] = owned;
+                Changed?.Invoke();
+            }
 
             // Special bullets just bought are the ones the next online match shoots; the bullet
             // button in the round switches back to default bullets whenever the player likes.

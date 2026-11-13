@@ -106,7 +106,12 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited, Away, BuyMap }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited, Away, BuyMap, ShopTabs }
+
+    // -playtestShopTabs: the shop as a player taps it, from Home: tab after tab (Avatars, then Coins
+    // and Bullets, buying and equipping in between). Every card must be of the tab tapped, and a
+    // purchase must say so, and show on its card, as soon as the server has answered.
+    private static bool ShopTabsTest => System.Environment.GetCommandLineArgs().Contains("-playtestShopTabs");
 
     // -playtestMapsSold: the server sells Room 2-5 (play.py with PLAY_MAPS=1); with -playtestMap N
     // (N >= 1) the test buys that map when it picks it.
@@ -231,6 +236,7 @@ public static class OnlinePlayTest
 
     private static void Advance()
     {
+        WatchRejoin();
         switch (step)
         {
             case Step.WaitPlay:
@@ -328,8 +334,18 @@ public static class OnlinePlayTest
                 }
                 if (!boughtAnswered || (Pair && !posesAnswered) || (SwitchBody && (!avatarAnswered || !profileRefreshed))) return;
 
+                if (ShopTabsTest)
+                {
+                    Go(Step.ShopTabs);
+                    return;
+                }
+
                 OnlineLobby.Open(profile, null);
                 Go(Step.Role);
+                return;
+
+            case Step.ShopTabs:
+                PlayShopTabs();
                 return;
 
             case Step.Role:
@@ -821,9 +837,18 @@ public static class OnlinePlayTest
                 stepStarted = Time.realtimeSinceStartup;
                 return;
 
+            case 4:     // the free camera, panning down from the high place
+                if (!FreeCameraFromHigh(stage: 1)) return;
+                gmm.ShowMenu();
+                Check(!WallsOpen(), "and nobody can from the Home screen");
+                Go(Step.Done);
+                return;
+
             case 3:
                 if (InStep < 3f) return;
                 Check(hide.BotCount > 0 && hide.Active, $"Single Play: the hider bots took their places ({hide.BotCount})");
+                Check(Mathf.Approximately(seek.walkSpeed, 9f * 1.25f) && Mathf.Approximately(hide.walkSpeed, 12f * 1.25f),
+                      $"bots move a quarter faster (seekers {seek.walkSpeed}, hiders {hide.walkSpeed}; were 9 and 12)");
                 {
                     // +30s (the Time's Up popup's button) costs nothing now.
                     FieldInfo seekTimer = typeof(BotHideController).GetField("seekTimer", Any);
@@ -834,11 +859,59 @@ public static class OnlinePlayTest
                 }
                 Check(WallsOpen(), "Single Play: a seeker can use the walls");
                 Check(FallGuard.Rescues == 0, $"Single Play: nobody fell out of the room ({FallGuard.Rescues} times put back)");
+                if (!FreeCameraFromHigh(stage: 0)) { singlePlayStage = 4; stepStarted = Time.realtimeSinceStartup; return; }
                 gmm.ShowMenu();
                 Check(!WallsOpen(), "and nobody can from the Home screen");
                 Go(Step.Done);
                 return;
         }
+    }
+
+    // The free camera with the player up high (on the tallest thing in the room): it must be able to
+    // go down to near the floor. Stage 0 puts the player up there and starts panning down; later
+    // calls keep panning, then judge. False while it is still going.
+    private static float freeCamFloor, freeCamPerch;
+
+    private static bool FreeCameraFromHigh(int stage)
+    {
+        CameraController cam = Object.FindAnyObjectByType<CameraController>();
+        Transform body = PlayerRef.Active;
+        LevelManager levels = LevelManager.Instance;
+        if (cam == null || body == null || levels == null || levels.CurrentRoomInstance == null) return true;
+
+        if (stage == 0)
+        {
+            // The highest surface a player could stand on, at least 4 above the floor under the player.
+            if (!Physics.Raycast(body.position + Vector3.up, Vector3.down, out RaycastHit floorHit, 50f)) return true;
+            freeCamFloor = floorHit.point.y;
+            Collider perch = levels.CurrentRoomInstance.GetComponentsInChildren<Collider>()
+                .Where(c => !c.isTrigger && c.bounds.max.y > freeCamFloor + 4f && c.bounds.max.y < freeCamFloor + 25f
+                            && c.bounds.size.x > 1.5f && c.bounds.size.z > 1.5f && c.bounds.size.y < 25f)
+                .OrderByDescending(c => c.bounds.max.y).FirstOrDefault();
+            if (perch == null) { report.Add("INFO  no high place in this room for the free camera test"); return true; }
+
+            freeCamPerch = perch.bounds.max.y;
+            CharacterController cc = body.GetComponent<CharacterController>();
+            if (cc != null) cc.enabled = false;
+            body.position = new Vector3(perch.bounds.center.x, freeCamPerch + 0.1f, perch.bounds.center.z);
+            if (cc != null) cc.enabled = true;
+
+            cam.SetFreeLook(false);
+            cam.SetFreeLook(true);
+            typeof(CameraController).GetField("pitch", Any)?.SetValue(cam, cam.GetType().GetField("maxPitch", Any)?.GetValue(cam));   // looking down
+            return false;
+        }
+
+        cam.PanFree(Vector2.up, Time.unscaledDeltaTime);     // forward = down, while looking down
+        if (InStep < 4f) return false;
+
+        float floorSeen = (float)typeof(CameraController).GetField("_scoutFloorY", Any).GetValue(cam);
+        Vector3 pivot = (Vector3)typeof(CameraController).GetField("_freePivot", Any).GetValue(cam);
+        Check(floorSeen < freeCamPerch - 3f && pivot.y < freeCamPerch - 3f,
+              $"the free camera goes down from a high place (perch {freeCamPerch:F1}, floor {freeCamFloor:F1}; it took the floor as {floorSeen:F1} and got down to {pivot.y:F1})");
+        Shot("free_cam_down");
+        cam.SetFreeLook(false);
+        return true;
     }
 
     // -playtestAgain: ask for another match after the first (the path every returning player takes).
@@ -1522,6 +1595,7 @@ public static class OnlinePlayTest
                 Button shop = FindByName("Btn_Shop")?.GetComponent<Button>();
                 Check(shop != null && shop.GetComponentsInChildren<Text>(true).Any(t => t.text == "SHOP"), "the HUD's Ad button is now SHOP");
                 Shot("hud_shop");
+                if (!Seeker) Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include)?.OpenDrawing();   // painting when the shop opens
                 if (shop != null) TapAt(shop);
                 awayAt = now + 1.5f;
                 awayStage = 1;
@@ -1533,6 +1607,9 @@ public static class OnlinePlayTest
                 Canvas shopCanvas = shopUi != null ? shopUi.GetComponentInParent<Canvas>(true) : null;
                 Check(shopUi != null && shopUi.gameObject.activeInHierarchy && shopCanvas != null && shopCanvas.sortingOrder > 39,
                       $"it opens the shop over the round (canvas order {(shopCanvas != null ? shopCanvas.sortingOrder : -1)})");
+                if (!Seeker)
+                    Check(Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include) is { DrawingActive: false },
+                          "the paint panel, open when the shop opened, is put away (it would cover the shop's tabs)");
                 Shot("shop_in_round");
                 shopUi?.Close();
                 Check(FindByName("HomeCanvas") is not { activeInHierarchy: true } && OnlineRound.Active, "closing it goes back to the round, not Home");
@@ -1615,6 +1692,8 @@ public static class OnlinePlayTest
                 Check(rejoin != null, "the matches list has the match, with REJOIN");
                 Shot("my_matches");
                 rejoin?.onClick.Invoke();
+                rejoinWatchFrom = now;
+                rejoinCoveredAtTap = FindByName("LoadingCanvas") is { activeInHierarchy: true };
                 awayAt = now + 4f;
                 awayStage = 6;
                 return;
@@ -3251,6 +3330,232 @@ public static class OnlinePlayTest
             hostAssignments++;
             hostingBeganLate |= bots.All(b => b.SpawnIndex == Snapshot.NoSpawn);
         };
+    }
+
+    // ================= Rejoin: never the wrong scene =================
+
+    private static float rejoinWatchFrom = -1f;
+    private static bool rejoinCoveredAtTap;
+    private static int rejoinExposedFrames, rejoinWatchFrames;
+
+    // From the REJOIN tap until the rejoined round is settled (its room loaded, this player placed
+    // by the server), every frame must be under the loading screen; then it must come down.
+    private static void WatchRejoin()
+    {
+        if (rejoinWatchFrom < 0f) return;
+        float now = Time.realtimeSinceStartup;
+        OnlineRound round = OnlineRoundInstance();
+        bool settled = OnlineRound.Active && round != null && round.IsSettled;
+        bool covered = FindByName("LoadingCanvas") is { activeInHierarchy: true };
+        rejoinWatchFrames++;
+        if (!settled && !covered) rejoinExposedFrames++;
+
+        if (settled && !covered)
+        {
+            rejoinWatchFrom = -1f;
+            LevelManager levels = LevelManager.Instance;
+            Check(rejoinCoveredAtTap && rejoinExposedFrames == 0,
+                  $"rejoining shows the loading screen from the tap until the match is ready ({rejoinExposedFrames} of {rejoinWatchFrames} frames uncovered, covered at the tap: {rejoinCoveredAtTap})");
+            string matchRoom = typeof(OnlineRound).GetField("roomName", Any)?.GetValue(round) as string;
+            Check(levels != null && levels.CurrentRoomName == matchRoom && Net.PositionPlacements > 0,
+                  $"and when it goes, the match's own room is up and the player is where the server has them ({levels?.CurrentRoomName} / {matchRoom}, {Net.PositionPlacements} placements)");
+        }
+        else if (now - rejoinWatchFrom > 20f)
+        {
+            rejoinWatchFrom = -1f;
+            Check(false, $"the rejoined round settled within 20 s (settled {settled}, covered {covered})");
+        }
+    }
+
+    // ================= -playtestShopTabs: the shop's tabs and purchases, tapped =================
+
+    private static int shopStage;
+    private static float shopAt;
+    private static int tabMismatches, comingSoonToasts;
+    private static readonly List<string> tabProblems = new List<string>();
+    private static string purchaseCard;
+    private static float purchaseTappedAt;
+
+    private static ShopUI ShopScreen => Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+
+    private static Button ShopTab(ShopCategory category)
+    {
+        Button[] tabs = Get<Button[]>(ShopScreen, "tabButtons");
+        return tabs != null && (int)category < tabs.Length ? tabs[(int)category] : null;
+    }
+
+    private static string ShopToast()
+    {
+        Text toast = Get<Text>(ShopScreen, "toastText");
+        return toast != null && toast.gameObject.activeInHierarchy ? toast.text : "";
+    }
+
+    private static IEnumerable<ShopItemCard> ShownCards() =>
+        Object.FindObjectsByType<ShopItemCard>(FindObjectsInactive.Exclude).Where(c => c.Item != null);
+
+    private static string CardAction(ShopItemCard card) =>
+        card.GetComponentsInChildren<Text>(false).FirstOrDefault(t => t.name == "Label" && t.transform.parent != null && t.transform.parent.name == "Content")?.text ?? "";
+
+    // Every card shown is of this tab, its name is the one on it, and this tab is the one lit.
+    private static void VerifyTab(ShopCategory category, string when)
+    {
+        ShopUI shop = ShopScreen;
+        Image[] backgrounds = Get<Image[]>(shop, "tabBackgrounds");
+        Sprite active = shop.GetType().GetField("tabActiveSprite", Any)?.GetValue(shop) as Sprite;
+        var problems = new List<string>();
+        foreach (ShopItemCard card in ShownCards())
+        {
+            if (card.Item.category != category) problems.Add($"{card.name} holds {card.Item.category} '{card.Item.displayName}'");
+            if (category == ShopCategory.Coins) continue;
+            Text[] labels = card.GetComponentsInChildren<Text>(false).Where(t => t.name == "TopLabel" || t.name == "BottomLabel").ToArray();
+            if (!labels.Any(t => t.text == card.Item.displayName)) problems.Add($"{card.name} reads '{string.Join("/", labels.Select(t => t.text))}' for '{card.Item.displayName}'");
+        }
+        if (backgrounds != null && active != null)
+        {
+            for (int i = 0; i < backgrounds.Length; i++)
+                if (backgrounds[i] != null && (backgrounds[i].sprite == active) != (i == (int)category)) problems.Add($"tab {i} lit wrongly");
+        }
+        int shown = ShownCards().Count();
+        if (shown == 0) problems.Add("no cards");
+        if (problems.Count > 0) { tabMismatches++; tabProblems.Add($"{when}: {string.Join("; ", problems)}"); }
+    }
+
+    private static ShopItemCard CardFor(string serverId) => ShownCards().FirstOrDefault(c => c.Item.serverId == serverId);
+
+    private static void PlayShopTabs()
+    {
+        float now = Time.realtimeSinceStartup;
+        if (now < shopAt) return;
+        ShopUI shop = ShopScreen;
+
+        // A "Coming soon" toast on a card that was for sale is the bug this looks for.
+        if (ShopToast() == "Coming soon") comingSoonToasts++;
+
+        switch (shopStage)
+        {
+            case 0:     // Home's Shop button, as a finger taps it
+                Button homeShop = FindByName("HomeCanvas")?.GetComponentsInChildren<Button>(false)
+                    .FirstOrDefault(b => b.GetComponentsInChildren<Text>(true).Any(t => t.text == "Shop"));
+                Check(homeShop != null && TapAt(homeShop) != null, "Home's Shop button is tapped");
+                shopAt = now + 2f;
+                shopStage = 1;
+                return;
+
+            case 1:
+                Check(shop != null && Get<GameObject>(shop, "root") is { activeInHierarchy: true }, "the shop opens");
+                TapAt(ShopTab(ShopCategory.Avatars));
+                shopAt = now + 0.5f;
+                shopStage = 2;
+                return;
+
+            case 2:
+                VerifyTab(ShopCategory.Avatars, "Avatars");
+                TapAt(ShopTab(ShopCategory.Coins));
+                shopAt = now + 0.5f;
+                shopStage = 3;
+                return;
+
+            case 3:
+                VerifyTab(ShopCategory.Coins, "Coins after Avatars");
+                TapAt(ShopTab(ShopCategory.Bullets));
+                shopAt = now + 0.5f;
+                shopStage = 4;
+                return;
+
+            case 4:
+                VerifyTab(ShopCategory.Bullets, "Bullets after Coins");
+                {
+                    // Buy a pack of special bullet 2: a tap on its card's button.
+                    ShopItemCard card = CardFor("bullets-2");
+                    purchaseCard = "bullets-2";
+                    purchaseTappedAt = now;
+                    Button buy = card != null ? card.GetComponentsInChildren<Button>(false).FirstOrDefault() : null;
+                    Check(buy != null && buy.interactable && TapAt(buy) != null, $"a special bullet 2 pack is for sale and tapped ({(card != null ? CardAction(card) : "no card")})");
+                }
+                shopAt = now + 0.05f;
+                shopStage = 5;
+                return;
+
+            case 5:     // the confirmation, as soon as the server answers
+                {
+                    string toast = ShopToast();
+                    bool confirmed = toast.StartsWith("+");
+                    if (!confirmed && now - purchaseTappedAt < 3f) return;
+                    Check(confirmed && now - purchaseTappedAt < 1.5f, $"the purchase says so at once ('{toast}' after {(now - purchaseTappedAt) * 1000f:F0} ms)");
+                    Image banner = Get<Image>(ShopScreen, "toastBackground");
+                    Check(banner != null && banner.color.a > 0.9f && banner.color.g > banner.color.r && banner.transform.GetSiblingIndex() == banner.transform.parent.childCount - 1,
+                          $"as an opaque green banner over the cards ({(banner != null ? banner.color.ToString() : "none")})");
+                    ShopItemCard card = CardFor(purchaseCard);
+                    string ribbon = card != null ? card.GetComponentsInChildren<Text>(false).Select(t => t.text).FirstOrDefault(t => t.StartsWith("Own ")) : null;
+                    Check(ribbon != null && ribbon == $"Own {ShopInventory.SpecialBullets(BulletType.Special2)}",
+                          $"and its card shows the new count with it ('{ribbon}', {ShopInventory.SpecialBullets(BulletType.Special2)})");
+                    Shot("shop_bought");
+                }
+                TapAt(ShopTab(ShopCategory.Avatars));
+                shopAt = now + 0.5f;
+                shopStage = 6;
+                return;
+
+            case 6:
+                VerifyTab(ShopCategory.Avatars, "Avatars after buying bullets");
+                {
+                    // Buy the second character, then equip it: two taps on its card.
+                    ShopItemCard card = ShownCards().FirstOrDefault(c => c.Item.gameId == 1 && !string.IsNullOrEmpty(c.Item.serverId));
+                    purchaseCard = card?.Item.serverId;
+                    purchaseTappedAt = now;
+                    Button buy = card != null ? card.GetComponentsInChildren<Button>(false).FirstOrDefault() : null;
+                    Check(buy != null && buy.interactable && TapAt(buy) != null, $"the second character is for sale and tapped ({(card != null ? CardAction(card) : "no card")})");
+                }
+                shopAt = now + 0.05f;
+                shopStage = 7;
+                return;
+
+            case 7:
+                {
+                    string toast = ShopToast();
+                    bool confirmed = toast.EndsWith("unlocked!");
+                    if (!confirmed && now - purchaseTappedAt < 3f) return;
+                    ShopItemCard card = CardFor(purchaseCard);
+                    Check(confirmed && now - purchaseTappedAt < 1.5f && card != null && CardAction(card) == "Equip",
+                          $"buying a character says so at once and its card offers Equip ('{toast}', '{(card != null ? CardAction(card) : "-")}', {(now - purchaseTappedAt) * 1000f:F0} ms)");
+                    TapAt(card?.GetComponentsInChildren<Button>(false).FirstOrDefault());
+                }
+                shopAt = now + 0.6f;
+                shopStage = 8;
+                return;
+
+            case 8:
+                Check(ShopToast().EndsWith("equipped"), $"Equip says so ('{ShopToast()}')");
+                TapAt(ShopTab(ShopCategory.Coins));
+                shopAt = now + 0.4f;
+                shopStage = 9;
+                return;
+
+            case 9:
+                VerifyTab(ShopCategory.Coins, "Coins after equipping");
+                TapAt(ShopTab(ShopCategory.Bullets));
+                shopAt = now + 0.4f;
+                shopStage = 10;
+                return;
+
+            case 10:
+                VerifyTab(ShopCategory.Bullets, "Bullets after Coins again");
+                // Quick taps, one frame each, ending on Coins.
+                foreach (ShopCategory c in new[] { ShopCategory.Poses, ShopCategory.Extras, ShopCategory.Avatars, ShopCategory.Weapons, ShopCategory.Coins })
+                    TapAt(ShopTab(c));
+                shopAt = now + 0.4f;
+                shopStage = 11;
+                return;
+
+            case 11:
+                VerifyTab(ShopCategory.Coins, "Coins after quick taps");
+                Shot("shop_coins");
+                Check(tabMismatches == 0, $"every tab shows its own cards ({(tabProblems.Count == 0 ? "all right" : string.Join(" | ", tabProblems))})");
+                Check(comingSoonToasts == 0, $"no 'Coming soon' for an item on sale ({comingSoonToasts})");
+                shop.Close();
+                Go(Step.Done);
+                return;
+        }
     }
 
     // ================= -playtestQuiet: the balance at launch, with nothing tapped =================

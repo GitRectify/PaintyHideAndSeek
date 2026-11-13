@@ -93,6 +93,10 @@ public class OnlineLobby : MonoBehaviour
 
     private void StartRejoinTo(uint matchId)
     {
+        // Nothing of another match (or Home) is seen on the way back in: the loading screen is up
+        // from the tap until that match's room and this player's place in it are (2026-11-13).
+        ShopUI.CloseOpen();
+        if (Net != null && !string.IsNullOrEmpty(Net.SessionToken)) HoldLoadingUntilRejoined((int)matchId);
         if (OnlineRound.Active) round.End();
         flowVersion++;
         onClosed = null;
@@ -111,6 +115,7 @@ public class OnlineLobby : MonoBehaviour
         {
             profile = signedIn;
             if (version != flowVersion || step != Step.Rejoin) return;
+            HoldLoadingUntilRejoined((int)matchId);
             rejoinDeadline = Time.unscaledTime + 8f;
             Net.RejoinMatch(matchId);
         }, () =>
@@ -243,6 +248,7 @@ public class OnlineLobby : MonoBehaviour
 
     private void EndWithNotice(string message)
     {
+        LoadingScreen.Release();
         if (OnlineRound.Active) round.End();
         GoHome();
         ShowNotice(message);
@@ -274,6 +280,7 @@ public class OnlineLobby : MonoBehaviour
     private void StartRejoin()
     {
         AudioManager.ButtonTap();
+        if (Net != null && !string.IsNullOrEmpty(Net.SessionToken)) HoldLoadingUntilRejoined(-1);
         flowVersion++;
         onClosed = null;
         pendingLobby = null;
@@ -288,7 +295,9 @@ public class OnlineLobby : MonoBehaviour
         OnlineSignIn.Open(signedIn =>
         {
             profile = signedIn;
-            if (version == flowVersion && step == Step.Rejoin) rejoinDeadline = Time.unscaledTime + rejoinWaitSeconds;
+            if (version != flowVersion || step != Step.Rejoin) return;
+            HoldLoadingUntilRejoined(-1);
+            rejoinDeadline = Time.unscaledTime + rejoinWaitSeconds;
         }, () =>
         {
             if (version != flowVersion || step != Step.Rejoin) return;
@@ -299,9 +308,19 @@ public class OnlineLobby : MonoBehaviour
 
     // The held seat, back: into the round at whatever point it has reached. A match still in its
     // lobby shows the map frozen until MatchStart, which begins the round again as usual.
+    // The loading screen until the rejoined round is settled (its room loaded, this player placed
+    // by the server); -1 is whichever match the held seat turns out to be. A failed rejoin takes it
+    // down (EndWithNotice, GoHome); 15 s at most whatever happens.
+    private void HoldLoadingUntilRejoined(int matchId)
+    {
+        LoadingScreen.Hold(() => OnlineRound.Active && (matchId < 0 || round.MatchId == matchId) && round.IsSettled, 0.6f, 15f);
+    }
+
     private void EnterRejoinedMatch(MecchaNetClient.MatchFoundInfo info)
     {
         rejoinDeadline = 0f;
+        ShopUI.CloseOpen();
+        HoldLoadingUntilRejoined(info.MatchId);   // the seat can come back before the sign-in callback
         step = Step.Match;
         mapName = info.RoomName ?? "";
         HideScreens();
@@ -313,6 +332,7 @@ public class OnlineLobby : MonoBehaviour
     {
         AudioManager.ButtonTap();
         flowVersion++;
+        LoadingScreen.Release();
 
         // Leaves the queue or match, which also cancels the automatic re-queue a free room makes
         // when a match ends.

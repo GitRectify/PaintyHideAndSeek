@@ -611,21 +611,27 @@ public class CameraController : MonoBehaviour
         }
     }
 
-    // Floor = first non-character hit straight down (from 2 above the character, 80 range);
-    // roof = highest non-character hit straight up from the floor, if more than 5 above it.
-    // Defaults: character Y and Y + 60.
+    // Floor = the LOWEST non-character surface straight down from the character, never below the
+    // room: a hider up on a shelf or a wall used to give the shelf as the floor, and the camera
+    // could not go down from there (2026-11-13). Roof = highest non-character hit straight up from
+    // the floor, if more than 5 above it. Defaults: the room's bottom (or character Y) and Y + 60.
     private void CacheScoutBounds()
     {
         _scoutFloorY = character != null ? character.position.y : 0f;
         _scoutRoofY = _scoutFloorY + 60f;
         if (character == null) return;
 
+        Bounds? room = RoomBounds();
         Vector3 p = character.position;
-        if (Physics.Raycast(p + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 80f)
-            && hit.collider.GetComponentInParent<Animator>() == null)
+        float lowest = float.MaxValue;
+        foreach (RaycastHit hit in Physics.RaycastAll(p + Vector3.up * 2f, Vector3.down, 300f, ~0, QueryTriggerInteraction.Ignore))
         {
-            _scoutFloorY = hit.point.y;
+            if (hit.collider.GetComponentInParent<Animator>() != null) continue;
+            if (room != null && hit.point.y < room.Value.min.y - 1f) continue;    // under the room: a safety net, not a floor
+            lowest = Mathf.Min(lowest, hit.point.y);
         }
+        if (lowest < float.MaxValue) _scoutFloorY = lowest;
+        else if (room != null) _scoutFloorY = Mathf.Min(_scoutFloorY, room.Value.min.y);
 
         p.y = _scoutFloorY + 1f;
         RaycastHit[] hits = Physics.RaycastAll(p, Vector3.up, 300f);
@@ -641,6 +647,22 @@ public class CameraController : MonoBehaviour
         {
             _scoutRoofY = roof;
         }
+    }
+
+    // The loaded room's extent, from its renderers; null when there is no room.
+    private static Bounds? RoomBounds()
+    {
+        LevelManager levels = LevelManager.Instance;
+        GameObject room = levels != null ? levels.CurrentRoomInstance : null;
+        if (room == null) return null;
+
+        Bounds? all = null;
+        foreach (Renderer r in room.GetComponentsInChildren<Renderer>())
+        {
+            if (all == null) all = r.bounds;
+            else { Bounds b = all.Value; b.Encapsulate(r.bounds); all = b; }
+        }
+        return all;
     }
 
     public void ToggleFreeLook()

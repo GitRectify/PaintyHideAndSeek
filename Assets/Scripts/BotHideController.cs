@@ -211,8 +211,13 @@ public class BotHideController : MonoBehaviour
         }
     }
 
+    [Tooltip("Hider bots walk this much faster than walkSpeed says (2026-11-13: they were too slow). Applied once at start.")]
+    public float speedBoost = 1.25f;
+
     private void Start()
     {
+        walkSpeed *= speedBoost;
+
         botMgr = Object.FindAnyObjectByType<BotManager>();
         gmm = Object.FindAnyObjectByType<GameModeManager>();
         resultUI = Object.FindAnyObjectByType<HideModeResultUI>();

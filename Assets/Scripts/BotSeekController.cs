@@ -447,8 +447,14 @@ public class BotSeekController : MonoBehaviour
         ComputeFloorY();
     }
 
+    [Tooltip("Seeker bots walk and climb this much faster than walkSpeed / botClimbSpeed say (2026-11-13: they were too slow). Applied once at start.")]
+    public float speedBoost = 1.25f;
+
     private void Start()
     {
+        walkSpeed *= speedBoost;
+        botClimbSpeed *= speedBoost;
+
         font = UIFont.Default;
         ResolveBots();
         ComputeFloorY();

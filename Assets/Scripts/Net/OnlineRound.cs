@@ -219,11 +219,35 @@ public partial class OnlineRound : MonoBehaviour
     /// Sets the scene up for the match the server just started. Safe to call again for the next
     /// match (a free room re-queues).
     /// </summary>
+    private string roomName = "";
+
+    /// <summary>The match on screen, or -1.</summary>
+    public int MatchId => active ? matchId : -1;
+
+    /// <summary>
+    /// Everything on screen belongs to this match: its room is the one loaded, and this player
+    /// stands where the server has them (the first placement has been followed). A match already
+    /// over counts as settled once its result is up.
+    /// </summary>
+    public bool IsSettled
+    {
+        get
+        {
+            if (!active || Net == null || !Net.InMatch) return false;
+            if (resultShown) return true;
+            LevelManager levels = LevelManager.Instance;
+            bool roomUp = levels != null && levels.CurrentRoomInstance != null &&
+                          (string.IsNullOrEmpty(roomName) || levels.CurrentRoomName == roomName);
+            return roomUp && Net.PositionPlacements > 0;
+        }
+    }
+
     public void Begin(OnlineLobby owner, string mapName, MecchaNetClient.RosterEntry[] entries, int id)
     {
         if (active) End();
 
         lobby = owner;
+        roomName = mapName ?? "";
         gmm = FindAnyObjectByType<GameModeManager>();
         home = FindAnyObjectByType<HomeUI>();
         results = FindAnyObjectByType<HideModeResultUI>();

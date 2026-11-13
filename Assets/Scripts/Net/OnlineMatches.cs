@@ -169,7 +169,8 @@ public class OnlineMatches : MonoBehaviour
         Hook();
         UpdateModeObjects();
         bool quiet = InSinglePlay;
-        if (toastStack.gameObject.activeSelf == quiet) toastStack.gameObject.SetActive(!quiet);
+        bool hideToasts = quiet || LoadingScreen.Holding;
+        if (toastStack.gameObject.activeSelf == hideToasts) toastStack.gameObject.SetActive(!hideToasts);
 
         // Nothing is asked of the server during Single Play.
         if (!quiet && Net != null && Net.IsConnected && !string.IsNullOrEmpty(Net.SessionToken) && Time.unscaledTime >= nextPollAt)

@@ -68,6 +68,113 @@ public class LoadingScreen : MonoBehaviour
         Instance.ShowInstantInternal();
     }
 
+    // ---- Held until ready (2026-11-13: rejoining a match) ----
+    //
+    // Up at once and above everything (the paint panel included), the bar creeping towards full,
+    // until ready() says the scene behind it is the right one; at least minSeconds so it does not
+    // flash, at most maxSeconds so nothing can keep it up for good. Shown whatever LoadingShow
+    // says: it hides a scene that must not be seen yet.
+
+    private const int HoldSortingOrder = 85;
+    private Func<bool> holdReady;
+    private Action holdDone;
+    private Canvas holdCanvas;
+    private int holdCanvasOrder;
+
+    /// <summary>True while a held loading screen is up.</summary>
+    public static bool Holding => _instance != null && _instance.holdReady != null;
+
+    public static void Hold(Func<bool> ready, float minSeconds, float maxSeconds, Action onComplete = null)
+    {
+        Instance.HoldInternal(ready, minSeconds, maxSeconds, onComplete);
+    }
+
+    /// <summary>Takes a held loading screen down now (what it waited for will not come).</summary>
+    public static void Release()
+    {
+        if (_instance != null) _instance.ReleaseHold(false);
+    }
+
+    private void HoldInternal(Func<bool> ready, float minSeconds, float maxSeconds, Action onComplete)
+    {
+        Resolve();
+        if (canvasGO == null || ready == null)
+        {
+            onComplete?.Invoke();
+            return;
+        }
+
+        if (holdReady != null)
+        {
+            // Already up: wait for this instead.
+            holdReady = ready;
+            holdDone = onComplete;
+            return;
+        }
+
+        if (running != null)
+        {
+            StopCoroutine(running);
+            running = null;
+        }
+
+        holdReady = ready;
+        holdDone = onComplete;
+        holdCanvas = canvasGO.GetComponent<Canvas>();
+        if (holdCanvas != null)
+        {
+            holdCanvasOrder = holdCanvas.sortingOrder;
+            holdCanvas.sortingOrder = HoldSortingOrder;
+        }
+        canvasGO.SetActive(true);
+        canvasGO.transform.SetAsLastSibling();
+        running = StartCoroutine(HoldRoutine(Mathf.Max(0f, minSeconds), Mathf.Max(minSeconds, maxSeconds)));
+    }
+
+    private IEnumerator HoldRoutine(float minSeconds, float maxSeconds)
+    {
+        if (fill != null) fill.fillAmount = 0f;
+        float t = 0f;
+        while (true)
+        {
+            t += Time.unscaledDeltaTime;
+            bool ready;
+            try { ready = holdReady != null && holdReady(); }
+            catch (Exception e) { Debug.LogException(e); ready = true; }
+
+            if ((ready && t >= minSeconds) || t >= maxSeconds)
+            {
+                if (!ready) Debug.LogWarning("[Loading] Held for " + maxSeconds + " s without the scene becoming ready; shown anyway.");
+                break;
+            }
+            if (fill != null) fill.fillAmount = 0.9f * (1f - Mathf.Exp(-t / 1.5f));
+            yield return null;
+        }
+
+        if (fill != null) fill.fillAmount = 1f;
+        yield return null;
+        running = null;
+        ReleaseHold(true);
+    }
+
+    private void ReleaseHold(bool complete)
+    {
+        if (holdReady == null) return;
+        if (running != null)
+        {
+            StopCoroutine(running);
+            running = null;
+        }
+
+        Action done = complete ? holdDone : null;
+        holdReady = null;
+        holdDone = null;
+        if (canvasGO != null) canvasGO.SetActive(false);
+        if (holdCanvas != null) holdCanvas.sortingOrder = holdCanvasOrder;
+        holdCanvas = null;
+        done?.Invoke();
+    }
+
     // CONFIRMED: the branch reads RootManager+0x58, which dump.cs names `public bool LoadingShow`
     // (a Firebase Remote Config flag). false = just hide the canvas and call onComplete
     // immediately; true = show the MREC ad and animate the fill bar via FillRoutine before calling
@@ -82,6 +189,13 @@ public class LoadingScreen : MonoBehaviour
     // raw's goto exactly.
     public void Show(float seconds, Action onComplete)
     {
+        if (holdReady != null)
+        {
+            // Held already (a rejoin): that one comes down when the scene is ready.
+            onComplete?.Invoke();
+            return;
+        }
+
         RootManager root = RootManager.Instance;
         if (root == null)
         {
