@@ -233,14 +233,21 @@ public class OnlineLobby : MonoBehaviour
         if (step == Step.Searching && room.Id != null) Net.FindMatch(role, room.Id, ModelId(), chosenMap);
     }
 
-    // The SDK does not reconnect after this one: another device has the account now.
+    // The SDK does not reconnect after these: another device has the account now, or the operators
+    // disconnected or suspended the player from the admin panel (the server keeps a kicked player's
+    // seat, as for any lost connection, so Rejoin can still take them back to it).
     private void HandleRejected(string reason)
     {
-        if (reason != NetTuning.SignedInElsewhereReason) return;
+        bool elsewhere = reason == NetTuning.SignedInElsewhereReason;
+        bool suspended = reason.StartsWith(OnlineSignIn.SuspendedPrefix, System.StringComparison.Ordinal);
+        bool kicked = reason == OnlineSignIn.DisconnectedByOperatorsReason;
+        if (!elsewhere && !suspended && !kicked) return;
         if (step == Step.Idle && !OnlineRound.Active) return;
 
-        OnlineRejoin.Clear();
-        EndWithNotice("You signed in on another device, so you left the match here.");
+        if (!kicked) OnlineRejoin.Clear();
+        EndWithNotice(elsewhere ? "You signed in on another device, so you left the match here."
+                    : suspended ? reason
+                    : "You were disconnected by the game's operators.");
     }
 
     /// <summary>Ends the round (when one is on screen), goes home and says why.</summary>

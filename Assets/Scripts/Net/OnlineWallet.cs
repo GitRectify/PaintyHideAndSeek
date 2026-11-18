@@ -591,6 +591,7 @@ public class OnlineWallet : MonoBehaviour
             case "payout": return "Match payout";
             case "refund": return "Entry fee refunded";
             case "forfeit": return "Entry fee forfeited";
+            case "admin": return t.AmountCents >= 0 ? "Added by support" : "Taken by support";
             default: return string.IsNullOrEmpty(t.Kind) ? "Coins moved" : t.Kind;
         }
     }

@@ -181,6 +181,12 @@ public class OnlineSignIn : MonoBehaviour
         if (step == Step.Connecting) LoadProfile();
     }
 
+    /// <summary>How the server's refusal of a suspended account starts ("Account suspended until ... UTC.").</summary>
+    public const string SuspendedPrefix = "Account suspended";
+
+    /// <summary>What the server says when an operator disconnects a player from the admin panel.</summary>
+    public const string DisconnectedByOperatorsReason = "Disconnected by the operators.";
+
     // Player-facing texts from the SDK reference (MecchaNetClient.OnRejected).
     private void HandleRejected(string reason)
     {
@@ -203,6 +209,11 @@ public class OnlineSignIn : MonoBehaviour
         else if (reason.StartsWith("protocol", StringComparison.Ordinal))
         {
             Fail("Please update the app.");
+        }
+        else if (reason.StartsWith(SuspendedPrefix, StringComparison.Ordinal))
+        {
+            // Suspended from the admin panel: the server's text already says until when.
+            Fail(reason);
         }
         else
         {
