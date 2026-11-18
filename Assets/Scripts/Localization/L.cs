@@ -68,6 +68,20 @@ public static class L
         }
     }
 
+    /// <summary>
+    /// The language's code as the server knows it (en, zh, ru): sent at sign-in so the admin panel
+    /// shows which language a player's game is in.
+    /// </summary>
+    public static string Code(GameLanguage language)
+    {
+        switch (language)
+        {
+            case GameLanguage.Chinese: return "zh";
+            case GameLanguage.Russian: return "ru";
+            default: return "en";
+        }
+    }
+
     /// <summary>Whether the language needs letters a Latin-only font lacks.</summary>
     public static bool NeedsWideFont(GameLanguage language) => language != GameLanguage.English;
 

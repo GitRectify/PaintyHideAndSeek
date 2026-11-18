@@ -83,6 +83,11 @@ public static class NetBootstrap
         MetaClient meta = go.AddComponent<MetaClient>();
         meta.Configure(config.metaPort, config.metaTls, config.metaThumbprint);
 
+        // The game's language goes with each sign-in, for the admin panel (SDK 0.9.5); a change
+        // in Settings reaches the server at the next one.
+        meta.Language = L.Code(L.Current);
+        L.Changed += () => { if (meta != null) meta.Language = L.Code(L.Current); };
+
         Debug.Log($"[Online] Server {config.host} (UDP {config.port}, WS {config.webSocketPort}, meta {config.metaPort})");
         return net;
     }

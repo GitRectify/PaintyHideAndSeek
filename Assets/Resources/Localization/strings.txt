@@ -420,3 +420,10 @@ Room 2	房间 2	Комната 2
 Room 3	房间 3	Комната 3
 Room 4	房间 4	Комната 4
 Room 5	房间 5	Комната 5
+You were disconnected by the game's operators.	你已被游戏运营人员断开连接。	Вас отключили администраторы игры.
+Disconnected by the operators.	已被运营人员断开连接。	Отключено администраторами.
+Account suspended until {0} UTC.	账号已被封禁，至 {0} UTC 解除。	Аккаунт заблокирован до {0} UTC.
+Account suspended.	账号已被封禁。	Аккаунт заблокирован.
+Account suspended	账号已被封禁	Аккаунт заблокирован
+Added by support	客服补发	Начислено поддержкой
+Taken by support	客服扣除	Списано поддержкой
