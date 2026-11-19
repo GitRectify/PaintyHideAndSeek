@@ -319,6 +319,7 @@ public class JoystickMover : MonoBehaviour
                 _vy = -2f;
             }
             _vy -= dt * gravity;
+            FitStepUnderOverhangs(horizVel, dt);
             cc.Move((horizVel + Vector3.up * _vy) * dt);
             return;
         }
@@ -327,6 +328,67 @@ public class JoystickMover : MonoBehaviour
             character.position += horizVel * Time.deltaTime;
         }
     }
+
+    // ================= Walking under tables, shelves and beds =================
+
+    private readonly RaycastHit[] _headHits = new RaycastHit[8];
+
+    // A CharacterController steps by first lifting the capsule by stepOffset, then moving it along
+    // the floor, then lowering it (PhysX). Walking toward a table, a shelf or a bed whose underside
+    // is less than a step above the head, the lift put the capsule into the furniture's edge and
+    // the move stopped there, though the body fitted underneath. So the step is cut to the headroom
+    // there is, above the head where the body stands and where this frame's move takes it. With
+    // open space above (most of the room) it stays climbStepHeight, and stairs climb as before;
+    // the colliders are the furniture's own meshes, so what is solid stays solid.
+    private void FitStepUnderOverhangs(Vector3 horizVel, float dt)
+    {
+        if (character == null) return;
+
+        float s = Mathf.Max(0.1f, character.lossyScale.y);
+        float radius = cc.radius * Mathf.Max(character.lossyScale.x, character.lossyScale.z);
+        float height = Mathf.Max(cc.height * s, radius * 2f);
+        Vector3 top = character.position + Vector3.up * (cc.center.y * s + height * 0.5f - radius);   // the top sphere's centre
+        float probe = radius * 0.9f;
+        float skin = cc.skinWidth * s;
+
+        float room = Headroom(top, probe, climbStepHeight);
+        Vector3 flat = new Vector3(horizVel.x, 0f, horizVel.z);
+        if (flat.sqrMagnitude > 0.0001f)
+        {
+            Vector3 dir = flat.normalized;
+            float reach = flat.magnitude * dt + radius + skin;
+            // Under what is ahead, if the head gets there (a wall in front is the move's to stop).
+            if (!SweepHitsOther(top, probe, dir, reach))
+                room = Mathf.Min(room, Headroom(top + dir * reach, probe, climbStepHeight));
+        }
+
+        float step = Mathf.Clamp(room - 2f * skin, 0f, climbStepHeight);
+        cc.stepOffset = Mathf.Clamp(step / s, 0.1f, Mathf.Max(0.1f, s * cc.height - 0.5f));
+    }
+
+    // How far the head can rise from here before it meets something, up to max.
+    private float Headroom(Vector3 from, float radius, float max)
+    {
+        int n = Physics.SphereCastNonAlloc(from, radius, Vector3.up, _headHits, max, ~0, QueryTriggerInteraction.Ignore);
+        float nearest = max;
+        for (int i = 0; i < n; i++)
+        {
+            if (IsOwn(_headHits[i].collider) || _headHits[i].distance <= 0f) continue;
+            nearest = Mathf.Min(nearest, _headHits[i].distance);
+        }
+        return nearest;
+    }
+
+    private bool SweepHitsOther(Vector3 from, float radius, Vector3 dir, float distance)
+    {
+        int n = Physics.SphereCastNonAlloc(from, radius, dir, _headHits, distance, ~0, QueryTriggerInteraction.Ignore);
+        for (int i = 0; i < n; i++)
+            if (!IsOwn(_headHits[i].collider) && _headHits[i].distance > 0f) return true;
+        return false;
+    }
+
+    private bool IsOwn(Collider col) =>
+        col == null || col == cc || (character != null && col.transform.IsChildOf(character));
 
     // Seeker-mode jump: only when grounded, not on a wall, not scouting, not frozen / counting down.
     public void Jump()

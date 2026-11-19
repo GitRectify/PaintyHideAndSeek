@@ -5,7 +5,12 @@ using UnityEngine;
 // carrying a gun) and this decides what plays, by priority, telling the Animator only when that
 // changes:
 //
-//     lying down > struck pose > climbing > standing or running
+//     lying down > struck pose (while still) > climbing > standing or running
+//
+// A struck pose is held while the body stands still. Moving plays the run instead, and stopping
+// brings the same pose back: it stays chosen until it is changed or cleared, and the Animator's own
+// crossfades (pose <-> idle 0.25 s, idle <-> run 0.12 s) blend each change. The server judges a
+// moving hider standing too (PlayerEntity.ShownPose), so a shot is judged by what the seeker saw.
 //
 // The wall pose is a hider's: they flatten against what they climb. A seeker goes up a wall as they
 // stand, gun in hand; the wall moves and turns them and changes nothing of their shape.
@@ -139,6 +144,13 @@ public sealed class BodyAnimation : MonoBehaviour
         animator.SetTrigger(GunFireHash);
     }
 
+    /// <summary>Whether the body is moving as this shows it (the run playing, any struck pose let go).</summary>
+    public static bool IsMoving(Animator animator) =>
+        animator != null && animator.TryGetComponent(out BodyAnimation body) && body.moving.On;
+
+    // The pose the body is in now: the struck one while it stands still, none while it moves.
+    private int ShownStruckPose => moving.On ? 0 : struckPose;
+
     private static BodyAnimation Of(Animator animator)
     {
         if (animator == null) return null;
@@ -181,7 +193,8 @@ public sealed class BodyAnimation : MonoBehaviour
         if (!Ready) return;
 
         bool wallPose = climbing.On && !carriesGun;
-        int pose = prone ? 0 : struckPose != 0 ? struckPose : wallPose ? ClimbingPose : 0;
+        int struck = ShownStruckPose;
+        int pose = prone ? 0 : struck != 0 ? struck : wallPose ? ClimbingPose : 0;
 
         if (hasNam && anim.GetBool(NamHash) != prone) anim.SetBool(NamHash, prone);
         if (hasPose && anim.GetInteger(PoseHash) != pose) anim.SetInteger(PoseHash, pose);
@@ -204,7 +217,7 @@ public sealed class BodyAnimation : MonoBehaviour
     {
         if (gunLayer < 0) return;
 
-        bool gunUp = carriesGun && !prone && (firstPerson || struckPose == 0);
+        bool gunUp = carriesGun && !prone && (firstPerson || ShownStruckPose == 0);
         float target = gunUp ? 1f : 0f;
         float weight = anim.GetLayerWeight(gunLayer);
         if (!Mathf.Approximately(weight, target))

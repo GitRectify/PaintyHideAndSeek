@@ -49,6 +49,20 @@ public class SelectPlayerUI : MonoBehaviour
         {
             _canvas.SetActive(false);
         }
+        ShopInventory.Changed += HandleShopChanged;
+    }
+
+    private void OnDestroy()
+    {
+        ShopInventory.Changed -= HandleShopChanged;
+    }
+
+    // A character bought while this screen is up (or just before it) unlocks here at once.
+    private void HandleShopChanged()
+    {
+        if (_canvas == null || !_canvas.activeInHierarchy) return;
+        RefreshLocks();
+        if (!IsLocked(_pending)) ShowMessage("");
     }
 
     // Finds the popup, each character button's "Select" frame, and wires the character buttons

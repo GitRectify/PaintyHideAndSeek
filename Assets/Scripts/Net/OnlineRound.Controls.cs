@@ -16,7 +16,7 @@ using UnityEngine.UI;
 //     server's S2C.HidersReady; bots are always ready), and a banner when another one does.
 public partial class OnlineRound
 {
-    private Button exitButton;
+    private Button exitButton, shopButton;
     private GameObject exitConfirm;
     private Text exitConfirmText;
     private Text readyPanel;
@@ -32,6 +32,14 @@ public partial class OnlineRound
         ert.anchorMin = ert.anchorMax = ert.pivot = new Vector2(0f, 1f);
         ert.anchoredPosition = new Vector2(24f, -24f);
         exitButton.gameObject.SetActive(false);
+
+        // Shop, beside Exit: what is bought in a match is used in it (poses, weapons, bullets).
+        shopButton = OnlineUI.NewButton(canvas, "SHOP", Vector2.zero, new Vector2(180f, 76f), new Color(0.52f, 0.30f, 0.80f, 0.97f), OpenShopInMatch);
+        shopButton.name = "MatchShop";
+        RectTransform srt = (RectTransform)shopButton.transform;
+        srt.anchorMin = srt.anchorMax = srt.pivot = new Vector2(0f, 1f);
+        srt.anchoredPosition = new Vector2(220f, -24f);
+        shopButton.gameObject.SetActive(false);
 
         RectTransform panel = OnlineUI.Modal(canvas, "ExitMatchConfirm", new Vector2(900f, 460f));
         exitConfirm = panel.parent.gameObject;
@@ -66,6 +74,7 @@ public partial class OnlineRound
             bool show = !resultShown;
             if (exitButton.gameObject.activeSelf != show) exitButton.gameObject.SetActive(show);
             if (!show && exitConfirm.activeSelf) exitConfirm.SetActive(false);
+            if (shopButton != null && shopButton.gameObject.activeSelf != show) shopButton.gameObject.SetActive(show);
         }
 
         if (readyPanel != null)
@@ -82,10 +91,30 @@ public partial class OnlineRound
     private void HideMatchControls()
     {
         if (exitButton != null) exitButton.gameObject.SetActive(false);
+        if (shopButton != null) shopButton.gameObject.SetActive(false);
         if (exitConfirm != null) exitConfirm.SetActive(false);
         if (readyPanel != null) readyPanel.gameObject.SetActive(false);
         readyShown = 0;
         readyKnown = false;
+    }
+
+    // ---- Shop ----
+
+    // The shop over the match, which goes on under it. A pose bought is in the pose picker at once
+    // (the server adds it to this match's loadout), bullets join the stock, and a weapon bought or
+    // equipped is carried straight away (HandleShopChangedInMatch).
+    private void OpenShopInMatch()
+    {
+        ShopUI shop = FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+        if (shop == null) return;
+        shop.OpenFrom(null);
+    }
+
+    // The shop's listing or the equipped weapon changed: carry the weapon now equipped.
+    private void HandleShopChangedInMatch()
+    {
+        if (!active || Net == null) return;
+        SelectEquippedWeapon();
     }
 
     // ---- Exit ----
@@ -129,6 +158,7 @@ public partial class OnlineRound
             if (results != null)
                 results.UpdateOnlineFigures(p.Rank > 0 ? $"#{p.Rank}/{Net.MatchSeats}" : "-",
                                             OnlineMatches.ScoreText(p.Role, p.SurvivedSeconds, table.SeekSeconds, p.Catches, p.PointsHundredths));
+            // Who caught them is in the results table over this popup (its row is too narrow).
             break;
         }
 

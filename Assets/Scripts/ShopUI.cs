@@ -211,6 +211,14 @@ public class ShopUI : MonoBehaviour
 
         if (ShopInventory.CanEquip(item) && ShopInventory.IsOwned(item))
         {
+            // The body cannot change in the middle of an online match: the others see the one
+            // the match started with. Weapons change at once (OnlineRound sends the new one).
+            if (item.category == ShopCategory.Avatars && OnlineRound.Active)
+            {
+                ShowToast("Change your character after this match.");
+                return;
+            }
+
             bool unequip = item.category == ShopCategory.Weapons && ShopInventory.IsEquipped(item);
             ShopInventory.Equip(item);   // an avatar swaps the character's body in place
             ShowToast(unequip ? "Standard gun equipped" : item.displayName + " equipped");
@@ -258,9 +266,15 @@ public class ShopUI : MonoBehaviour
             _busy = false;
             if (this == null || !isActiveAndEnabled) return;
 
-            // A bought weapon is carried at once, as the local shop did; an avatar waits for
-            // Equip (a tap on its card), which swaps the body.
+            // What is bought is ready at once, with no Equip to tap: a weapon is carried (in a
+            // match too: OnlineRound sends it), and a character is unlocked and becomes the one
+            // played — after the match, when bought during one (the body cannot change in it).
             if (bought && item.category == ShopCategory.Weapons) ShopInventory.Equip(item);
+            if (bought && item.category == ShopCategory.Avatars)
+            {
+                if (OnlineRound.Active) message = item.displayName + " unlocked. Play it in your next match.";
+                else ShopInventory.Equip(item);
+            }
             RefreshCards();
             ShowToast(message, bought);
         });

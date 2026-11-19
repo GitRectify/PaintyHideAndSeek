@@ -302,6 +302,19 @@ public static class ShopInventory
         return true;    // the shop doesn't sell it, so there is nothing to buy
     }
 
+    /// <summary>
+    /// Whether the server's listing says this account owns the avatar (CharacterSelect index).
+    /// False before the listing has arrived and for an avatar the shop does not list: the
+    /// profile's own list answers then (OnlineLobby).
+    /// </summary>
+    public static bool OwnsAvatar(int avatarId)
+    {
+        if (!Loaded) return false;
+        foreach (MetaItem item in listing.Values)
+            if (item.Kind == ItemKind.Avatar && (int)item.GameId == avatarId) return item.Owned;
+        return false;
+    }
+
     // ================= Features =================
 
     /// <summary>

@@ -346,6 +346,7 @@ public partial class OnlineRound : MonoBehaviour
         Net.OnRemotePaintMaterial += HandleRemoteMaterial;
         Net.OnRemoteShot += HandleRemoteShot;
         Net.OnLoadoutChanged += HandleLoadoutChanged;
+        ShopInventory.Changed += HandleShopChangedInMatch;
         Net.OnAuthenticated += HandleReauthenticated;
         Net.OnBotHost += HandleBotHost;
         Net.OnHidersReady += HandleHidersReady;
@@ -400,6 +401,7 @@ public partial class OnlineRound : MonoBehaviour
             Net.OnRemotePaintMaterial -= HandleRemoteMaterial;
             Net.OnRemoteShot -= HandleRemoteShot;
             Net.OnLoadoutChanged -= HandleLoadoutChanged;
+            ShopInventory.Changed -= HandleShopChangedInMatch;
             Net.OnAuthenticated -= HandleReauthenticated;
             Net.OnBotHost -= HandleBotHost;
             Net.OnHidersReady -= HandleHidersReady;
@@ -750,10 +752,11 @@ public partial class OnlineRound : MonoBehaviour
             if (view == null || view.Eliminated || !view.IsShown) continue;
             if (!view.HasPosition && !view.IsHosted) continue;
 
-            // A bot this game runs isn't told its own pose by the snapshots.
+            // A bot this game runs isn't told its own pose by the snapshots. A moving body stands
+            // (BodyAnimation shows no pose while it moves; the server judges it the same way).
             int pose = view.IsHosted && hostedBots.TryGetValue(e.Slot, out HostedBot bot) && bot.Animator != null
                 ? PoseIdFor(bot.Animator.GetInteger(PoseHash))
-                : view.Pose;
+                : BodyAnimation.IsMoving(view.GetComponentInChildren<Animator>()) ? 0 : view.Pose;
 
             Vector3 feet = view.FeetPosition;
             bool climbing = (view.Flags & EntityFlags.Climbing) != 0;

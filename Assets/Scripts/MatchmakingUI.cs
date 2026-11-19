@@ -340,6 +340,19 @@ public class MatchmakingUI : MonoBehaviour
         if (hintText != null) hintText.text = hint;
     }
 
+    // Seconds to the match while a full lobby counts down (0 = not counting).
+    private int onlineCountdown;
+
+    /// <summary>
+    /// A full online lobby's countdown to the match, on the server's clock (OnlineLobby): the
+    /// counter says "Match starts in N" in place of the player count; 0 puts the count back.
+    /// </summary>
+    public void SetOnlineCountdown(int seconds)
+    {
+        onlineCountdown = Mathf.Max(0, seconds);
+        UpdateBarAndCounter();
+    }
+
     public void SetMapLabel(string text)
     {
         if (mapLabelText != null) mapLabelText.text = text;
@@ -372,6 +385,7 @@ public class MatchmakingUI : MonoBehaviour
     public void EndOnline()
     {
         ResetOnlineMatchSize();
+        onlineCountdown = 0;
         state = 0;
         onReady = null;
         if (canvasGO != null) canvasGO.SetActive(false);
@@ -415,7 +429,9 @@ public class MatchmakingUI : MonoBehaviour
             return;
         }
 
-        counterText.text = $"<color=#3FC522>{joined}</color>/{totalPlayers} Player";
+        counterText.text = onlineCountdown > 0
+            ? string.Format("Match starts in {0}", $"<color=#3FC522><size=44>{onlineCountdown}</size></color>")
+            : $"<color=#3FC522>{joined}</color>/{totalPlayers} Player";
     }
 
     private void Update()

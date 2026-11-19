@@ -79,6 +79,7 @@ public static class NetBootstrap
         net.Region = config.region;
         net.DisplayName = "Player";   // replaced server-side by the chosen user id once there is one
         net.OnAuthenticated += RememberSignIn;
+        net.OnAuthenticated += RatingSync.HandleSignedIn;   // a rating made offline goes now
 
         MetaClient meta = go.AddComponent<MetaClient>();
         meta.Configure(config.metaPort, config.metaTls, config.metaThumbprint);

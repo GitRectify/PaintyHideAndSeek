@@ -211,6 +211,8 @@ public class OnlineLobby : MonoBehaviour
         if (lobbyBar.activeSelf && Net != null)
             lobbyMessage.text = Net.IsConnected || Net.IsChangingServer ? lobbyText : "Connection lost. Reconnecting...";
 
+        if (step == Step.Lobby && Net != null) ShowCountdown();
+
         if (step == Step.Rejoin && rejoinDeadline > 0f && Time.unscaledTime > rejoinDeadline)
         {
             // Signed in, but no seat came back: the match ended, or the seat ran out.
@@ -218,6 +220,21 @@ public class OnlineLobby : MonoBehaviour
             OnlineRejoin.Clear();
             EndWithNotice("That match has already ended.");
         }
+    }
+
+    // A full lobby counts down to the match (5 s, the server's LobbyCountdownSeconds): the server
+    // starts its clock when the last seat fills and sends MatchStart when it runs out, so every
+    // screen shows the same number. Before that the lobby has no clock (PhaseSecondsLeft is 0).
+    private int countdownShown = -1;
+
+    private void ShowCountdown()
+    {
+        int left = Net.Phase == MatchPhase.Lobby ? Net.PhaseSecondsLeft : 0;
+        if (left == countdownShown) return;
+        countdownShown = left;
+
+        if (matchmaking != null) matchmaking.SetOnlineCountdown(left);
+        if (left > 0) SetLobbyMessage(string.Format("The lobby is full. The match starts in {0}...", left));
     }
 
     private void SetLobbyMessage(string text)
@@ -397,7 +414,13 @@ public class OnlineLobby : MonoBehaviour
 
     // The characters this account cannot play online: those the server does not list as owned.
     private bool NotOwnedOnline(int character) =>
-        profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0 && Array.IndexOf(profile.OwnedAvatars, character) < 0;
+        profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0 && !OwnsAvatarOnline(character);
+
+    // Owned by the profile read at sign-in, or bought since (the shop's listing is current: a
+    // character bought from the room screen's SHOP is playable straight away, without Equip).
+    private bool OwnsAvatarOnline(int character) =>
+        (profile.OwnedAvatars != null && Array.IndexOf(profile.OwnedAvatars, character) >= 0) ||
+        ShopInventory.OwnsAvatar(character);
 
     // Choosing the side, or the character after it: either way the side screen's buttons are
     // this online match's. A side screen shown while the flow was still on the character step
@@ -696,8 +719,7 @@ public class OnlineLobby : MonoBehaviour
     private uint ModelId()
     {
         int current = characters != null ? characters.CurrentIndex : 0;
-        bool owned = profile.OwnedAvatars != null && Array.IndexOf(profile.OwnedAvatars, current) >= 0;
-        return (uint)Mathf.Max(0, owned ? current : profile.AvatarId);
+        return (uint)Mathf.Max(0, OwnsAvatarOnline(current) ? current : profile.AvatarId);
     }
 
     // Avatar id = CharacterSelect index (Player = 0, Player2 = 1).
@@ -803,6 +825,7 @@ public class OnlineLobby : MonoBehaviour
 
         step = Step.Lobby;
         mapName = info.RoomName ?? "";
+        countdownShown = -1;
 
         if (matchmaking != null)
         {
@@ -925,6 +948,24 @@ public class OnlineLobby : MonoBehaviour
         });
     }
 
+    // The room screen's PROFILE: change the username and display name, then back to the rooms.
+    // The next match shows the new display name (the server reads it when seating the player).
+    private void ShowAccount()
+    {
+        AudioManager.ButtonTap();
+        int version = flowVersion;
+        roomScreen.SetActive(false);
+        OnlineSignIn.OpenAccount(profile,
+            saved =>
+            {
+                if (version == flowVersion) profile = saved;
+            },
+            () =>
+            {
+                if (version == flowVersion && step == Step.Room) roomScreen.SetActive(true);
+            });
+    }
+
     // The room screen's BACK: the character screen, as it was (the side stays chosen).
     private void BackToCharacters()
     {
@@ -984,6 +1025,8 @@ public class OnlineLobby : MonoBehaviour
         OnlineUI.NewButton(p, "WALLET", new Vector2(0f, -345f), new Vector2(196f, 80f), OnlineUI.Green, ShowWallet);
         OnlineUI.NewButton(p, "HISTORY", new Vector2(208f, -345f), new Vector2(196f, 80f), OnlineUI.Blue, ShowHistory);
         OnlineUI.NewButton(p, "SHOP", new Vector2(416f, -345f), new Vector2(196f, 80f), new Color(0.52f, 0.30f, 0.80f, 0.97f), ShowShop);
+        // The username and display name, changed here (OnlineSignIn.OpenAccount).
+        OnlineUI.NewButton(p, "PROFILE", new Vector2(404f, 340f), new Vector2(196f, 64f), OnlineUI.Blue, ShowAccount);
 
         // Lobby: a bar under MatchmakingUI's panel (this canvas sorts above it).
         Image bar = OnlineUI.NewImage("LobbyBar", canvas, OnlineUI.PanelColor);

@@ -427,3 +427,25 @@ Account suspended.	账号已被封禁。	Аккаунт заблокирован
 Account suspended	账号已被封禁	Аккаунт заблокирован
 Added by support	客服补发	Начислено поддержкой
 Taken by support	客服扣除	Списано поддержкой
+# 2026-11-19: names, ratings, the lobby countdown, who caught whom, buying in a match
+Choose your names	选择你的名称	Выберите имена
+Your profile	你的资料	Ваш профиль
+Username	用户名	Имя пользователя
+Unique, for finding you. {0}-{1} letters (English, Russian or Chinese), digits, _ or ., starting with a letter.	唯一，用于找到你。{0}-{1} 个字符（英文、俄文或中文），可含数字、_ 或 .，须以字母或汉字开头。	Уникальное, по нему вас находят. {0}-{1} букв (английских, русских или китайских), цифры, _ или ., начиная с буквы.
+Display name	显示名称	Отображаемое имя
+What other players see. {0}-{1} characters: letters, digits, spaces, _ . - '. Leave it empty to use your username.	其他玩家看到的名称。{0}-{1} 个字符：字母、数字、空格、_ . - '。留空则使用你的用户名。	Это имя видят другие игроки. {0}-{1} символов: буквы, цифры, пробелы, _ . - '. Оставьте пустым, чтобы использовать имя пользователя.
+Display name (optional)	显示名称（可选）	Отображаемое имя (необязательно)
+Saving...	正在保存……	Сохранение...
+Use only letters, digits, spaces and _ . - '	只能使用字母、数字、空格和 _ . - '	Используйте только буквы, цифры, пробелы и _ . - '
+Include at least one letter.	至少包含一个字母或汉字。	Добавьте хотя бы одну букву.
+That display name is reserved. Try another.	这个显示名称为保留名称，请换一个。	Это отображаемое имя зарезервировано. Попробуйте другое.
+That display name isn't allowed.	这个显示名称不可用。	Это отображаемое имя недопустимо.
+PROFILE	资料	ПРОФИЛЬ
+Your rating: {0}/5	你的评分：{0}/5	Ваша оценка: {0}/5
+Saved online at your next sign-in.	将在你下次登录时在线保存。	Сохранится онлайн при следующем входе.
+Players' average: {0}/5 ({1} ratings)	玩家平均分：{0}/5（{1} 个评分）	Средняя оценка игроков: {0}/5 (оценок: {1})
+Match starts in {0}	比赛将在 {0} 秒后开始	Матч начнётся через {0}
+The lobby is full. The match starts in {0}...	大厅已满，比赛将在 {0} 秒后开始……	Лобби заполнено. Матч начнётся через {0}...
+{0}s / {1}s | Caught by: {2}	{0} 秒 / {1} 秒 | 被 {2} 抓到	{0} с / {1} с | Поймал: {2}
+Change your character after this match.	请在本场比赛结束后更换角色。	Смените персонажа после этого матча.
+{0} unlocked. Play it in your next match.	{0} 已解锁，下一场比赛即可使用。	{0}: разблокировано. Используйте в следующем матче.

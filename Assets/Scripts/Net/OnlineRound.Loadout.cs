@@ -25,7 +25,8 @@ public partial class OnlineRound
     {
         if (!Active || Net == null) return;
         _instance.requestedPose = poseId;
-        _instance.poseAnswerDueAt = Time.unscaledTime + PoseAnswerSeconds;
+        // On a slow connection the answer takes longer than the wait: allow a few round trips.
+        _instance.poseAnswerDueAt = Time.unscaledTime + PoseAnswerSeconds + 3f * Net.PingMs / 1000f;
         Net.SelectPose(poseId);
     }
 
@@ -79,6 +80,16 @@ public partial class OnlineRound
     {
         RefreshBullets();
         ApplyLocalWeapon();
+        SyncShownPose();
+    }
+
+    // With no pick waiting for its answer, the body shows the pose the server has. An answer that
+    // came after CheckPoseAnswer gave up on it (a slow connection) used to leave the body in the
+    // old pose while everyone else saw the new one; now the late answer puts it right.
+    private void SyncShownPose()
+    {
+        if (requestedPose >= 0 || poses == null || Net == null) return;
+        if (poses.ShownPoseId != Net.Pose) poses.ShowServerPose(Net.Pose);
     }
 
     // Judged once the taps have stopped: the answer to one pick arriving after the next was made

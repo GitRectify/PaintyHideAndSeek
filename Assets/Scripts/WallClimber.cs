@@ -368,6 +368,17 @@ public class WallClimber : MonoBehaviour
         if (stillOnWall) lastTouchedWallAt = Time.time;
         clinging = Time.time - lastTouchedWallAt < LetGoSeconds;
 
+        // Off the wall for good: over the top of what was climbed with something under the feet
+        // to stand on, or no wall touched for LetGoSeconds (more than a gap in it). The climb ends
+        // and JoystickMover's gravity has the body again: it used to stay "on the wall" with no
+        // wall, and the stick walked it about in the air.
+        if (!stillOnWall && (!clinging || StandsOnTop()))
+        {
+            LeaveWall();
+            BodyAnimation.SetSpeed(anim, 0f);
+            return;
+        }
+
         if (down < 1 || stillOnWall)
         {
             BodyAnimation.SetClimbing(anim, clinging);
@@ -500,6 +511,32 @@ public class WallClimber : MonoBehaviour
             return Vector3.zero;
         }
         return new Vector3(v.x / mag, 0f, v.z / mag);
+    }
+
+    // How far under the feet a top still counts as stood on, as a share of the body's height.
+    private const float TopOutReach = 0.15f;
+
+    // A walkable surface right under the feet (not a wall, not a character): the climb has come
+    // over the top of what it went up, or down to a floor or a shelf.
+    private bool StandsOnTop()
+    {
+        if (cc == null || character == null) return false;
+
+        float scaleY = Mathf.Max(0.0001f, character.lossyScale.y);
+        float halfHeight = scaleY * cc.height * 0.5f;
+        Vector3 center = character.position + Vector3.up * (scaleY * cc.center.y);
+        float reach = halfHeight * (1f + 2f * TopOutReach);
+
+        int hitCount = Physics.RaycastNonAlloc(center, Vector3.down, _hits, reach, ~0, QueryTriggerInteraction.Ignore);
+        for (int i = 0; i < hitCount; i++)
+        {
+            Transform hitT = _hits[i].transform;
+            if (hitT == character || hitT.IsChildOf(character)) continue;
+            if (IsCharacter(_hits[i].collider)) continue;
+            if (Vector3.Angle(_hits[i].normal, Vector3.up) >= minWallSteepness) continue;
+            return true;
+        }
+        return false;
     }
 
     private bool IsGrounded()

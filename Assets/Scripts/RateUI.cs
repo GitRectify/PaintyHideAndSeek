@@ -1,3 +1,4 @@
+using System.Globalization;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
@@ -16,6 +17,11 @@ using UnityEngine.UI;
 //
 // Convention: where raw jumps to the NullReferenceException stub, the C# just dereferences
 // naturally; explicit null checks are kept only where raw really skips.
+//
+// 2026-11-19: ratings are saved (RatingSync -> the server, read in the admin panel). Rate Now
+// saves the stars; the feedback popup's Submit (which had no handler) saves the words with them;
+// the thanks popup's Continue closes it. The popup opens on the player's own rating, and a line
+// under the stars shows it and everyone's average.
 public class RateUI : MonoBehaviour
 {
     [Header("Scene names")]
@@ -51,6 +57,8 @@ public class RateUI : MonoBehaviour
     private bool _resolved;
     private GameObject _thanks;
     private GameObject _help;
+    private bool _helpWired, _thanksWired;
+    private Text _summary;
 
     public int Rating => _rating;
 
@@ -63,8 +71,38 @@ public class RateUI : MonoBehaviour
     {
         if (_resolved && resetOnShow)
         {
-            SetRating(0);
+            SetRating(RatingSync.MyStars);   // the player's own rating, 0 when they have none
         }
+        RatingSync.Changed += ShowSummary;
+        ShowSummary();
+        RatingSync.Refresh();                // the latest average, when signed in
+    }
+
+    private void OnDisable()
+    {
+        RatingSync.Changed -= ShowSummary;
+    }
+
+    // Under the stars: the player's rating and everyone's average, as far as they are known.
+    private void ShowSummary()
+    {
+        if (_summary == null) return;
+
+        string text = "";
+        if (RatingSync.MyStars > 0)
+        {
+            text = string.Format("Your rating: {0}/5", RatingSync.MyStars);
+            if (!RatingSync.Saved) text += "\n" + "Saved online at your next sign-in.";
+        }
+
+        if (RatingSync.Count > 0)
+        {
+            string average = RatingSync.Average.ToString("0.0", CultureInfo.InvariantCulture);
+            string line = string.Format("Players' average: {0}/5 ({1} ratings)", average, RatingSync.Count);
+            text = text.Length == 0 ? line : text + "\n" + line;
+        }
+
+        _summary.text = text;
     }
 
     // Finds the popup root (this object if it holds the stars, else the canvasName object), makes
@@ -123,8 +161,18 @@ public class RateUI : MonoBehaviour
         }
         WireButton(root, rateNowButtonName, RateNow);
         WireButton(root, lateButtonName, Late);
+
+        // The line between the stars (y 38) and Rate Now (top at y -86).
+        Transform popup = FindUnder(root, "Popup");
+        if (popup != null)
+        {
+            _summary = OnlineUI.NewLabel(popup, "", 24, new Vector2(0f, -46f), new Vector2(680f, 76f));
+            _summary.gameObject.AddComponent<Outline>().effectColor = new Color(0f, 0f, 0f, 0.6f);
+        }
+
         _resolved = true;
-        SetRating(0);
+        SetRating(RatingSync.MyStars);
+        ShowSummary();
     }
 
     // Adds the listener only when the button has no persistent (Inspector) listeners.
@@ -164,12 +212,14 @@ public class RateUI : MonoBehaviour
         }
     }
 
-    // minStarsToRate or more: store + thanks. Fewer (but some): counts as rated, feedback popup.
-    // None: just close.
+    // minStarsToRate or more: saved, store + thanks. Fewer (but some): saved, and the feedback
+    // popup asks what to improve (its Submit saves the words with the stars). None: just close.
     public void RateNow()
     {
         if (_rating >= minStarsToRate)
         {
+            RatingSync.Submit(_rating, "");
+            GameData.isRate = 1;
             HideRateButton();
             OpenStore();
             ShowThanks();
@@ -177,6 +227,7 @@ public class RateUI : MonoBehaviour
         }
         if (_rating > 0)
         {
+            RatingSync.Submit(_rating, RatingSync.MyComment);
             HideRateButton();
             GameData.isRate = 1;
             ShowHelp();
@@ -191,8 +242,32 @@ public class RateUI : MonoBehaviour
         GameObject thanks = ResolveCanvas(ref _thanks, thanksCanvasName);
         if (thanks != null)
         {
+            if (!_thanksWired)
+            {
+                _thanksWired = true;
+                WireButton(thanks.transform, "ButtonContinue", () => thanks.SetActive(false));
+            }
             thanks.SetActive(true);
         }
+    }
+
+    // The feedback popup's Submit: the words go with the stars, then thanks.
+    private void SubmitHelp()
+    {
+        string words = "";
+        GameObject help = ResolveCanvas(ref _help, helpCanvasName);
+        if (help != null)
+        {
+            TMPro.TMP_InputField tmp = help.GetComponentInChildren<TMPro.TMP_InputField>(true);
+            if (tmp != null) words = tmp.text;
+            else if (help.GetComponentInChildren<InputField>(true) is InputField field) words = field.text;
+            help.SetActive(false);
+        }
+
+        int stars = _rating > 0 ? _rating : RatingSync.MyStars;
+        if (stars > 0) RatingSync.Submit(stars, words);
+        AudioManager.ButtonTap();
+        ShowThanks();
     }
 
     // The feedback popup shows the same stars that were picked.
@@ -202,6 +277,19 @@ public class RateUI : MonoBehaviour
         if (help != null)
         {
             MirrorStars(help.transform);
+            if (!_helpWired)
+            {
+                _helpWired = true;
+                WireButton(help.transform, "ButtonSubmit", SubmitHelp);
+            }
+
+            // The words the player wrote last time, to change rather than retype.
+            TMPro.TMP_InputField tmp = help.GetComponentInChildren<TMPro.TMP_InputField>(true);
+            if (tmp != null)
+            {
+                tmp.characterLimit = Meccha.Shared.Protocol.MetaCodec.MaxRatingCommentLength;
+                tmp.text = RatingSync.MyComment;
+            }
         }
         Hide();
         if (help != null)
@@ -240,13 +328,11 @@ public class RateUI : MonoBehaviour
         return cache;
     }
 
-    // Once rated, the home screen's rate button goes away.
+    // The home screen's rate button used to go away once rated. It stays (2026-11-19): it is where
+    // the player sees their rating and everyone's average, and changes their rating. Rating still
+    // stops the popup from opening by itself (GameData.isRate).
     private static void HideRateButton()
     {
-        GameController gc = SingletonMonoBehavior<GameController>.Instance;
-        if (gc == null) return;
-        if (gc.btnRate == null) return;
-        gc.btnRate.SetActive(false);
     }
 
     public void Late()
@@ -258,7 +344,7 @@ public class RateUI : MonoBehaviour
     {
         if (resetOnShow)
         {
-            SetRating(0);
+            SetRating(RatingSync.MyStars);
         }
         if (_canvas != null)
         {

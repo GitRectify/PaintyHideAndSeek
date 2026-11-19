@@ -62,7 +62,9 @@ public class GameController : SingletonMonoBehavior<GameController>
             popupRate.SetActive(GameData.isRate == 0);
         }
 
-        btnRate.SetActive(GameData.isRate == 0);
+        // Shown even once rated (2026-11-19): it opens the player's saved rating and everyone's
+        // average, and lets them change it (RateUI). The popup still opens by itself only unrated.
+        btnRate.SetActive(true);
         GameData.IsSession1 = GameData.IsSession1 + 1;
     }
 

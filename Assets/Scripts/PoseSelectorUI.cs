@@ -176,6 +176,9 @@ public class PoseSelectorUI : MonoBehaviour
         OnlineRound.SendPose(activeSlot + 1);
     }
 
+    /// <summary>The pose shown as chosen, as a server pose id (slot + 1; 0 = none).</summary>
+    public int ShownPoseId => activeSlot + 1;
+
     /// <summary>Shows the pose the server kept (a refused online pick), without sending anything.</summary>
     public void ShowServerPose(int poseId)
     {

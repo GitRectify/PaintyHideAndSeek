@@ -37,18 +37,29 @@ public static class CoinBalance
     /// <summary>The balance in cents (1/100 coin); 0 while it is not known.</summary>
     public static long Cents => Known ? MecchaNetClient.Instance.CoinCents : 0;
 
-    /// <summary>The balance as every label shows it: "1,234", "1,234.50", or Unknown.</summary>
+    /// <summary>The balance as every label shows it: "1 234", "12 500.12", or Unknown.</summary>
     public static string Text => Known ? Format(Cents) : Unknown;
+
+    // Groups of three digits split by a space and a point before the cents (user's choice,
+    // 2026-11-19: "12 500.12", not "12,500.12"), whatever the device language: a comma reads as the
+    // decimal point in much of the world, a space as nothing but a gap.
+    private static readonly NumberFormatInfo CoinNumbers = new NumberFormatInfo
+    {
+        NumberGroupSeparator = " ",
+        NumberDecimalSeparator = ".",
+        NumberGroupSizes = new[] { 3 },
+        NegativeSign = "-",
+    };
 
     /// <summary>
     /// An amount of coins as text, the same on every screen and every phone: whole coins without
-    /// decimals, anything else to the cent, a comma between thousands whatever the device language.
+    /// decimals, anything else to the cent, a space between thousands.
     /// </summary>
     public static string Format(long cents)
     {
         string sign = cents < 0 ? "-" : "";
         decimal coins = Math.Abs(cents) / 100m;
-        return sign + coins.ToString(cents % 100 == 0 ? "N0" : "N2", CultureInfo.InvariantCulture);
+        return sign + coins.ToString(cents % 100 == 0 ? "N0" : "N2", CoinNumbers);
     }
 
     /// <summary>

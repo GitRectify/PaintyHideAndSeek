@@ -6,9 +6,11 @@ using Meccha.Shared.Protocol;
 using UnityEngine;
 using UnityEngine.UI;
 
-// Multiple Play's first step: connect, sign in, and on the first run choose the public player name
-// and avatar (the diagram's "Update Avatar & userId when first"). Adapted from the sign-in part of
-// the SDK sample's OnlineFlow; the role, room and lobby screens come in later phases.
+// Multiple Play's first step: connect, sign in, and on the first run choose the username (unique,
+// for signing in and being found), the display name (what other players see) and the avatar (the
+// diagram's "Update Avatar & userId when first"). The same screen changes both names later
+// (OpenAccount, from the room screen's PROFILE). Adapted from the sign-in part of the SDK sample's
+// OnlineFlow.
 //
 // Every value shown comes from the server: the profile and balance from the meta service. Single
 // Play never reaches this.
@@ -48,13 +50,18 @@ public class OnlineSignIn : MonoBehaviour
 
     // ---- UI ---------------------------------------------------------------------------------
     private GameObject statusScreen, profileScreen, hostRow;
-    private Text statusTitle, statusMessage, profileError;
-    private InputField hostInput, userIdInput;
+    private Text statusTitle, statusMessage, profileError, profileTitle, avatarTitle;
+    private InputField hostInput, userIdInput, displayNameInput;
     private Button statusRetry;
     private RectTransform avatarRow;
     private int chosenAvatar;
     private readonly List<Button> avatarButtons = new List<Button>();
     private readonly List<int> avatarIds = new List<int>();
+
+    // The account screen (OpenAccount): the same screen over the room screen, changing the names.
+    private bool editing;
+    private Action<MetaProfile> onEdited;
+    private Action onEditClosed;
 
     /// <summary>
     /// Signs in (showing the first-run screen when the player has no name yet), then calls
@@ -66,6 +73,18 @@ public class OnlineSignIn : MonoBehaviour
         OnlineSignIn flow = FindAnyObjectByType<OnlineSignIn>();
         if (flow == null) flow = new GameObject("OnlineSignIn").AddComponent<OnlineSignIn>();
         flow.Begin(signedIn, cancelled);
+    }
+
+    /// <summary>
+    /// The profile screen to change the username and display name of a signed-in player.
+    /// <paramref name="saved"/> gets the server's profile once it has taken the change;
+    /// <paramref name="closed"/> runs when the screen goes, saved or not.
+    /// </summary>
+    public static void OpenAccount(MetaProfile current, Action<MetaProfile> saved, Action closed)
+    {
+        OnlineSignIn flow = FindAnyObjectByType<OnlineSignIn>();
+        if (flow == null) flow = new GameObject("OnlineSignIn").AddComponent<OnlineSignIn>();
+        flow.BeginEdit(current, saved, closed);
     }
 
     // ================= Lifecycle =================
@@ -130,6 +149,7 @@ public class OnlineSignIn : MonoBehaviour
     private void Begin(Action<MetaProfile> signedIn, Action cancelled)
     {
         flowVersion++;
+        editing = false;
         onSignedIn = signedIn;
         onCancelled = cancelled;
 
@@ -248,10 +268,38 @@ public class OnlineSignIn : MonoBehaviour
         EnsureSignedIn();
     }
 
+    private void BeginEdit(MetaProfile current, Action<MetaProfile> saved, Action closed)
+    {
+        flowVersion++;
+        editing = true;
+        profile = current;
+        onEdited = saved;
+        onEditClosed = closed;
+        ShowProfileScreen();
+    }
+
+    private void CloseEdit()
+    {
+        editing = false;
+        step = Step.Idle;
+        HideScreens();
+        Action closed = onEditClosed;
+        onEdited = null;
+        onEditClosed = null;
+        closed?.Invoke();
+    }
+
     private void Back()
     {
         AudioManager.ButtonTap();
         flowVersion++;
+
+        if (editing)
+        {
+            CloseEdit();   // nothing changed; still signed in
+            return;
+        }
+
         step = Step.Idle;
         HideScreens();
 
@@ -291,7 +339,7 @@ public class OnlineSignIn : MonoBehaviour
         onSignedIn?.Invoke(profile);
     }
 
-    // ---- First run: user id and avatar --------------------------------------------------------
+    // ---- First run (and the account screen): username, display name, avatar -------------------
 
     private void ShowProfileScreen()
     {
@@ -299,7 +347,21 @@ public class OnlineSignIn : MonoBehaviour
         HideScreens();
         profileScreen.SetActive(true);
         profileError.text = "";
-        userIdInput.text = "";
+        profileTitle.text = editing ? "Your profile" : "Choose your names";
+        userIdInput.text = editing ? profile.UserId ?? "" : "";
+
+        // A display name of their own; one never chosen is the username, shown empty ("same as").
+        string shown = profile.DisplayName ?? "";
+        displayNameInput.text = editing && shown.Length > 0 && shown != profile.UserId ? shown : "";
+
+        // The avatar is chosen once, on the first run; afterwards the character screen picks the body.
+        avatarTitle.gameObject.SetActive(!editing);
+        avatarRow.gameObject.SetActive(!editing);
+        if (editing)
+        {
+            chosenAvatar = profile.AvatarId;
+            return;
+        }
 
         int[] owned = profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0
             ? profile.OwnedAvatars
@@ -354,14 +416,19 @@ public class OnlineSignIn : MonoBehaviour
         profileError.text = "Saving...";
         int version = flowVersion;
 
-        Meta.UpdateProfile(userIdInput.text.Trim(), chosenAvatar, reply =>
+        Meta.UpdateProfile(userIdInput.text.Trim(), chosenAvatar, displayNameInput.text.Trim(), reply =>
         {
             if (version != flowVersion) return;
 
             if (!reply.TimedOut && reply.Error == MetaError.None)
             {
                 profile = reply.Profile;
-                Finish();
+                if (editing)
+                {
+                    onEdited?.Invoke(profile);
+                    CloseEdit();
+                }
+                else Finish();
                 return;
             }
 
@@ -389,24 +456,36 @@ public class OnlineSignIn : MonoBehaviour
         statusRetry = OnlineUI.NewButton(p, "RETRY", new Vector2(-180f, -210f), new Vector2(300f, 100f), OnlineUI.Green, Retry);
         OnlineUI.NewButton(p, "BACK", new Vector2(180f, -210f), new Vector2(300f, 100f), OnlineUI.Gray, Back);
 
-        // First run: user id + avatar.
-        p = OnlineUI.Modal(canvas, "ProfileScreen", new Vector2(1060f, 760f));
+        // First run (and the account screen): username + display name + avatar.
+        p = OnlineUI.Modal(canvas, "ProfileScreen", new Vector2(1060f, 860f));
         profileScreen = p.parent.gameObject;
-        OnlineUI.NewLabel(p, "Choose your player name", 52, new Vector2(0f, 300f), new Vector2(980f, 80f), TextAnchor.MiddleCenter, true);
-        Text rules = OnlineUI.NewLabel(p, $"Everyone sees this name. {UserIds.MinLength}-{UserIds.MaxLength} letters (English, Russian or Chinese), digits, _ or ., starting with a letter.",
-                                       28, new Vector2(0f, 230f), new Vector2(960f, 70f));
+        profileTitle = OnlineUI.NewLabel(p, "Choose your names", 52, new Vector2(0f, 360f), new Vector2(980f, 80f), TextAnchor.MiddleCenter, true);
+
+        Text userIdTitle = OnlineUI.NewLabel(p, "Username", 34, new Vector2(0f, 292f), new Vector2(600f, 50f));
+        userIdTitle.color = OnlineUI.Muted;
+        Text rules = OnlineUI.NewLabel(p, $"Unique, for finding you. {UserIds.MinLength}-{UserIds.MaxLength} letters (English, Russian or Chinese), digits, _ or ., starting with a letter.",
+                                       26, new Vector2(0f, 245f), new Vector2(960f, 60f));
         rules.color = OnlineUI.Muted;
-        userIdInput = OnlineUI.NewInput(p, "Player name", new Vector2(0f, 135f), new Vector2(660f, 92f));
+        userIdInput = OnlineUI.NewInput(p, "Username", new Vector2(0f, 180f), new Vector2(660f, 84f));
         userIdInput.characterLimit = UserIds.MaxLength;
-        Text avatarTitle = OnlineUI.NewLabel(p, "Avatar", 34, new Vector2(0f, 30f), new Vector2(600f, 60f));
+
+        Text nameTitle = OnlineUI.NewLabel(p, "Display name", 34, new Vector2(0f, 105f), new Vector2(600f, 50f));
+        nameTitle.color = OnlineUI.Muted;
+        Text nameRules = OnlineUI.NewLabel(p, $"What other players see. {DisplayNames.MinLength}-{DisplayNames.MaxLength} characters: letters, digits, spaces, _ . - '. Leave it empty to use your username.",
+                                           26, new Vector2(0f, 58f), new Vector2(960f, 60f));
+        nameRules.color = OnlineUI.Muted;
+        displayNameInput = OnlineUI.NewInput(p, "Display name (optional)", new Vector2(0f, -7f), new Vector2(660f, 84f));
+        displayNameInput.characterLimit = DisplayNames.MaxLength;
+
+        avatarTitle = OnlineUI.NewLabel(p, "Avatar", 34, new Vector2(0f, -85f), new Vector2(600f, 50f));
         avatarTitle.color = OnlineUI.Muted;
         avatarRow = (RectTransform)new GameObject("AvatarRow", typeof(RectTransform)).transform;
         avatarRow.SetParent(p, false);
-        OnlineUI.Place(avatarRow, new Vector2(0f, -60f), new Vector2(1000f, 100f));
-        profileError = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -170f), new Vector2(960f, 70f));
+        OnlineUI.Place(avatarRow, new Vector2(0f, -160f), new Vector2(1000f, 90f));
+        profileError = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -248f), new Vector2(960f, 60f));
         profileError.color = OnlineUI.Warning;
-        OnlineUI.NewButton(p, "CONFIRM", new Vector2(-180f, -285f), new Vector2(300f, 100f), OnlineUI.Green, SubmitProfile);
-        OnlineUI.NewButton(p, "BACK", new Vector2(180f, -285f), new Vector2(300f, 100f), OnlineUI.Gray, Back);
+        OnlineUI.NewButton(p, "CONFIRM", new Vector2(-180f, -340f), new Vector2(300f, 100f), OnlineUI.Green, SubmitProfile);
+        OnlineUI.NewButton(p, "BACK", new Vector2(180f, -340f), new Vector2(300f, 100f), OnlineUI.Gray, Back);
     }
 
     private void HideScreens()
@@ -461,6 +540,16 @@ public class OnlineSignIn : MonoBehaviour
                     case UserIdProblem.Reserved: return "That name is reserved. Try another.";
                     case UserIdProblem.MixedScripts: return "Don't mix Latin and Cyrillic letters in one name.";
                     default: return "That name isn't allowed.";
+                }
+            case MetaError.InvalidDisplayName:
+                switch (reply.NameProblem)
+                {
+                    case DisplayNameProblem.TooShort: return $"Use at least {DisplayNames.MinLength} characters.";
+                    case DisplayNameProblem.TooLong: return $"Use at most {DisplayNames.MaxLength} characters.";
+                    case DisplayNameProblem.BadCharacter: return "Use only letters, digits, spaces and _ . - '";
+                    case DisplayNameProblem.NeedsLetter: return "Include at least one letter.";
+                    case DisplayNameProblem.Reserved: return "That display name is reserved. Try another.";
+                    default: return "That display name isn't allowed.";
                 }
             default: return MetaErrorText(reply.Error, false);
         }

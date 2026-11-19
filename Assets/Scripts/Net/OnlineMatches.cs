@@ -614,8 +614,8 @@ public class OnlineMatches : MonoBehaviour
             y -= step;
             bool mine = (me != 0xFE && p.Slot == me) || (!p.IsBot && !string.IsNullOrEmpty(myName) && p.Name == myName);
             string name = SafeName(p.Name) + (p.IsBot ? " (bot)" : "") + (p.Away ? " (away)" : "") + (p.Slot == 0xFF ? " (left)" : "");
-            ResultRow(y, p.Rank > 0 ? "#" + p.Rank : "-", Clip(name, 24), p.Role == Role.Hunter ? "Seeker" : "Hider",
-                      ScoreText(p.Role, p.SurvivedSeconds, table.SeekSeconds, p.Catches, p.PointsHundredths),
+            ResultRow(y, p.Rank > 0 ? "#" + p.Rank : "-", Clip(name, 22), p.Role == Role.Hunter ? "Seeker" : "Hider",
+                      ScoreText(p.Role, p.SurvivedSeconds, table.SeekSeconds, p.Catches, p.PointsHundredths, p.CaughtBy),
                       p.CoinCents > 0 ? "+" + CoinBalance.Format(p.CoinCents) : "0",
                       mine ? new Color(0.49f, 0.95f, 0.6f, 1f) : Color.white, mine);
         }
@@ -633,10 +633,11 @@ public class OnlineMatches : MonoBehaviour
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
         }
 
-        Cell(rank, -640f, 100f, TextAnchor.MiddleLeft);
-        Cell(player, -330f, 500f, TextAnchor.MiddleLeft);
-        Cell(side, 30f, 170f, TextAnchor.MiddleLeft);
-        Cell(score, 330f, 320f, TextAnchor.MiddleRight);
+        // The score is wide enough for a hider's "120s / 150s | Caught by: name" (2026-11-19).
+        Cell(rank, -650f, 90f, TextAnchor.MiddleLeft);
+        Cell(player, -390f, 420f, TextAnchor.MiddleLeft);
+        Cell(side, -90f, 160f, TextAnchor.MiddleLeft);
+        Cell(score, 290f, 560f, TextAnchor.MiddleRight);
         Cell(coins, 600f, 170f, TextAnchor.MiddleRight);
     }
 
@@ -744,14 +745,20 @@ public class OnlineMatches : MonoBehaviour
 
     /// <summary>
     /// A player's score as the results show it (2026-11-13): a hider's seconds survived of the seek
-    /// ("120s / 150s"), a seeker's hiders caught ("3 Hiders Caught"). An older server sends neither
-    /// figure (no seek length): the reward rule's points then.
+    /// ("120s / 150s"), with the seeker who caught them ("120s / 150s | Caught by: name", SDK 0.9.6),
+    /// a seeker's hiders caught ("3 Hiders Caught"). An older server sends neither figure (no seek
+    /// length): the reward rule's points then.
     /// </summary>
-    public static string ScoreText(Role role, int survivedSeconds, int seekSeconds, int catches, int pointsHundredths)
+    public static string ScoreText(Role role, int survivedSeconds, int seekSeconds, int catches, int pointsHundredths,
+                                   string caughtBy = null)
     {
         if (seekSeconds <= 0) return Points(pointsHundredths) + " pts";
         if (role == Role.Hunter) return catches == 1 ? "1 Hider Caught" : $"{catches} Hiders Caught";
-        return $"{Mathf.Clamp(survivedSeconds, 0, seekSeconds)}s / {seekSeconds}s";
+
+        int survived = Mathf.Clamp(survivedSeconds, 0, seekSeconds);
+        return string.IsNullOrEmpty(caughtBy)
+            ? $"{survived}s / {seekSeconds}s"
+            : $"{survived}s / {seekSeconds}s | Caught by: {Clip(SafeName(caughtBy), 20)}";
     }
 
     private static string Points(int hundredths) =>
