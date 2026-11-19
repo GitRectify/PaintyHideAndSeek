@@ -22,6 +22,11 @@ using UnityEngine.UI;
 // saves the stars; the feedback popup's Submit (which had no handler) saves the words with them;
 // the thanks popup's Continue closes it. The popup opens on the player's own rating, and a line
 // under the stars shows it and everyone's average.
+//
+// 2026-11-20: rating stays in the game. Every rating goes on to the feedback popup (it used to
+// open the app store page in a browser at 4 stars or more, with nowhere to write anything), and
+// the comment box there is the game's own: the scene's TextMesh Pro field has no text, viewport
+// or placeholder wired, so nothing typed into it ever showed or was sent.
 public class RateUI : MonoBehaviour
 {
     [Header("Scene names")]
@@ -33,25 +38,17 @@ public class RateUI : MonoBehaviour
     public string[] onNames = { "on1", "on2", "on3", "on4", "on5" };
     public string rateNowButtonName = "ButtonRateNow";
     public string lateButtonName = "ButtonLate";
-    [Tooltip("Popup shown after Rate Now at minStarsToRate or above. Blank = skip.")]
+    [Tooltip("Popup shown once the rating and its comment are saved. Blank = skip.")]
     public string thanksCanvasName = "ThanksCanvas";
-    [Tooltip("Feedback popup shown after Rate Now below minStarsToRate. Blank = skip (just close).")]
+    [Tooltip("Feedback popup shown after Rate Now: the comment box and Submit. Blank = skip (just close).")]
     public string helpCanvasName = "HelpCanvas";
 
     [Header("Rating")]
-    [Tooltip("Minimum lit stars for Rate Now to open the store. Below this, Rate Now only closes the popup.")]
-    public int minStarsToRate = 4;
     [Tooltip("Reset the stars to 0 each time the popup becomes visible.")]
     public bool resetOnShow = true;
 
-    [Header("Store link")]
-    [Tooltip("Android package id for the store URL. Blank = Application.identifier (this app).")]
-    public string androidPackageOverride = "";
-    [Tooltip("iOS App Store numeric id (e.g. 1234567890). Blank = web Play Store fallback.")]
-    public string iosAppId = "";
-    [Tooltip("In the Editor, log the store URL instead of actually launching a browser.")]
-    public bool logStoreInEditor = true;
     private GameObject _canvas;
+    private InputField _comment;
     private GameObject[] _on;
     private int _rating;
     private bool _resolved;
@@ -212,19 +209,10 @@ public class RateUI : MonoBehaviour
         }
     }
 
-    // minStarsToRate or more: saved, store + thanks. Fewer (but some): saved, and the feedback
-    // popup asks what to improve (its Submit saves the words with the stars). None: just close.
+    // Some stars: saved at once, then the feedback popup for a comment (its Submit saves the words
+    // with the stars, and thanks). None: just close. Nothing leaves the game.
     public void RateNow()
     {
-        if (_rating >= minStarsToRate)
-        {
-            RatingSync.Submit(_rating, "");
-            GameData.isRate = 1;
-            HideRateButton();
-            OpenStore();
-            ShowThanks();
-            return;
-        }
         if (_rating > 0)
         {
             RatingSync.Submit(_rating, RatingSync.MyComment);
@@ -254,15 +242,9 @@ public class RateUI : MonoBehaviour
     // The feedback popup's Submit: the words go with the stars, then thanks.
     private void SubmitHelp()
     {
-        string words = "";
+        string words = _comment != null ? _comment.text : "";
         GameObject help = ResolveCanvas(ref _help, helpCanvasName);
-        if (help != null)
-        {
-            TMPro.TMP_InputField tmp = help.GetComponentInChildren<TMPro.TMP_InputField>(true);
-            if (tmp != null) words = tmp.text;
-            else if (help.GetComponentInChildren<InputField>(true) is InputField field) words = field.text;
-            help.SetActive(false);
-        }
+        if (help != null) help.SetActive(false);
 
         int stars = _rating > 0 ? _rating : RatingSync.MyStars;
         if (stars > 0) RatingSync.Submit(stars, words);
@@ -284,18 +266,47 @@ public class RateUI : MonoBehaviour
             }
 
             // The words the player wrote last time, to change rather than retype.
-            TMPro.TMP_InputField tmp = help.GetComponentInChildren<TMPro.TMP_InputField>(true);
-            if (tmp != null)
-            {
-                tmp.characterLimit = Meccha.Shared.Protocol.MetaCodec.MaxRatingCommentLength;
-                tmp.text = RatingSync.MyComment;
-            }
+            if (_comment == null) _comment = BuildCommentBox(help.transform);
+            if (_comment != null) _comment.text = RatingSync.MyComment;
         }
         Hide();
         if (help != null)
         {
             help.SetActive(true);
         }
+    }
+
+    // The comment box, where the scene's broken one was (same place and size), in the game's own
+    // font so Chinese and Russian show: several lines, up to the server's 500 characters.
+    private static InputField BuildCommentBox(Transform help)
+    {
+        Transform old = FindUnder(help, "InputField");
+        Transform parent = old != null ? old.parent : FindUnder(help, "Popup");
+        if (parent == null) return null;
+
+        Vector2 pos = new Vector2(0f, -65f), size = new Vector2(524f, 143f);
+        if (old is RectTransform oldRect)
+        {
+            pos = oldRect.anchoredPosition;
+            size = oldRect.sizeDelta;
+            old.gameObject.SetActive(false);
+        }
+
+        InputField field = OnlineUI.NewInput(parent, "Tell us what you think (optional)", pos, size);
+        field.lineType = InputField.LineType.MultiLineNewline;
+        field.characterLimit = Meccha.Shared.Protocol.MetaCodec.MaxRatingCommentLength;
+        foreach (Text t in new[] { field.textComponent, field.placeholder as Text })
+        {
+            if (t == null) continue;
+            t.fontSize = 26;
+            t.alignment = TextAnchor.UpperLeft;
+            t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            t.verticalOverflow = VerticalWrapMode.Truncate;
+            t.rectTransform.offsetMin = new Vector2(16f, 10f);
+            t.rectTransform.offsetMax = new Vector2(-16f, -10f);
+        }
+        field.name = "CommentInput";
+        return field;
     }
 
     private void MirrorStars(Transform root)
@@ -360,32 +371,6 @@ public class RateUI : MonoBehaviour
         }
     }
 
-    // Play Store (market:// on Android, the web page elsewhere) or the App Store on iOS when an id
-    // is set; marks the game as rated.
-    private void OpenStore()
-    {
-        string pkg = string.IsNullOrEmpty(androidPackageOverride) ? Application.identifier : androidPackageOverride;
-        string url = "https://play.google.com/store/apps/details?id=" + pkg;
-        if (Application.isEditor && logStoreInEditor)
-        {
-            Debug.Log("[RateUI] (editor) would open store — market://details?id=" + pkg + "  |  " + url);
-            return;
-        }
-        RuntimePlatform platform = Application.platform;
-        if (platform == RuntimePlatform.IPhonePlayer)
-        {
-            if (!string.IsNullOrEmpty(iosAppId))
-            {
-                url = "itms-apps://itunes.apple.com/app/id" + iosAppId;
-            }
-        }
-        else if (platform == RuntimePlatform.Android)
-        {
-            url = "market://details?id=" + pkg;
-        }
-        Application.OpenURL(url);
-        GameData.isRate = 1;
-    }
 
     private static Transform FindUnder(Transform root, string name)
     {

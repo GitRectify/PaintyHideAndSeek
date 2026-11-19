@@ -162,6 +162,14 @@ public partial class OnlineRound
             break;
         }
 
+        if (table.Outcome == MatchOutcome.HidersWin && !hidersWon)
+        {
+            hidersWon = true;
+            if (resultShown && !revealOffered) OfferReveal(showResultsAgain);   // the outcome came only with the results
+        }
+
+        lastResultsTable = table;
+        if (revealing) return;   // shown again on "Back to results"
         OnlineMatches.ShowResults(table, () => lobby.PlayAgainFromRound(), () => lobby.GoHomeFromRound());
     }
 

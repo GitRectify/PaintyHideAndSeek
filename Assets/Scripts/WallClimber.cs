@@ -338,7 +338,9 @@ public class WallClimber : MonoBehaviour
             cam = Camera.main;
         }
 
-        Vector2 joyDir = joystick != null ? joystick.Direction : Vector2.zero;
+        // The stick and the movement keys together, as JoystickMover reads them on the ground: on a
+        // wall the keys used to do nothing, since only the on-screen stick was read here.
+        Vector2 joyDir = KeyBindings.WithKeys(joystick != null ? joystick.Direction : Vector2.zero);
 
         if (state != State.OnWall)
         {

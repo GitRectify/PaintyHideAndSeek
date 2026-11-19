@@ -633,7 +633,7 @@ public class OnlineMatches : MonoBehaviour
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
         }
 
-        // The score is wide enough for a hider's "120s / 150s | Caught by: name" (2026-11-19).
+        // The score is wide enough for a hider's "120s / 150s | seeker's name" (2026-11-19).
         Cell(rank, -650f, 90f, TextAnchor.MiddleLeft);
         Cell(player, -390f, 420f, TextAnchor.MiddleLeft);
         Cell(side, -90f, 160f, TextAnchor.MiddleLeft);
@@ -745,7 +745,7 @@ public class OnlineMatches : MonoBehaviour
 
     /// <summary>
     /// A player's score as the results show it (2026-11-13): a hider's seconds survived of the seek
-    /// ("120s / 150s"), with the seeker who caught them ("120s / 150s | Caught by: name", SDK 0.9.6),
+    /// ("120s / 150s"), with the seeker who caught them ("120s / 150s | name": the seeker who caught them, SDK 0.9.6),
     /// a seeker's hiders caught ("3 Hiders Caught"). An older server sends neither figure (no seek
     /// length): the reward rule's points then.
     /// </summary>
@@ -758,7 +758,7 @@ public class OnlineMatches : MonoBehaviour
         int survived = Mathf.Clamp(survivedSeconds, 0, seekSeconds);
         return string.IsNullOrEmpty(caughtBy)
             ? $"{survived}s / {seekSeconds}s"
-            : $"{survived}s / {seekSeconds}s | Caught by: {Clip(SafeName(caughtBy), 20)}";
+            : $"{survived}s / {seekSeconds}s | {Clip(SafeName(caughtBy), 20)}";
     }
 
     private static string Points(int hundredths) =>

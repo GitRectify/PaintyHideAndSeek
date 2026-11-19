@@ -182,6 +182,13 @@ public class OnlineSignIn : MonoBehaviour
     {
         if (Net.IsConnected && !string.IsNullOrEmpty(Net.SessionToken))
         {
+            // Signed in automatically at launch (NetBootstrap): straight in, no screen at all.
+            if (NetBootstrap.TryFreshProfile(out MetaProfile fresh))
+            {
+                profile = fresh;
+                Finish();
+                return;
+            }
             LoadProfile();
             return;
         }
@@ -423,6 +430,7 @@ public class OnlineSignIn : MonoBehaviour
             if (!reply.TimedOut && reply.Error == MetaError.None)
             {
                 profile = reply.Profile;
+                NetBootstrap.NoteProfile(profile);
                 if (editing)
                 {
                     onEdited?.Invoke(profile);

@@ -453,13 +453,21 @@ public class JoystickMover : MonoBehaviour
         PlayerRef.Changed -= HandlePlayerChanged;
     }
 
-    /// <summary>A new round: the rotate pair hidden, nothing held, no speed left from before (RoundUiReset).</summary>
+    /// <summary>
+    /// A new round: the rotate pair hidden, nothing held, no speed left from before, and the stick
+    /// centred with no input (RoundUiReset). Whether it shows is Update's to say, frame by frame.
+    /// </summary>
     public void ResetControls()
     {
         ShowRotateButtons(false);
         _rotHeldDir = 0;
         _vy = 0f;
         _moveVel = Vector3.zero;
+        _stuckTimer = 0f;
+        _haveFreePos = false;
+
+        if (joystick == null) joystick = FindAnyObjectByType<Joystick>(FindObjectsInactive.Include);
+        if (joystick != null) joystick.ResetInput();
     }
 
     public void ToggleRotateButtons()

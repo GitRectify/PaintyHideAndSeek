@@ -669,16 +669,22 @@ public class ChameleonPaint : MonoBehaviour
                 float inv = 1f - a;
                 int idx = y * TexSize + x;
                 Color32 o = paintBuf[idx];
+                // Rounded, not cut down: cutting stopped a soft edge up to several steps short of
+                // the brush colour however often it was painted over, so strokes came out darker
+                // than the colour picked wherever they were not at full strength.
                 paintBuf[idx] = new Color32(
-                    (byte)(col.r * 255f * a + o.r * inv),
-                    (byte)(col.g * 255f * a + o.g * inv),
-                    (byte)(col.b * 255f * a + o.b * inv),
+                    Blend(col.r, o.r, a, inv),
+                    Blend(col.g, o.g, a, inv),
+                    Blend(col.b, o.b, a, inv),
                     255);
             }
         }
         dirty = true;
         camoDirty = true;
     }
+
+    private static byte Blend(float brush01, byte old, float a, float inv) =>
+        (byte)Mathf.Clamp(Mathf.RoundToInt(brush01 * 255f * a + old * inv), 0, 255);
 
     // Uploads the paint buffer once per frame after stamping.
     private void LateUpdate()
@@ -892,7 +898,16 @@ public class ChameleonPaint : MonoBehaviour
     }
 
     // True albedo under the pointer: material tint x base texture texel at the hit UV (tiling and
-    // offset applied), read back through a temporary RenderTexture. Only MeshCollider hits count.
+    // offset applied), read back through a temporary RenderTexture.
+    //
+    // 2026-11-20, so the colour picked is the colour painted: the ray now goes past what is not
+    // a surface (trigger volumes, the player's own capsule and body, bots), any of which used to
+    // stop it and send the pick to the screen sample, brightened; it reads the material of the
+    // part hit (an object with several materials used to give its first one's colour wherever it
+    // was clicked); and a surface with a box or other non-mesh collider gives its material's
+    // colour (tint x the texture's average) instead of the brightened screen sample.
+    private readonly Dictionary<Texture, Color> textureAverages = new Dictionary<Texture, Color>();
+
     private bool TryRaycastAlbedo(Vector2 screenPos, out Color result)
     {
         result = Color.white;
@@ -901,12 +916,12 @@ public class ChameleonPaint : MonoBehaviour
             cam = Camera.main;
         }
         if (cam == null) return false;
-        if (!Physics.Raycast(cam.ScreenPointToRay(screenPos), out RaycastHit hit, 10000f)) return false;
-        if (!(hit.collider is MeshCollider)) return false;
-        Renderer rend = hit.collider != null ? hit.collider.GetComponent<Renderer>() : null;
+        if (!TryRaycastSurface(cam.ScreenPointToRay(screenPos), out RaycastHit hit)) return false;
+        Renderer rend = hit.collider.GetComponent<Renderer>();
         if (rend == null) return false;
-        if (rend.sharedMaterial == null) return false;
-        Material mat = rend.sharedMaterial;
+        Material mat = MaterialAt(rend, hit);
+        if (mat == null) return false;
+        bool haveUv = hit.collider is MeshCollider mc && !mc.convex;
 
         Color tint;
         if (mat.HasProperty(BaseColorID))
@@ -933,7 +948,15 @@ public class ChameleonPaint : MonoBehaviour
             return true;
         }
 
-        Vector4 st = mat.HasProperty("_BaseMap_ST") ? mat.GetVector("_BaseMap_ST") : new Vector4(1f, 1f, 0f, 0f);
+        if (!haveUv)
+        {
+            Color average = TextureAverage(tex);
+            result = new Color(Mathf.Clamp01(tint.r * average.r), Mathf.Clamp01(tint.g * average.g), Mathf.Clamp01(tint.b * average.b), 1f);
+            return true;
+        }
+
+        Vector4 st = mat.HasProperty("_BaseMap_ST") ? mat.GetVector("_BaseMap_ST")
+                   : mat.HasProperty("_MainTex_ST") ? mat.GetVector("_MainTex_ST") : new Vector4(1f, 1f, 0f, 0f);
         float u = Mathf.Repeat(st.z + st.x * hit.textureCoord.x, 1f);
         float v = Mathf.Repeat(st.w + st.y * hit.textureCoord.y, 1f);
         int px = Mathf.Clamp((int)(u * tex.width), 0, tex.width - 1);
@@ -955,6 +978,72 @@ public class ChameleonPaint : MonoBehaviour
         Color s = albedoPix.GetPixel(0, 0);
         result = new Color(Mathf.Clamp01(tint.r * s.r), Mathf.Clamp01(tint.g * s.g), Mathf.Clamp01(tint.b * s.b), 1f);
         return true;
+    }
+
+    // The nearest solid surface along the ray that is not a character: triggers, character
+    // controllers and anything under an Animator (the player, bots, other players) are looked past.
+    private static bool TryRaycastSurface(Ray ray, out RaycastHit surface)
+    {
+        surface = default;
+        RaycastHit[] hits = Physics.RaycastAll(ray, 10000f, ~0, QueryTriggerInteraction.Ignore);
+        float best = float.MaxValue;
+        bool found = false;
+        foreach (RaycastHit h in hits)
+        {
+            if (h.distance >= best || h.collider == null) continue;
+            if (h.collider is CharacterController) continue;
+            if (h.collider.GetComponentInParent<Animator>() != null) continue;
+            best = h.distance;
+            surface = h;
+            found = true;
+        }
+        return found;
+    }
+
+    // The material of the part of the mesh hit: each submesh has its own.
+    private static Material MaterialAt(Renderer rend, RaycastHit hit)
+    {
+        Material[] materials = rend.sharedMaterials;
+        if (materials == null || materials.Length == 0) return null;
+        if (materials.Length == 1 || !(hit.collider is MeshCollider meshCollider) || meshCollider.convex || hit.triangleIndex < 0)
+            return materials[0];
+
+        Mesh mesh = meshCollider.sharedMesh;
+        if (mesh == null || !mesh.isReadable) return materials[0];
+        int index = hit.triangleIndex * 3;
+        for (int sub = 0; sub < mesh.subMeshCount && sub < materials.Length; sub++)
+        {
+            UnityEngine.Rendering.SubMeshDescriptor d = mesh.GetSubMesh(sub);
+            if (d.topology != MeshTopology.Triangles) continue;
+            if (index >= d.indexStart && index < d.indexStart + d.indexCount) return materials[sub];
+        }
+        return materials[0];
+    }
+
+    // A texture's average colour (as stored: gamma, like the brush), for a surface whose collider
+    // gives no texture coordinates. Read once per texture through a small copy.
+    private Color TextureAverage(Texture tex)
+    {
+        if (textureAverages.TryGetValue(tex, out Color known)) return known;
+
+        const int Size = 16;
+        RenderTexture prev = RenderTexture.active;
+        RenderTexture tmp = RenderTexture.GetTemporary(Size, Size, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+        Graphics.Blit(tex, tmp);
+        RenderTexture.active = tmp;
+        var read = new Texture2D(Size, Size, TextureFormat.RGBA32, false);
+        read.ReadPixels(new Rect(0f, 0f, Size, Size), 0, 0, false);
+        read.Apply(false);
+        RenderTexture.active = prev;
+        RenderTexture.ReleaseTemporary(tmp);
+
+        Color[] pixels = read.GetPixels();
+        Destroy(read);
+        float r = 0f, g = 0f, b = 0f;
+        foreach (Color p in pixels) { r += p.r; g += p.g; b += p.b; }
+        Color average = new Color(r / pixels.Length, g / pixels.Length, b / pixels.Length, 1f);
+        textureAverages[tex] = average;
+        return average;
     }
 
     // Screen-sample fallback: read on the next end of frame (only one read in flight).

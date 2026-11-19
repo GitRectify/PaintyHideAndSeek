@@ -65,8 +65,10 @@ public partial class OnlineRound
         string price = OnlineUI.CoinsText(ShopInventory.PriceCents(item));
 
         OnlineUI.NewLabel(nextOffer, "Next Player", 52, new Vector2(0f, 200f), new Vector2(820f, 80f), TextAnchor.MiddleCenter, true);
-        OnlineUI.NewLabel(nextOffer, "Switch between the players still in after you are out. Yours for good, in every match.",
-                          32, new Vector2(0f, 85f), new Vector2(800f, 120f), TextAnchor.MiddleCenter, false);
+        OnlineUI.NewLabel(nextOffer, hunter
+                              ? "See where the hiders hid when they win. Hiders: switch between the players still in after you are out. Yours for good, in every match."
+                              : "Switch between the players still in after you are out, and as a seeker see where the hiders hid when they win. Yours for good, in every match.",
+                          30, new Vector2(0f, 85f), new Vector2(800f, 130f), TextAnchor.MiddleCenter, false);
         nextOfferStatus = OnlineUI.NewLabel(nextOffer, $"You have {OnlineUI.CoinsText(ShopInventory.CoinCents)}.", 30,
                                             new Vector2(0f, -15f), new Vector2(800f, 60f), TextAnchor.MiddleCenter, false);
         nextOfferStatus.color = OnlineUI.Muted;
@@ -104,7 +106,8 @@ public partial class OnlineRound
             CloseNextPlayerOffer();
             ShowBanner(message, 3f);
             OwnNextPlayerNow();
-            if (localOut && watching != 0xFF)
+            if (resultShown && revealOffered) RevealNext();   // a seeker: straight to the first hider
+            else if (localOut && watching != 0xFF)
             {
                 if (camCtrl != null) camCtrl.SetFreeLook(false);
                 Watch(NextToWatch(watching));

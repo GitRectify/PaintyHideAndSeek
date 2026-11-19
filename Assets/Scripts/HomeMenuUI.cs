@@ -79,6 +79,10 @@ public class HomeMenuUI : MonoBehaviour
 
     private void OnEnable()
     {
+        // Home is back (after a round, the shop...): a returning player not signed in yet (the
+        // server was down at launch) is tried again, at most once a minute.
+        if (rejoinOffered) NetBootstrap.QuietSignIn();
+
         PendingTopUp.Settled += HandleTopUpSettled;
         if (ToastObject != null) ToastObject.SetActive(false);
     }

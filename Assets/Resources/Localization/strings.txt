@@ -446,6 +446,15 @@ Saved online at your next sign-in.	将在你下次登录时在线保存。	Со�
 Players' average: {0}/5 ({1} ratings)	玩家平均分：{0}/5（{1} 个评分）	Средняя оценка игроков: {0}/5 (оценок: {1})
 Match starts in {0}	比赛将在 {0} 秒后开始	Матч начнётся через {0}
 The lobby is full. The match starts in {0}...	大厅已满，比赛将在 {0} 秒后开始……	Лобби заполнено. Матч начнётся через {0}...
-{0}s / {1}s | Caught by: {2}	{0} 秒 / {1} 秒 | 被 {2} 抓到	{0} с / {1} с | Поймал: {2}
+{0}s / {1}s | {2}	{0} 秒 / {1} 秒 | {2}	{0} с / {1} с | {2}
 Change your character after this match.	请在本场比赛结束后更换角色。	Смените персонажа после этого матча.
 {0} unlocked. Play it in your next match.	{0} 已解锁，下一场比赛即可使用。	{0}: разблокировано. Используйте в следующем матче.
+# 2026-11-20: rating comment, the hiders' hiding places after the match
+Tell us what you think (optional)	说说你的想法（可选）	Расскажите, что вы думаете (необязательно)
+BACK TO RESULTS	返回结果	К ИТОГАМ
+No hiders left to show.	没有可以查看的躲藏者了。	Больше нет прячущихся для показа.
+HIDER {0}/{1}: {2}	躲藏者 {0}/{1}：{2}	ПРЯЧУЩИЙСЯ {0}/{1}: {2}
+HIDER: {0}	躲藏者：{0}	ПРЯЧУЩИЙСЯ: {0}
+HIDER · {0}	躲藏者 · {0}	ПРЯЧУЩИЙСЯ · {0}
+See where the hiders hid when they win. Hiders: switch between the players still in after you are out. Yours for good, in every match.	躲藏者获胜时，可查看他们藏在哪里。躲藏者出局后可在仍在场上的玩家之间切换观看。永久拥有，每场比赛都能用。	Когда побеждают прячущиеся, смотрите, где они прятались. Прячущимся: после выбывания переключайтесь между оставшимися игроками. Навсегда, в каждом матче.
+Switch between the players still in after you are out, and as a seeker see where the hiders hid when they win. Yours for good, in every match.	出局后可在仍在场上的玩家之间切换观看；作为寻找者，躲藏者获胜时可查看他们藏在哪里。永久拥有，每场比赛都能用。	После выбывания переключайтесь между оставшимися игроками, а ищущим — смотрите, где прятались победившие прячущиеся. Навсегда, в каждом матче.

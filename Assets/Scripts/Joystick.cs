@@ -171,6 +171,21 @@ public class Joystick : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, I
         handle.anchoredPosition = Vector2.zero;
     }
 
+    /// <summary>
+    /// Back to the middle with no input, as when the finger lifts. Every round starts this way
+    /// (JoystickMover.ResetControls).
+    /// </summary>
+    public void ResetInput()
+    {
+        input = Vector2.zero;
+        if (handle != null) handle.anchoredPosition = Vector2.zero;
+    }
+
+    // Hidden while a finger held it (the round ending, the player frozen or caught): a switched-off
+    // object never gets the pointer-up, so the stick kept its last direction and its knob off
+    // centre, and the next match started with the player walking on their own.
+    protected virtual void OnDisable() => ResetInput();
+
     protected Vector2 ScreenPointToAnchoredPosition(Vector2 screenPosition)
     {
         if (RectTransformUtility.ScreenPointToLocalPointInRectangle(baseRect, screenPosition, cam, out Vector2 localPoint))

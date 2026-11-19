@@ -1,4 +1,5 @@
 using Meccha.Client;
+using Meccha.Shared.Protocol;
 using UnityEngine;
 
 // Makes the persistent "Net" object holding MecchaNetClient (game socket) and MetaClient
@@ -9,16 +10,25 @@ using UnityEngine;
 // Single Play stays fully offline. The object is made the first time the player asks for
 // something online, then lives for the rest of the session.
 //
-// A player who has signed in before is signed in again quietly when Home first shows
-// (QuietSignIn), so the coin balance is there without tapping anything. It shows no screen, asks
-// nothing, and gives up after a few seconds when the server cannot be reached: the balance then
-// stays unknown ("-") and Single Play is as offline as ever.
+// A player who has signed in before is signed in again automatically, with the identity this
+// device signed in with before (QuietSignIn): when Home first shows, and again whenever Home comes
+// back while they are not signed in (the server may have been down at launch), at most once a
+// minute. It shows no screen, asks nothing, and gives up after a few seconds when the server
+// cannot be reached: the balance then stays unknown ("-") and Single Play is as offline as ever
+// (nothing is tried during a Single Play round). Once signed in, the profile is fetched too, so
+// Multiple Play opens on it without a "Loading your profile" screen (OnlineSignIn).
 public static class NetBootstrap
 {
     private const string SignedInBeforeKey = "Online.SignedInBefore";
 
     /// <summary>How long the quiet sign-in may take before it stops trying.</summary>
     public const float QuietSignInSeconds = 15f;
+
+    /// <summary>The least time between two quiet sign-in attempts.</summary>
+    public const float QuietRetrySeconds = 60f;
+
+    /// <summary>How long a profile fetched at sign-in is used as it is (OnlineSignIn).</summary>
+    public const float ProfileFreshSeconds = 120f;
 
     /// <summary>Off in the play test, which signs in when it means to.</summary>
     public static bool QuietSignInEnabled = true;
@@ -27,7 +37,28 @@ public static class NetBootstrap
     public static OnlineConfig TestConfig;
     public static bool TestSignedInBefore;
 
-    private static bool quietTried;
+    private static float nextQuietAt;
+    private static MetaProfile signedInProfile;
+    private static float signedInProfileAt = -1f;
+
+    /// <summary>
+    /// The profile fetched right after the latest sign-in, if it is recent and the player has
+    /// chosen their names; Multiple Play starts from it instead of asking again.
+    /// </summary>
+    public static bool TryFreshProfile(out MetaProfile profile)
+    {
+        profile = signedInProfile;
+        MecchaNetClient net = MecchaNetClient.Instance;
+        return signedInProfileAt >= 0f && Time.unscaledTime - signedInProfileAt < ProfileFreshSeconds &&
+               net != null && !string.IsNullOrEmpty(net.SessionToken) && !string.IsNullOrEmpty(profile.UserId);
+    }
+
+    /// <summary>The profile changed (names saved): what Multiple Play starts from next.</summary>
+    public static void NoteProfile(MetaProfile profile)
+    {
+        signedInProfile = profile;
+        signedInProfileAt = Time.unscaledTime;
+    }
 
     /// <summary>True once the player has asked for something online this session (Multiple Play, the shop, the wallet).</summary>
     public static bool Asked { get; private set; }
@@ -42,22 +73,26 @@ public static class NetBootstrap
     }
 
     /// <summary>
-    /// Once per launch, when Home first shows: signs a returning player in without any screen, so
-    /// the balance is known. Does nothing for a player who has never gone online, when an online
-    /// round is waiting to be rejoined (that has its own prompt), or when something online is
-    /// already under way.
+    /// When Home shows: signs a returning player in without any screen, so the balance is known
+    /// and Multiple Play opens at once. Does nothing for a player who has never gone online, when
+    /// an online round is waiting to be rejoined (that has its own prompt), when they are signed
+    /// in or something online is under way (the SDK reconnects by itself then), or within a minute
+    /// of the last try.
     /// </summary>
     public static void QuietSignIn()
     {
-        if (quietTried) return;
-        quietTried = true;
+        if (!QuietSignInEnabled || !SignedInBefore || OnlineRejoin.Pending) return;
+        if (Time.unscaledTime < nextQuietAt) return;
 
-        if (!QuietSignInEnabled || MecchaNetClient.Instance != null) return;
-        if (!SignedInBefore || OnlineRejoin.Pending) return;
+        MecchaNetClient existing = MecchaNetClient.Instance;
+        if (existing != null && (Asked || existing.IsConnected || !string.IsNullOrEmpty(existing.SessionToken))) return;
+        if (existing != null && existing.GetComponent<QuietSignInWatch>() != null) return;   // trying now
 
+        nextQuietAt = Time.unscaledTime + QuietRetrySeconds;
         MecchaNetClient net = Create();
         net.gameObject.AddComponent<QuietSignInWatch>();
-        Debug.Log("[Online] Signing in quietly for the coin balance");
+        if (existing != null) net.Connect();   // an earlier try gave up and disconnected it
+        Debug.Log("[Online] Signing in automatically");
     }
 
     private static MecchaNetClient Create()
@@ -79,6 +114,7 @@ public static class NetBootstrap
         net.Region = config.region;
         net.DisplayName = "Player";   // replaced server-side by the chosen user id once there is one
         net.OnAuthenticated += RememberSignIn;
+        net.OnAuthenticated += FetchProfile;
         net.OnAuthenticated += RatingSync.HandleSignedIn;   // a rating made offline goes now
 
         MetaClient meta = go.AddComponent<MetaClient>();
@@ -91,6 +127,18 @@ public static class NetBootstrap
 
         Debug.Log($"[Online] Server {config.host} (UDP {config.port}, WS {config.webSocketPort}, meta {config.metaPort})");
         return net;
+    }
+
+    // Every sign-in: the profile, for Multiple Play to open on (TryFreshProfile).
+    private static void FetchProfile()
+    {
+        signedInProfileAt = -1f;
+        MetaClient meta = MetaClient.Instance;
+        if (meta == null) return;
+        meta.GetProfile(reply =>
+        {
+            if (!reply.TimedOut && reply.Error == MetaError.None) NoteProfile(reply.Profile);
+        });
     }
 
     private static void RememberSignIn()

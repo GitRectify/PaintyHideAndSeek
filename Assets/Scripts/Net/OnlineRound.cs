@@ -303,6 +303,7 @@ public partial class OnlineRound : MonoBehaviour
 
         active = true;
         hunter = Net.LocalRole == Role.Hunter;
+        ResetReveal();
         resultShown = false;
         localOut = false;
         leaveArmed = false;
@@ -381,6 +382,7 @@ public partial class OnlineRound : MonoBehaviour
     public void End()
     {
         if (!active) return;
+        ResetReveal();
         active = false;
 
         // The round may have spent special bullets and paid coins: fetch the wallet as the
@@ -582,7 +584,7 @@ public partial class OnlineRound : MonoBehaviour
 
             bool drawn = view.IsShown && (view.HasPosition || view.IsHosted);
             bool isOut = view.Eliminated || eliminated.Contains(pair.Key);
-            bool mayBeSeen = !hunter || view.Role == Role.Hunter || isOut;
+            bool mayBeSeen = !hunter || view.Role == Role.Hunter || isOut || RevealTag(pair.Key, tag);
             tag.SetVisible(drawn && mayBeSeen);
         }
     }
@@ -1017,6 +1019,7 @@ public partial class OnlineRound : MonoBehaviour
     // the catch until the result, moving on when the one watched is out too.
     private void UpdateSpectating()
     {
+        if (revealOffered) RefreshNextButton();   // its price, once the shop's listing is in
         if (!localOut || resultShown || camCtrl == null || spectateAt < 0f) return;
         if (Time.unscaledTime < spectateAt) return;
 
@@ -1060,6 +1063,11 @@ public partial class OnlineRound : MonoBehaviour
     private void WatchNext()
     {
         AudioManager.ButtonTap();
+        if (resultShown)
+        {
+            if (revealOffered) RevealNext();   // a seeker after the hiders won: the hiders' hiding places
+            return;
+        }
         if (!NextPlayerOpen)
         {
             OfferNextPlayer();   // not unlocked yet: offer it, and switch once bought
@@ -1089,6 +1097,7 @@ public partial class OnlineRound : MonoBehaviour
     {
         if (gmm != null) gmm.PlayerFrozen = true;
 
+        NoteOutcome(info.Outcome);
         ShowResult(info.Won, info.Rank, ScoreUntilResults(info.Eliminations, info.SurvivalSeconds), 0);
     }
 
@@ -1099,6 +1108,7 @@ public partial class OnlineRound : MonoBehaviour
         matchEndShown = true;
 
         if (gmm != null) gmm.PlayerFrozen = true;
+        NoteOutcome(info.Outcome);
 
         // The score as the results show it (2026-11-13): hiders caught, or seconds survived; the full
         // results that follow put "of the seek" on it (HandleMatchResults).
@@ -1133,6 +1143,13 @@ public partial class OnlineRound : MonoBehaviour
             // No result popup in this scene: say it in the banner.
             ShowBanner(won ? "You won!" : "You lost.", 5f);
         }
+
+        // A seeker the hiders beat may look at where they hid (OnlineRound.Reveal).
+        OfferReveal(() =>
+        {
+            if (results != null)
+                results.ShowOnlineResult(won, rankText, score, coinCents, () => lobby.GoHomeFromRound(), () => lobby.PlayAgainFromRound());
+        });
     }
 
     private static string StatusText(MatchStatus status)
@@ -1206,6 +1223,8 @@ public partial class OnlineRound : MonoBehaviour
         nrt.anchorMin = nrt.anchorMax = nrt.pivot = new Vector2(0.5f, 0f);
         nrt.anchoredPosition = new Vector2(0f, 60f);
         nextButton.gameObject.SetActive(false);
+
+        BuildReveal(canvas.transform);
     }
 
     private void ShowBanner(string text, float seconds)
