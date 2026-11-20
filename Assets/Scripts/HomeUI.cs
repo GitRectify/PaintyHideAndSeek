@@ -398,6 +398,15 @@ public class HomeUI : MonoBehaviour
         SetHome(visible);
     }
 
+    /// <summary>
+    /// The round's HUD, off once an online match is decided (OnlineRound: its results and the view
+    /// of the map after them); the next round, Home or the room list set it as they need it.
+    /// </summary>
+    public void SetGameplayUIVisible(bool visible)
+    {
+        SetGameplayUI(visible);
+    }
+
     private void SetGameplayUI(bool v)
     {
         if (gameplayUI == null) return;

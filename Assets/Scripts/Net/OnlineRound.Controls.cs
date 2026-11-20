@@ -10,8 +10,8 @@ using UnityEngine.UI;
 //   * Exit: leaves the match and goes back to the room list (Multiple Play's menu), without closing
 //     the game. The match goes on: the server keeps the seat, and the player rejoins it from their
 //     matches (OnlineMatches) while it runs. It asks first.
-//   * Everyone's results at the end (OnlineMatches.ShowResults), and the seconds left before the
-//     next shot on the Shoot button.
+//   * Everyone's results at the end (OnlineMatches.ShowMatchEnd, the only results screen), and the
+//     seconds left before the next shot on the Shoot button.
 //   * The hiders' ready list: in the hide phase every hider sees who has pressed Start (the
 //     server's S2C.HidersReady; bots are always ready), and a banner when another one does.
 public partial class OnlineRound
@@ -66,15 +66,16 @@ public partial class OnlineRound
         readyPanel.gameObject.SetActive(false);
     }
 
-    // Exit while the round (or its result) is up; the ready list in the hide phase, for hiders.
+    // Exit and Shop while the round is played (after it, Exit and Results: UpdateAfterMatch); the
+    // ready list in the hide phase, for hiders.
     private void UpdateMatchControls()
     {
         if (exitButton != null)
         {
-            bool show = !resultShown;
-            if (exitButton.gameObject.activeSelf != show) exitButton.gameObject.SetActive(show);
-            if (!show && exitConfirm.activeSelf) exitConfirm.SetActive(false);
-            if (shopButton != null && shopButton.gameObject.activeSelf != show) shopButton.gameObject.SetActive(show);
+            bool playing = !resultShown;
+            if (playing && !exitButton.gameObject.activeSelf) exitButton.gameObject.SetActive(true);
+            if (!playing && exitConfirm.activeSelf) exitConfirm.SetActive(false);
+            if (shopButton != null && shopButton.gameObject.activeSelf != playing) shopButton.gameObject.SetActive(playing);
         }
 
         if (readyPanel != null)
@@ -145,32 +146,20 @@ public partial class OnlineRound
 
     // ---- Everyone's results ----
 
-    // S2C.MatchResults: every player's rank, score and coins, over the result popup (Close shows it).
+    // S2C.MatchResults: every player's rank, score and coins, the match's one results screen. It
+    // shows when it first comes (with the match's end); a copy sent again only refreshes it if it is
+    // up, and never brings back results the player closed or left for the hiders' hiding places.
     private void HandleMatchResults(MatchResultTable table)
     {
         if (!active || table.MatchId != (uint)matchId) return;
 
-        // The popup under the results shows this player's line as the table has it: the rank among
-        // everyone, and the score as seconds of the seek or hiders caught.
-        foreach (MatchResultEntry p in table.Players ?? System.Array.Empty<MatchResultEntry>())
-        {
-            if (p.Slot != Net.LocalSlot) continue;
-            if (results != null)
-                results.UpdateOnlineFigures(p.Rank > 0 ? $"#{p.Rank}/{Net.MatchSeats}" : "-",
-                                            OnlineMatches.ScoreText(p.Role, p.SurvivedSeconds, table.SeekSeconds, p.Catches, p.PointsHundredths));
-            // Who caught them is in the results table over this popup (its row is too narrow).
-            break;
-        }
-
-        if (table.Outcome == MatchOutcome.HidersWin && !hidersWon)
-        {
-            hidersWon = true;
-            if (resultShown && !revealOffered) OfferReveal(showResultsAgain);   // the outcome came only with the results
-        }
-
+        if (table.Outcome == MatchOutcome.HidersWin) hidersWon = true;   // the outcome may come only with the results
         lastResultsTable = table;
-        if (revealing) return;   // shown again on "Back to results"
-        OnlineMatches.ShowResults(table, () => lobby.PlayAgainFromRound(), () => lobby.GoHomeFromRound());
+        if (!resultShown) return;   // shown with the match's end (EnterAfterMatch)
+
+        UpdateRevealOffer();
+        if (revealing) return;
+        if (!resultsAutoShown || OnlineMatches.ResultsOpen) ShowMatchResults(table);
     }
 
     // ---- The Shoot button's cooldown ----

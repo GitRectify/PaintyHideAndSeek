@@ -451,10 +451,16 @@ Change your character after this match.	请在本场比赛结束后更换角色�
 {0} unlocked. Play it in your next match.	{0} 已解锁，下一场比赛即可使用。	{0}: разблокировано. Используйте в следующем матче.
 # 2026-11-20: rating comment, the hiders' hiding places after the match
 Tell us what you think (optional)	说说你的想法（可选）	Расскажите, что вы думаете (необязательно)
-BACK TO RESULTS	返回结果	К ИТОГАМ
 No hiders left to show.	没有可以查看的躲藏者了。	Больше нет прячущихся для показа.
 HIDER {0}/{1}: {2}	躲藏者 {0}/{1}：{2}	ПРЯЧУЩИЙСЯ {0}/{1}: {2}
 HIDER: {0}	躲藏者：{0}	ПРЯЧУЩИЙСЯ: {0}
 HIDER · {0}	躲藏者 · {0}	ПРЯЧУЩИЙСЯ · {0}
 See where the hiders hid when they win. Hiders: switch between the players still in after you are out. Yours for good, in every match.	躲藏者获胜时，可查看他们藏在哪里。躲藏者出局后可在仍在场上的玩家之间切换观看。永久拥有，每场比赛都能用。	Когда побеждают прячущиеся, смотрите, где они прятались. Прячущимся: после выбывания переключайтесь между оставшимися игроками. Навсегда, в каждом матче.
 Switch between the players still in after you are out, and as a seeker see where the hiders hid when they win. Yours for good, in every match.	出局后可在仍在场上的玩家之间切换观看；作为寻找者，躲藏者获胜时可查看他们藏在哪里。永久拥有，每场比赛都能用。	После выбывания переключайтесь между оставшимися игроками, а ищущим — смотрите, где прятались победившие прячущиеся. Навсегда, в каждом матче.
+# 2026-11-21: one results screen, watching players (seekers after a hiders' win, caught hiders)
+NEXT PLAYER	下一个玩家	СЛЕДУЮЩИЙ ИГРОК
+See where each hider hid with Next Player.	用“下一个玩家”查看每个躲藏者藏在哪里。	С «Следующим игроком» видно, где прятался каждый.
+Drag to look around. Pinch to zoom.	拖动以环顾四周，双指缩放。	Перетаскивайте, чтобы осмотреться. Масштаб — двумя пальцами.
+Drag to look around. Scroll to zoom. Left and Right arrow keys switch players.	拖动以环顾四周，滚轮缩放，左右方向键切换玩家。	Перетаскивайте, чтобы осмотреться. Колесо мыши — масштаб. Стрелки влево и вправо — сменить игрока.
+Loading the results...	正在加载结果……	Загрузка итогов...
+This is the only hider still in.	这是唯一还在场上的躲藏者。	Это единственный оставшийся прячущийся.

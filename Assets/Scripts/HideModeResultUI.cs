@@ -77,8 +77,8 @@ public class HideModeResultUI : MonoBehaviour
     private static readonly Color GoldYellow = new Color(1f, 0.86f, 0.3f, 1f);
 
     // Single Play earns no coins: the one currency is the server wallet, paid only by online
-    // matches. Its popups leave the Gold row out; the online result shows it with the server's
-    // payout (ShowOnlineResult).
+    // matches. Its popups leave the Gold row out. Multiple Play has no popup of its own here: its
+    // one results screen is OnlineMatches' (2026-11-20).
     private void SetGoldRowVisible(ResultUI rr, bool visible)
     {
         Transform row = rr.root != null ? UiFind.Require(rr.root.transform, "Row2") : null;
@@ -149,7 +149,7 @@ public class HideModeResultUI : MonoBehaviour
         // Revive and +30s cost a rewarded ad; ads are gone, and both are free now (2026-11-13).
         MakeAdFree(caughtRoot, "Get one more chance.");
         MakeAdFree(timeUpRoot, "Get 30 extra seconds.");
-        SetMiddleButton(false);
+        HideMiddleButton();
     }
 
     private static void MakeAdFree(GameObject popup, string body)
@@ -164,30 +164,15 @@ public class HideModeResultUI : MonoBehaviour
         if (bodyText != null) bodyText.text = body;
     }
 
-    // The result popup's middle button was X2 Gold, a rewarded ad. Online it is the Shop
-    // (2026-11-13); Single Play has no coins and no shop, so there it is not shown.
-    private void SetMiddleButton(bool shop)
+    // The result popup's middle button was X2 Gold, a rewarded ad. Single Play has no coins and no
+    // shop, so it is not shown.
+    private void HideMiddleButton()
     {
         foreach (ResultUI rr in new[] { victory, defeat })
         {
             Transform gold = rr.root != null ? rr.root.transform.Find("GoldBtn") : null;
-            if (gold == null) continue;
-
-            gold.gameObject.SetActive(shop);
-            if (!shop) continue;
-
-            Text label = gold.Find("Label")?.GetComponent<Text>();
-            if (label != null) label.text = "Shop";
-            Image icon = gold.Find("Icon")?.GetComponent<Image>();
-            Sprite coin = OnlineUI.SceneSprite("CoinIcon");
-            if (icon != null && coin != null) icon.sprite = coin;
+            if (gold != null) gold.gameObject.SetActive(false);
         }
-    }
-
-    private void OpenShop()
-    {
-        ShopUI shop = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
-        if (shop != null) OnlineSignIn.Open(_ => shop.OpenFrom(null), null);
     }
 
     // FIX (confirmed from raw): a null victory or defeat throws (the fx call is only reached when
@@ -258,70 +243,9 @@ public class HideModeResultUI : MonoBehaviour
         if (rr.value[0] != null) rr.value[0].text = rank;
         if (rr.value[1] != null) rr.value[1].text = score;
         SetGoldRowVisible(rr, false);
-        SetMiddleButton(false);
+        HideMiddleButton();
 
         ShowOnly(rr.root);
-    }
-
-    // ---- Online result (Multiple Play) -------------------------------------------------------
-    // The same Victory/Defeat popup with the server's rank, score and coins: nothing is rolled or
-    // credited here, the ad-based X2 Gold is hidden, and Home/Next go back to the online round.
-
-    private bool _online;
-    private Action _onlineHome;
-    private Action _onlineNext;
-
-    public void ShowOnlineResult(bool won, string rank, string score, long coinCents, Action onHome, Action onNext)
-    {
-        EnsureBuilt();
-        _online = true;
-        _onlineHome = onHome;
-        _onlineNext = onNext;
-
-        ResultUI rr = won ? victory : defeat;
-        SetMiddleButton(true);
-
-        string coins = CoinBalance.Format(coinCents);
-        if (rr.value[0] != null) rr.value[0].text = rank;
-        SetScoreRow(rr, true, score);
-        if (rr.value[2] != null) rr.value[2].text = "+" + coins;
-        SetGoldRowVisible(rr, true);
-
-        ShowOnly(rr.root);
-    }
-
-    /// <summary>The online popup's rank and score, put right once the match's full results arrive.</summary>
-    public void UpdateOnlineFigures(string rank, string score)
-    {
-        if (!_online) return;
-        foreach (ResultUI rr in new[] { victory, defeat })
-        {
-            if (rr.root == null || !rr.root.activeSelf) continue;
-            if (rr.value[0] != null) rr.value[0].text = rank;
-            SetScoreRow(rr, true, score);
-        }
-    }
-
-    // Online the middle row is the match score ("120s / 150s", "3 Hiders Caught"): a wider value
-    // than Single Play's paint score, so it may run left over the label's free space.
-    private static void SetScoreRow(ResultUI rr, bool online, string value)
-    {
-        if (rr.label[1] != null) rr.label[1].text = online ? "Score" : "Paint Score";
-        if (rr.value[1] == null) return;
-        rr.value[1].horizontalOverflow = online ? HorizontalWrapMode.Overflow : HorizontalWrapMode.Wrap;
-        if (value != null) rr.value[1].text = value;
-    }
-
-    /// <summary>Back to the Single Play popup: hides it; Single Play shows no Shop and no coins.</summary>
-    public void ClearOnline()
-    {
-        _online = false;
-        _onlineHome = null;
-        _onlineNext = null;
-        SetMiddleButton(false);
-        SetScoreRow(victory, false, null);
-        SetScoreRow(defeat, false, null);
-        HideAll();
     }
 
     public void ShowDefeat(string rank, int timeLeftSecs, int found)
@@ -763,16 +687,10 @@ public class HideModeResultUI : MonoBehaviour
     public void OnExtraClicked() => _onExtra?.Invoke();
     public void OnGiveUp2Clicked() => _onGiveUp2?.Invoke();
 
-    // The middle button (wired in the scene): the Shop online. It was X2 Gold, a rewarded ad, which
-    // with no AdMgr went straight to replaying the mode; Single Play no longer shows it.
+    // The middle button (wired in the scene). It was X2 Gold, a rewarded ad, which with no AdMgr
+    // went straight to replaying the mode; Single Play no longer shows it.
     public void OnX2GoldClicked()
     {
-        if (_online)
-        {
-            OpenShop();
-            return;
-        }
-
         // if (AdMgr.Instance != null)
         // {
         //     AdMgr.Instance.OnRewardView(GrantDoubleReward, RewardFail);
@@ -828,13 +746,6 @@ public class HideModeResultUI : MonoBehaviour
     public void OnHomeClicked()
     {
         // Singleton<RootManager>.Instance.ShowInterAds_Native();
-        if (_online)
-        {
-            HideAll();
-            _onlineHome?.Invoke();
-            return;
-        }
-
         ExitToHomeWithLoading();
     }
 
@@ -861,13 +772,6 @@ public class HideModeResultUI : MonoBehaviour
     public void OnNextClicked()
     {
         // Singleton<RootManager>.Instance.ShowInterAds_Native();
-        if (_online)
-        {
-            HideAll();
-            _onlineNext?.Invoke();
-            return;
-        }
-
         ReplayCurrentMode();
     }
 

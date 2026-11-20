@@ -135,6 +135,18 @@ public class CameraController : MonoBehaviour
     [Tooltip("How far the free camera may look up (negative pitch) and down.")]
     public float freeMinPitch = -80f;
     public float freeMaxPitch = 85f;
+    [Header("Watching another player (online: a caught hider spectating, a seeker seeing the hiders after the match)")]
+    [Tooltip("Seconds the camera takes to glide from one watched player to the next.")]
+    public float watchGlideSeconds = 0.8f;
+    [Tooltip("Closest the camera may get while watching another player: near enough to see a hiding place in detail.")]
+    public float watchMinDistance = 6f;
+    private bool _watching;
+    private float _watchSavedYaw, _watchSavedPitch, _watchSavedDistance, _watchSavedMinDistance;
+    private Vector3 _lastPivot;
+    private bool _haveLastPivot;
+    private Vector3 _glideFrom;
+    private float _glideT = 1f;
+
     public bool _freeLook;
     private Vector3 _freePivot;
     private Vector3 _freeVelocity;
@@ -315,7 +327,19 @@ public class CameraController : MonoBehaviour
         {
             _smoothY = Mathf.Lerp(_smoothY, y, 1f - Mathf.Exp(-(stairCamSmooth * Time.deltaTime)));
         }
-        return new Vector3(character.position.x, _smoothY, character.position.z);
+        Vector3 pivot = new Vector3(character.position.x, _smoothY, character.position.z);
+
+        // Switching to another watched player glides there (SetFollowTarget with glide) instead of
+        // jumping across the map.
+        if (_glideT < 1f)
+        {
+            _glideT = snap ? 1f : Mathf.Min(1f, _glideT + Time.deltaTime / Mathf.Max(0.05f, watchGlideSeconds));
+            pivot = Vector3.Lerp(_glideFrom, pivot, Mathf.SmoothStep(0f, 1f, _glideT));
+        }
+
+        _lastPivot = pivot;
+        _haveLastPivot = true;
+        return pivot;
     }
 
     private float _proneFloorY;
@@ -527,6 +551,47 @@ public class CameraController : MonoBehaviour
         distance = Mathf.Clamp(distance + deltaDistance, minDistance, maxDistance);
     }
 
+    /// <summary>Turns the camera round what it follows by these angles (keys, while watching another player).</summary>
+    public void Orbit(float yawDegrees, float pitchDegrees)
+    {
+        yaw += yawDegrees;
+        pitch = _freeLook
+            ? Mathf.Clamp(pitch + pitchDegrees, freeMinPitch, freeMaxPitch)
+            : Mathf.Clamp(pitch + pitchDegrees, minPitch, maxPitch);
+    }
+
+    /// <summary>
+    /// Watching other players (OnlineRound): the camera may come closer than in play, to look into
+    /// a hiding place. <paramref name="frame"/> starts it at the standard framing round them,
+    /// looking the way the camera looks now (a seeker's camera was over the shoulder until then).
+    /// Off gives the player their own framing back.
+    /// </summary>
+    public void SetWatching(bool on, bool frame)
+    {
+        if (_watching == on) return;
+        _watching = on;
+        if (on)
+        {
+            _watchSavedYaw = yaw;
+            _watchSavedPitch = pitch;
+            _watchSavedDistance = distance;
+            _watchSavedMinDistance = minDistance;
+            minDistance = Mathf.Min(minDistance, watchMinDistance);
+            if (frame)
+            {
+                if (cam != null) yaw = cam.transform.eulerAngles.y;
+                pitch = _defPitch;
+                distance = _defDistance;
+            }
+            return;
+        }
+
+        minDistance = _watchSavedMinDistance;
+        yaw = _watchSavedYaw;
+        pitch = _watchSavedPitch;
+        distance = Mathf.Clamp(_watchSavedDistance, minDistance, maxDistance);
+    }
+
     private Renderer heldGunMesh;
 
     // The middle of the gun's mesh: it lies on the line of fire (the gun lies along the aiming
@@ -594,12 +659,17 @@ public class CameraController : MonoBehaviour
     }
 
     // Online spectating (OnlineRound): follow another player's body instead of the player's own;
-    // null goes back to the player. The height smoothing snaps to the new body.
-    public void SetFollowTarget(Transform target)
+    // null goes back to the player. The height smoothing snaps to the new body; with glide the
+    // camera travels there over watchGlideSeconds (not while the free camera flies on its own).
+    public void SetFollowTarget(Transform target) => SetFollowTarget(target, false);
+
+    public void SetFollowTarget(Transform target, bool glide)
     {
         if (playerCharacter == null) playerCharacter = character;
         Transform next = target != null ? target : playerCharacter;
         if (next == character) return;
+        _glideFrom = _lastPivot;
+        _glideT = glide && _haveLastPivot && !_freeLook ? 0f : 1f;
         character = next;
         _smoothYInit = false;
         ClearSpotView();    // free look is left alone: spectating moves on without taking it away

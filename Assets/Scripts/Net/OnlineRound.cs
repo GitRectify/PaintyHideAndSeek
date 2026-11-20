@@ -5,8 +5,8 @@ using Meccha.Shared.Protocol;
 using UnityEngine;
 using UnityEngine.UI;
 
-// An online round in the 3D scene, from MatchStart to the result popup. Adapted from the SDK
-// sample's OnlineRound.
+// An online round in the 3D scene, from MatchStart to its results. Adapted from the SDK sample's
+// OnlineRound.
 //
 // The existing gameplay scripts keep doing what they do — JoystickMover moves the player and
 // that movement is the truth (the server only checks it against limits), CameraController follows,
@@ -38,7 +38,8 @@ using UnityEngine.UI;
 //     game runs Single Play's bot controllers on them and reports what they do (OnlineRound.Bots.cs).
 //   * Out of the round, the player spectates: the server sends everyone, and the camera follows the
 //     players still in until the result. Switching between them (Next player) is Next Player, a
-//     shop feature bought once (OnlineRound.NextPlayer.cs).
+//     shop feature bought once (OnlineRound.NextPlayer.cs); with it a seeker the hiders beat sees
+//     where they hid, after the match (OnlineRound.Reveal.cs, with the match's end and its results).
 //   * Poses and weapons are the shop's: PoseSelectorUI sends a pick through SendPose (owned poses
 //     only), the equipped weapon is selected at the start (SelectWeapon), and snapshots show every
 //     other player's pose and gun skin. There is no in-round weapon picker, as offline.
@@ -437,7 +438,7 @@ public partial class OnlineRound : MonoBehaviour
         WeaponSkins.Apply(LocalGun(), 0);
         if (poses != null) poses.ClearSelection();
         requestedPose = -1;
-        if (results != null) results.ClearOnline();
+        if (results != null) results.HideAll();
         if (gmm != null) gmm.EndNetworkRound();
         banner.gameObject.SetActive(false);
         bulletButton.gameObject.SetActive(false);
@@ -469,6 +470,7 @@ public partial class OnlineRound : MonoBehaviour
         ApplyCanvases();
         UpdateSpotView();
         UpdateSpectating();
+        UpdateAfterMatch();
         UpdateMatchControls();
         UpdateFireCooldown();
         WatchConnection();
@@ -728,7 +730,7 @@ public partial class OnlineRound : MonoBehaviour
 
     private bool CanFire()
     {
-        if (localOut) return false;
+        if (localOut || resultShown) return false;
         if (!Net.IsConnected) return false;   // the shot would go nowhere; the banner says why
         if (Time.unscaledTime < nextFireAt) return false;
 
@@ -1016,73 +1018,51 @@ public partial class OnlineRound : MonoBehaviour
     // ================= Spectating =================
 
     // Out of the round: the camera follows the players still in, from spectateDelaySeconds after
-    // the catch until the result, moving on when the one watched is out too.
+    // the catch until the result, moving on when the one watched is out too (OnlineRound.Reveal has
+    // how watching works: the glide, the drag, the zoom, the keys).
     private void UpdateSpectating()
     {
-        if (revealOffered) RefreshNextButton();   // its price, once the shop's listing is in
         if (!localOut || resultShown || camCtrl == null || spectateAt < 0f) return;
         if (Time.unscaledTime < spectateAt) return;
 
+        if (!spectateStarted)
+        {
+            spectateStarted = true;
+            camCtrl.SetWatching(true, frame: false);   // the hider's own framing, closer zoom allowed
+        }
+
         NetEntityView current = watching != 0xFF ? NetEntityRegistry.Get(watching) : null;
-        if (current == null || current.Eliminated) Watch(NextToWatch(watching));
+        if (current == null || current.Eliminated) Watch(CycleSlot(watching, +1, IsWatchable));
 
-        if (nextButton != null)
-        {
-            nextButton.gameObject.SetActive(watching != 0xFF);
-            RefreshNextButton();
-        }
-    }
-
-    // The next player still in after this slot (in slot order, wrapping), or 0xFF for none.
-    private byte NextToWatch(byte after)
-    {
-        if (roster == null) return 0xFF;
-
-        byte next = 0xFF, first = 0xFF;
-        foreach (MecchaNetClient.RosterEntry e in roster)
-        {
-            if (e.Slot == Net.LocalSlot || eliminated.Contains(e.Slot)) continue;
-            NetEntityView view = NetEntityRegistry.Get(e.Slot);
-            if (view == null || view.Eliminated) continue;
-
-            if (first == 0xFF || e.Slot < first) first = e.Slot;
-            if (after != 0xFF && e.Slot > after && (next == 0xFF || e.Slot < next)) next = e.Slot;
-        }
-
-        return next != 0xFF ? next : first;
+        bool some = watching != 0xFF;
+        ShowWatchControls(some, some && CountOf(IsWatchable) > 1);
+        ShowWatchLabel(some);
+        RefreshNextButton();
+        if (some && nextOffer == null) WatchKeys();
     }
 
     private void Watch(byte slot)
     {
         watching = slot;
         NetEntityView view = slot != 0xFF ? NetEntityRegistry.Get(slot) : null;
-        camCtrl.SetFollowTarget(view != null ? view.transform : null);
-        if (view != null) ShowBanner($"Watching {NameOf(slot)}", 2f);
-    }
-
-    private void WatchNext()
-    {
-        AudioManager.ButtonTap();
-        if (resultShown)
-        {
-            if (revealOffered) RevealNext();   // a seeker after the hiders won: the hiders' hiding places
-            return;
-        }
-        if (!NextPlayerOpen)
-        {
-            OfferNextPlayer();   // not unlocked yet: offer it, and switch once bought
-            return;
-        }
-        if (camCtrl != null) camCtrl.SetFreeLook(false);   // the button means: show me them
-        Watch(NextToWatch(watching));
+        camCtrl.SetFollowTarget(view != null ? view.transform : null, glide: true);
+        if (view == null) return;
+        watchLabel.text = $"Watching {NameOf(slot)}";
+        watchLabel.color = Color.white;
     }
 
     private void StopSpectating()
     {
         spectateAt = -1f;
         watching = 0xFF;
-        if (camCtrl != null) camCtrl.SetFollowTarget(null);
-        if (nextButton != null) nextButton.gameObject.SetActive(false);
+        if (camCtrl != null)
+        {
+            camCtrl.SetFollowTarget(null);
+            if (spectateStarted) camCtrl.SetWatching(false, frame: false);
+        }
+        spectateStarted = false;
+        ShowWatchControls(false, false);
+        ShowWatchLabel(false);
         CloseNextPlayerOffer();
     }
 
@@ -1098,7 +1078,7 @@ public partial class OnlineRound : MonoBehaviour
         if (gmm != null) gmm.PlayerFrozen = true;
 
         NoteOutcome(info.Outcome);
-        ShowResult(info.Won, info.Rank, ScoreUntilResults(info.Eliminations, info.SurvivalSeconds), 0);
+        ShowResult(info.Won);
     }
 
     private void HandleMatchEnd(MecchaNetClient.MatchEndInfo info)
@@ -1110,9 +1090,8 @@ public partial class OnlineRound : MonoBehaviour
         if (gmm != null) gmm.PlayerFrozen = true;
         NoteOutcome(info.Outcome);
 
-        // The score as the results show it (2026-11-13): hiders caught, or seconds survived; the full
-        // results that follow put "of the seek" on it (HandleMatchResults).
-        ShowResult(info.Won, info.Rank, ScoreUntilResults(info.Eliminations, info.SurvivalSeconds), info.CoinCentsAwarded);
+        // Rank, score and coins are in the results that come with it (HandleMatchResults).
+        ShowResult(info.Won);
 
         if (info.Status != MatchStatus.Completed && info.Status != MatchStatus.Reconnected)
             ShowBanner(StatusText(info.Status), 6f);
@@ -1120,36 +1099,18 @@ public partial class OnlineRound : MonoBehaviour
             ShowBanner(info.Explanation, 8f);
     }
 
-    private string ScoreUntilResults(int catches, int survivedSeconds) =>
-        hunter ? (catches == 1 ? "1 Hider Caught" : $"{catches} Hiders Caught") : $"{survivedSeconds}s";
-
-    private void ShowResult(bool won, int rank, string score, long coinCents)
+    // RoundEnd, then MatchEnd: the first puts the match's end on screen (OnlineRound.Reveal), and the
+    // results screen is the one result shown (2026-11-21).
+    private void ShowResult(bool won)
     {
+        bool first = !resultShown;
         resultShown = true;
         ClearSpot();
         if (camCtrl != null) camCtrl.SetFreeLook(false);
         StopSpectating();
         OnlineRejoin.Clear();   // the match is decided: nothing left to rejoin
-        string rankText = rank > 0 ? $"#{rank}/{Net.MatchSeats}" : "-";
-
-        if (results != null)
-        {
-            results.ShowOnlineResult(won, rankText, score, coinCents,
-                                     () => lobby.GoHomeFromRound(),
-                                     () => lobby.PlayAgainFromRound());
-        }
-        else
-        {
-            // No result popup in this scene: say it in the banner.
-            ShowBanner(won ? "You won!" : "You lost.", 5f);
-        }
-
-        // A seeker the hiders beat may look at where they hid (OnlineRound.Reveal).
-        OfferReveal(() =>
-        {
-            if (results != null)
-                results.ShowOnlineResult(won, rankText, score, coinCents, () => lobby.GoHomeFromRound(), () => lobby.PlayAgainFromRound());
-        });
+        if (first) EnterAfterMatch(won);
+        else UpdateRevealOffer();
     }
 
     private static string StatusText(MatchStatus status)
@@ -1224,7 +1185,7 @@ public partial class OnlineRound : MonoBehaviour
         nrt.anchoredPosition = new Vector2(0f, 60f);
         nextButton.gameObject.SetActive(false);
 
-        BuildReveal(canvas.transform);
+        BuildWatchView(canvas.transform);
     }
 
     private void ShowBanner(string text, float seconds)

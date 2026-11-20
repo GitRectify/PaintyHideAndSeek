@@ -580,14 +580,18 @@ public static class OnlinePlayTest
                 if (InStep < 2f) return;
                 OnlineRound round = OnlineRoundInstance();
                 bool shown = round != null && (bool)typeof(OnlineRound).GetField("resultShown", Any).GetValue(round);
-                bool hasPopup = typeof(OnlineRound).GetField("results", Any).GetValue(round) != null;
-                Check(shown && hasPopup, "Single Play's result popup (HideModeResultUI) shows the online result");
+                bool oldPopup = FindByName("VictoryPopup") is { activeInHierarchy: true } || FindByName("DefeatPopup") is { activeInHierarchy: true };
+                Check(shown && FindByName("MatchResultsScreen") is { activeInHierarchy: true } && !oldPopup,
+                      "the results screen is the one result shown (no Single Play popup under it)");
                 if (AwayTest) CheckResultsScreen("at the end the results screen shows");
                 if (NextTest)
                 {
                     // Next is the room list now, not the same room again.
                     matchesAtNext = matchesFound;
-                    Object.FindAnyObjectByType<HideModeResultUI>().OnNextClicked();
+                    Button next = FindButton("MatchResultsScreen", "NEXT");
+                    Check(next != null, "the results screen offers Next");
+                    if (next != null) next.onClick.Invoke();
+                    else Object.FindAnyObjectByType<OnlineLobby>().PlayAgainFromRound();
                     Go(Step.NextRooms);
                     return;
                 }

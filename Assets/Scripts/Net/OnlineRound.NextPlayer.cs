@@ -28,22 +28,25 @@ public partial class OnlineRound
     private float nextButtonCheckAt;
 
     // Twice a second while spectating (the listing and the balance change rarely), at once when forced.
+    // A seeker's Next Player on the results screen says the same.
     private void RefreshNextButton(bool force = false)
     {
         if (!force && Time.unscaledTime < nextButtonCheckAt) return;
         nextButtonCheckAt = Time.unscaledTime + 0.5f;
 
-        string text;
-        if (NextPlayerOpen) text = "Next player";
-        else
-        {
-            ShopItem item = ShopInventory.FeatureItem(GameFeatures.NextPlayer);
-            text = item != null ? $"Next player\n<size=26>Unlock: {OnlineUI.CoinsText(ShopInventory.PriceCents(item))}</size>" : "Next player";
-        }
-
+        string text = NextPlayerText("Next player");
         if (text == nextButtonShown) return;
         nextButtonShown = text;
         OnlineUI.SetButtonText(nextButton, text);
+        if (revealOffered) OnlineMatches.SetExtraLabel(NextPlayerText("NEXT PLAYER"));
+    }
+
+    // The button's name, with the unlock price under it until the account owns Next Player.
+    private static string NextPlayerText(string name)
+    {
+        if (NextPlayerOpen) return name;
+        ShopItem item = ShopInventory.FeatureItem(GameFeatures.NextPlayer);
+        return item != null ? $"{name}\n<size=26>Unlock: {OnlineUI.CoinsText(ShopInventory.PriceCents(item))}</size>" : name;
     }
 
     // Asks to buy Next Player: what it does, its price and the balance, Unlock or Not now.
@@ -61,6 +64,7 @@ public partial class OnlineRound
         if (item == null || roundCanvas == null) return;
 
         CloseNextPlayerOffer();
+        RaiseForOffer(true);   // over the results screen when it is offered there
         nextOffer = OnlineUI.Modal(roundCanvas, "NextPlayerOffer", new Vector2(900f, 560f));
         string price = OnlineUI.CoinsText(ShopInventory.PriceCents(item));
 
@@ -106,11 +110,11 @@ public partial class OnlineRound
             CloseNextPlayerOffer();
             ShowBanner(message, 3f);
             OwnNextPlayerNow();
-            if (resultShown && revealOffered) RevealNext();   // a seeker: straight to the first hider
+            if (resultShown && revealOffered) RevealStep(+1);   // a seeker: straight to the first hider
             else if (localOut && watching != 0xFF)
             {
                 if (camCtrl != null) camCtrl.SetFreeLook(false);
-                Watch(NextToWatch(watching));
+                Watch(CycleSlot(watching, +1, IsWatchable));
             }
         });
     }
@@ -129,5 +133,6 @@ public partial class OnlineRound
         nextOffer = null;
         nextOfferStatus = null;
         nextOfferBuy = null;
+        RaiseForOffer(false);
     }
 }

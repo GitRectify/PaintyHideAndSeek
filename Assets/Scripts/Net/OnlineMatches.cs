@@ -48,10 +48,10 @@ public class OnlineMatches : MonoBehaviour
     // UI
     private Canvas overlayCanvas, screenCanvas;
     private GameObject coinPill, chip, listScreen, resultsScreen;
-    private Text chipText, listTitle, listPage, resultsTitle;
+    private Text chipText, listTitle, listPage, resultsTitle, resultsHeading, resultsExtraHint;
     private RectTransform listRows, toastStack, resultsRows;
-    private Button resultsNext, resultsHome;
-    private Action onResultsNext, onResultsHome;
+    private Button resultsNext, resultsHome, resultsClose, resultsExtra;
+    private Action onResultsNext, onResultsHome, onResultsClose, onResultsExtra;
     private int page;
     private readonly List<(GameObject Go, CanvasGroup Group, float Until, uint MatchId)> toasts = new List<(GameObject, CanvasGroup, float, uint)>();
 
@@ -153,17 +153,47 @@ public class OnlineMatches : MonoBehaviour
         instance.OpenList();
     }
 
-    /// <summary>
-    /// A match's full results. At the end of a match OnlineRound passes Next and Home, which the
-    /// screen offers next to Close (Close shows the match's own result popup underneath).
-    /// </summary>
-    public static void ShowResults(MatchResultTable table, Action onNext = null, Action onHome = null)
+    /// <summary>A match's full results, from the list or a notice: Close only.</summary>
+    public static void ShowResults(MatchResultTable table)
     {
         if (instance == null) Create();
-        instance.OpenResults(table, onNext, onHome);
+        instance.OpenResults(table, new MatchEndButtons());
     }
 
-    /// <summary>Closes the results screen (the round ending, the player leaving).</summary>
+    /// <summary>What the results offer at the end of the player's own match (OnlineRound).</summary>
+    public struct MatchEndButtons
+    {
+        public string Heading;          // "You won!" / "You lost.", over the table
+        public bool Won;
+        public Action Next, Home;       // leave the match: to the room list, or Home
+        public Action Close;            // the results put away, the match's scene under them
+        public string ExtraLabel;       // a fourth button (a seeker's Next Player), or null
+        public Action Extra;            // its tap; the screen stays up (the caller decides)
+    }
+
+    /// <summary>
+    /// The end of the player's own match (2026-11-20): the only results screen there is, with Next,
+    /// Home and Close, and a seeker's Next Player when the hiders won.
+    /// </summary>
+    public static void ShowMatchEnd(MatchResultTable table, MatchEndButtons buttons)
+    {
+        if (instance == null) Create();
+        instance.OpenResults(table, buttons);
+    }
+
+    /// <summary>The fourth button's text, as its price changes (null hides it).</summary>
+    public static void SetExtraLabel(string label)
+    {
+        if (instance == null || instance.resultsExtra == null) return;
+        bool show = label != null && instance.onResultsExtra != null;
+        if (instance.resultsExtra.gameObject.activeSelf != show) instance.LayoutResultButtons(show);
+        if (show) OnlineUI.SetButtonText(instance.resultsExtra, label);
+    }
+
+    /// <summary>Whether the results screen is up.</summary>
+    public static bool ResultsOpen => instance != null && instance.resultsScreen != null && instance.resultsScreen.activeSelf;
+
+    /// <summary>Closes the results screen (the round ending, the player leaving), without its Close.</summary>
     public static void HideResults()
     {
         if (instance != null && instance.resultsScreen != null) instance.resultsScreen.SetActive(false);
@@ -266,7 +296,7 @@ public class OnlineMatches : MonoBehaviour
         if (wantResultsFor != 0 && table.MatchId == wantResultsFor)
         {
             wantResultsFor = 0;
-            OpenResults(table, null, null);
+            OpenResults(table, new MatchEndButtons());
         }
     }
 
@@ -583,12 +613,22 @@ public class OnlineMatches : MonoBehaviour
 
     // ================= Results =================
 
-    private void OpenResults(MatchResultTable table, Action onNext, Action onHome)
+    private void OpenResults(MatchResultTable table, MatchEndButtons buttons)
     {
-        onResultsNext = onNext;
-        onResultsHome = onHome;
-        resultsNext.gameObject.SetActive(onNext != null);
-        resultsHome.gameObject.SetActive(onHome != null);
+        onResultsNext = buttons.Next;
+        onResultsHome = buttons.Home;
+        onResultsClose = buttons.Close;
+        onResultsExtra = buttons.Extra;
+        resultsNext.gameObject.SetActive(buttons.Next != null);
+        resultsHome.gameObject.SetActive(buttons.Home != null);
+        bool extra = buttons.Extra != null && buttons.ExtraLabel != null;
+        if (extra) OnlineUI.SetButtonText(resultsExtra, buttons.ExtraLabel);
+        LayoutResultButtons(extra);
+
+        // The player's own match says how it went, in the heading (won in green).
+        resultsHeading.text = string.IsNullOrEmpty(buttons.Heading) ? "Match results" : buttons.Heading;
+        resultsHeading.color = string.IsNullOrEmpty(buttons.Heading) ? Color.white
+                             : buttons.Won ? new Color(0.49f, 0.95f, 0.6f, 1f) : new Color(1f, 0.66f, 0.45f, 1f);
 
         string outcome = table.Outcome == MatchOutcome.HidersWin ? "Hiders win"
                        : table.Outcome == MatchOutcome.SeekersWin ? "Seekers win" : "No winner";
@@ -703,32 +743,72 @@ public class OnlineMatches : MonoBehaviour
         p = OnlineUI.Modal(screenCanvas.transform, "MatchResultsScreen", new Vector2(1480f, 960f));
         Opaque(p);
         resultsScreen = p.parent.gameObject;
-        OnlineUI.NewLabel(p, "Match results", 50, new Vector2(0f, 410f), new Vector2(1400f, 70f), TextAnchor.MiddleCenter, true);
+        resultsHeading = OnlineUI.NewLabel(p, "Match results", 50, new Vector2(0f, 410f), new Vector2(1400f, 70f), TextAnchor.MiddleCenter, true);
         resultsTitle = OnlineUI.NewLabel(p, "", 32, new Vector2(0f, 350f), new Vector2(1400f, 50f));
         resultsTitle.color = OnlineUI.Muted;
         resultsRows = (RectTransform)new GameObject("Rows", typeof(RectTransform)).transform;
         resultsRows.SetParent(p, false);
         OnlineUI.Place(resultsRows, Vector2.zero, new Vector2(1400f, 700f));
-        resultsNext = OnlineUI.NewButton(p, "NEXT", new Vector2(-360f, -410f), new Vector2(300f, 84f), OnlineUI.Green, () =>
+        resultsNext = OnlineUI.NewButton(p, "NEXT", Vector2.zero, new Vector2(300f, 84f), OnlineUI.Green, () =>
         {
-            resultsScreen.SetActive(false);
             Action next = onResultsNext;
-            onResultsNext = onResultsHome = null;
+            CloseResults();
             next?.Invoke();
         });
-        resultsHome = OnlineUI.NewButton(p, "HOME", new Vector2(0f, -410f), new Vector2(300f, 84f), OnlineUI.Blue, () =>
+        resultsHome = OnlineUI.NewButton(p, "HOME", Vector2.zero, new Vector2(300f, 84f), OnlineUI.Blue, () =>
         {
-            resultsScreen.SetActive(false);
             Action home = onResultsHome;
-            onResultsNext = onResultsHome = null;
+            CloseResults();
             home?.Invoke();
         });
-        OnlineUI.NewButton(p, "CLOSE", new Vector2(360f, -410f), new Vector2(300f, 84f), OnlineUI.Gray, () =>
+        // Close puts the results away for good: nothing else of them is under this screen.
+        resultsClose = OnlineUI.NewButton(p, "CLOSE", Vector2.zero, new Vector2(300f, 84f), OnlineUI.Gray, () =>
         {
             AudioManager.ButtonTap();
-            resultsScreen.SetActive(false);
+            Action close = onResultsClose;
+            CloseResults();
+            close?.Invoke();
         });
+        // A seeker's Next Player when the hiders won: where each of them hid (OnlineRound.Reveal).
+        resultsExtra = OnlineUI.NewButton(p, "NEXT PLAYER", Vector2.zero, new Vector2(320f, 84f), new Color(0.85f, 0.52f, 0.12f, 0.97f), () =>
+        {
+            AudioManager.ButtonTap();
+            onResultsExtra?.Invoke();
+        });
+        resultsExtra.name = "ResultsNextPlayer";
+        Text extraText = resultsExtra.GetComponentInChildren<Text>();
+        extraText.fontSize = 30;
+        extraText.lineSpacing = 0.9f;
+        resultsExtraHint = OnlineUI.NewLabel(p, "See where each hider hid with Next Player.", 28, new Vector2(0f, -352f), new Vector2(1400f, 40f));
+        resultsExtraHint.color = new Color(1f, 0.78f, 0.35f, 1f);
+        LayoutResultButtons(false);
         resultsScreen.SetActive(false);
+    }
+
+    private void CloseResults()
+    {
+        resultsScreen.SetActive(false);
+        onResultsNext = onResultsHome = onResultsClose = onResultsExtra = null;
+    }
+
+    // Next, Home, Close along the bottom; with Next Player first when it is offered.
+    private void LayoutResultButtons(bool extra)
+    {
+        resultsExtra.gameObject.SetActive(extra);
+        resultsExtraHint.gameObject.SetActive(extra);
+        var row = new List<Button>();
+        if (extra) row.Add(resultsExtra);
+        if (resultsNext.gameObject.activeSelf) row.Add(resultsNext);
+        if (resultsHome.gameObject.activeSelf) row.Add(resultsHome);
+        row.Add(resultsClose);
+
+        float step = extra ? 350f : 360f;
+        float x = -step * (row.Count - 1) / 2f;
+        foreach (Button b in row)
+        {
+            ((RectTransform)b.transform).anchoredPosition = new Vector2(x, -410f);
+            x += step;
+        }
     }
 
     // ================= Text =================
