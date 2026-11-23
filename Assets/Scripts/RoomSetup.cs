@@ -14,6 +14,8 @@ using UnityEngine;
 ///
 /// 3. A floor under everyone: FallGuard puts a player who drops below the room back on a spawn.
 ///
+/// 4. The free camera's walls (objects tagged CameraBounds) read and switched off (CameraBounds).
+///
 /// Rooms are played at the size they are built.
 /// </summary>
 public static class RoomSetup
@@ -28,6 +30,7 @@ public static class RoomSetup
     public static void Prepare(GameObject room)
     {
         Room = room;
+        CameraBounds.Collect(room);     // the free camera's walls, switched off for everything else
         if (room == null) return;
 
         int added = EnsureColliders(room);
@@ -105,6 +108,7 @@ public static class RoomSetup
         bool first = true;
         foreach (Renderer r in room.GetComponentsInChildren<Renderer>(true))
         {
+            if (CameraBounds.IsWall(r)) continue;   // they reach far past the house
             if (first) { bounds = r.bounds; first = false; }
             else bounds.Encapsulate(r.bounds);
         }

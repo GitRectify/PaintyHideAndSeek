@@ -709,6 +709,7 @@ GameObject:
   - component: {fileID: 143918264173551851}
   - component: {fileID: 95587397909062814}
   - component: {fileID: 3982898075049927671}
+  - component: {fileID: 7508197293179782029}
   m_Layer: 0
   m_Name: Bot
   m_TagString: Untagged
@@ -754,13 +755,13 @@ CharacterController:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Height: 14.039432
+  m_Height: 14.96
   m_Radius: 2
   m_SlopeLimit: 45
   m_StepOffset: 0.3
   m_SkinWidth: 0.12224764
   m_MinMoveDistance: 0.001
-  m_Center: {x: -0.3435527, y: -0.2393198, z: 0}
+  m_Center: {x: -0.3435527, y: 0.22096443, z: 0}
 --- !u!95 &95587397909062814
 Animator:
   serializedVersion: 7
@@ -799,6 +800,31 @@ MonoBehaviour:
   height: 10
   worldScale: 0.07
   textColor: {r: 1, g: 1, b: 1, a: 1}
+--- !u!114 &7508197293179782029
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1709254077376921}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fd4d680f59f6c02449dd29d8cc8f55e1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BodyCapsule
+  standingHeight: 14.96
+  lyingHeight: 7.1
+  poseHeights:
+  - 0
+  - 14.88
+  - 3.97
+  - 5.48
+  - 14.88
+  - 14.83
+  - 11.02
+  - 8.61
+  - 10.47
+  - 12.98
 --- !u!1 &1709867586078768
 GameObject:
   m_ObjectHideFlags: 0

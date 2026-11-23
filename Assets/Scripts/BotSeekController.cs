@@ -2976,7 +2976,7 @@ public class BotSeekController : MonoBehaviour
                 if (b.cc != null)
                 {
                     float s = Mathf.Max(0.01f, b.tf.lossyScale.y);
-                    b.cc.stepOffset = Mathf.Clamp(botClimbStepHeight / s, 0.1f, s * b.cc.height - 0.5f);
+                    b.cc.stepOffset = Mathf.Clamp(botClimbStepHeight / s, 0.1f, BodyCapsule.MaxStep(b.cc));
                 }
 
                 if (b.anim != null)

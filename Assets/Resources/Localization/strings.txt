@@ -488,3 +488,4 @@ Real players only	仅真人玩家	Только живые игроки
 FREE	免费	БЕСПЛАТНО
 YOUR MATCH	你的比赛	ВАШ МАТЧ
 Not unlocked online. Pick another character, or get it in the Shop.	未在线解锁。请换一个角色，或在商店获取。	Не открыт онлайн. Выберите другого персонажа или купите в магазине.
+No room to stand up here.	这里没有空间站起来。	Здесь нет места, чтобы встать.

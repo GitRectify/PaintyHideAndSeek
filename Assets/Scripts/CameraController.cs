@@ -132,6 +132,10 @@ public class CameraController : MonoBehaviour
     public float scoutCeilMargin = 3f;
     [Tooltip("How quickly (world units/sec per sec, as a multiple of freePanSpeed) the free camera speeds up and slows down.")]
     public float freeAcceleration = 5f;
+    [Tooltip("How far (world units) the free camera stays from the map's camera walls (objects tagged CameraBounds).")]
+    public float freeWallDistance = 2f;
+    [Tooltip("How gently the free camera slows down before a camera wall: its speed into the wall is at most this many times the distance left (per second). Lower = it starts slowing further out.")]
+    public float freeWallEase = 6f;
     [Tooltip("How far the free camera may look up (negative pitch) and down.")]
     public float freeMinPitch = -80f;
     public float freeMaxPitch = 85f;
@@ -710,22 +714,38 @@ public class CameraController : MonoBehaviour
         }
 
         if (character != null) CacheScoutBounds();
+
+        // Inside the map's camera walls: the camera was following from where it was, which may be
+        // past one (behind a wall the follow camera looked through), so it starts where the way
+        // from the body out to it first meets a wall.
+        if (CameraBounds.Any && character != null)
+            _freePivot = CameraBounds.Move(character.position + Vector3.up * targetHeight, _freePivot, freeWallDistance);
         ClampFree();
     }
 
-    // The free camera between the room's floor and roof (and inside its walls' box).
+    // The free camera in the room. A map with camera walls (CameraBounds) holds it by them as it
+    // moves (MoveFree); what they leave open, such as a floor or a roof with no wall, and every map
+    // without them, keeps the older limits: between the floor and the roof measured when free look
+    // began, and inside the box round the whole map.
     private void ClampFree()
     {
         if (!scoutClampToRoom) return;
-        float floor = _scoutFloorY + scoutFloorMargin;
-        float ceil = Mathf.Max(floor, _scoutRoofY - scoutCeilMargin);
+        float floor = CameraBounds.HasFloor ? float.MinValue : _scoutFloorY + scoutFloorMargin;
+        float ceil = CameraBounds.HasCeiling ? float.MaxValue : Mathf.Max(floor, _scoutRoofY - scoutCeilMargin);
         _freePivot.y = Mathf.Clamp(_freePivot.y, floor, ceil);
 
-        if (_freeRoom is Bounds room)
+        if (_freeRoom is Bounds room && !CameraBounds.Any)
         {
             _freePivot.x = Mathf.Clamp(_freePivot.x, room.min.x + 1f, room.max.x - 1f);
             _freePivot.z = Mathf.Clamp(_freePivot.z, room.min.z + 1f, room.max.z - 1f);
         }
+    }
+
+    // One move of the free camera: stopped by the camera walls, sliding along them.
+    private void MoveFree(Vector3 delta)
+    {
+        _freePivot = CameraBounds.Move(_freePivot, _freePivot + delta, freeWallDistance);
+        ClampFree();
     }
 
     private Bounds? _freeRoom;
@@ -801,8 +821,9 @@ public class CameraController : MonoBehaviour
         if (wanted.sqrMagnitude > freePanSpeed * freePanSpeed) wanted = wanted.normalized * freePanSpeed;
 
         _freeVelocity = Vector3.MoveTowards(_freeVelocity, wanted, freePanSpeed * freeAcceleration * dt);
-        _freePivot += _freeVelocity * dt;
-        ClampFree();
+        // Easing to a stop at a camera wall, and gliding along it.
+        _freeVelocity = CameraBounds.Cushion(_freePivot, _freeVelocity, freeWallDistance, freeWallEase);
+        MoveFree(_freeVelocity * dt);
     }
 
     /// <summary>The free camera's own position (where it flies), for tests.</summary>
@@ -821,9 +842,8 @@ public class CameraController : MonoBehaviour
         HandleZoomGesture();
         if (_freeLook && !Mathf.Approximately(before, distance))
         {
-            _freePivot += Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward * ((before - distance) * 2f);
+            MoveFree(Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward * ((before - distance) * 2f));
             distance = before;
-            ClampFree();
         }
     }
 

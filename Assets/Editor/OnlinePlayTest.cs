@@ -895,9 +895,12 @@ public static class OnlinePlayTest
         }
 
         // The real joystick flies it (JoystickMover feeds PanFree every frame).
+        Vector3 at = cam.FreePosition;
         float floorY = (float)typeof(CameraController).GetField("_scoutFloorY", Any).GetValue(cam) + cam.scoutFloorMargin;
         float roofY = (float)typeof(CameraController).GetField("_scoutRoofY", Any).GetValue(cam) - cam.scoutCeilMargin;
-        Vector3 at = cam.FreePosition;
+        // A map with camera walls (Room's CameraBounds) holds it by its floor and ceiling walls instead.
+        if (CameraBounds.HasFloor) floorY = CameraBounds.Move(at, at + Vector3.down * 500f, cam.freeWallDistance).y;
+        if (CameraBounds.HasCeiling) roofY = CameraBounds.Move(at, at + Vector3.up * 500f, cam.freeWallDistance).y;
         freeCamMinY = Mathf.Min(freeCamMinY, at.y);
         freeCamMaxY = Mathf.Max(freeCamMaxY, at.y);
         float pitchNow = (float)typeof(CameraController).GetField("pitch", Any).GetValue(cam);
@@ -924,6 +927,7 @@ public static class OnlinePlayTest
             case 1:     // settle, then forward while looking level
                 if (InStep < freeCamAt) return false;
                 freeCamFrom = at;
+                freeCamOpen = at;
                 PushStick(Vector2.up);
                 freeCamPhase = 2;
                 freeCamAt = InStep + 1.2f;
@@ -958,6 +962,9 @@ public static class OnlinePlayTest
                           $"right flies sideways to the view ({moved.magnitude:F1} units, {Vector3.Dot(moved.normalized, levelRight):F2} along its right)");
                 }
                 PushStick(Vector2.zero);
+                // Back to where it started (open space: forward and right flew freely from there),
+                // so a camera wall the last two flights ended near does not turn this one aside.
+                typeof(CameraController).GetField("_freePivot", Any).SetValue(cam, freeCamOpen);
                 SetPitch(cam, -40f);     // looking up
                 freeCamPhase = 5;
                 freeCamAt = InStep + 0.6f;
@@ -996,7 +1003,7 @@ public static class OnlinePlayTest
 
     private static int freeCamPhase;
     private static float freeCamAt, freeCamMinY, freeCamMaxY;
-    private static Vector3 freeCamFrom;
+    private static Vector3 freeCamFrom, freeCamOpen;
 
     private static void SetPitch(CameraController cam, float degrees) =>
         typeof(CameraController).GetField("pitch", Any)?.SetValue(cam, degrees);

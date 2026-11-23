@@ -253,8 +253,20 @@ public class Mode1FirstPersonGun : MonoBehaviour
         BodyAnimation.SetCarriesGun(playerAnim, gunModeOn, firstPerson: true);
     }
 
-    /// <summary>Gets up, when something else needs the body (climbing).</summary>
+    /// <summary>Gets up, whatever is above (a new round puts the body back on its spawn anyway).</summary>
     public void StandUp() => SetProne(false);
+
+    /// <summary>
+    /// Gets up when there is room above the body (BodyCapsule): true when standing now. Climbing
+    /// asks this, so a seeker lying under a table does not stand up into it.
+    /// </summary>
+    public bool TryStandUp()
+    {
+        if (!prone) return true;
+        if (!BodyCapsule.CanStand(playerTf)) return false;
+        SetProne(false);
+        return true;
+    }
 
     public bool IsProne => prone;
 
@@ -274,6 +286,12 @@ public class Mode1FirstPersonGun : MonoBehaviour
 
         if (gunModeOn)
         {
+            // Under a table or a bed the body stays down until it is out from under it.
+            if (prone && !BodyCapsule.CanStand(playerTf))
+            {
+                GameHint.Show(L.T("No room to stand up here."));
+                return;
+            }
             SetProne(!prone);
         }
     }

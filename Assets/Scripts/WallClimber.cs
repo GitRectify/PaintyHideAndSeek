@@ -347,11 +347,12 @@ public class WallClimber : MonoBehaviour
             // Not climbing yet — only start if the "up" button is held and a wall is in range.
             if (up < 1) return;
             if (!TryGetWall(out Vector3 _)) return;
+            // Nobody climbs lying down, and a seeker lying under a table stays there (BodyCapsule).
+            if (gun != null && !gun.TryStandUp()) return;
 
             state = State.OnWall;
             clinging = true;
             lastTouchedWallAt = Time.time;
-            if (gun != null) gun.StandUp();     // nobody climbs lying down
             BodyAnimation.SetClimbing(anim, true);
             return;
         }

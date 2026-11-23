@@ -151,6 +151,12 @@ public sealed class BodyAnimation : MonoBehaviour
     // The pose the body is in now: the struck one while it stands still, none while it moves.
     private int ShownStruckPose => moving.On ? 0 : struckPose;
 
+    // What the body shows, for its capsule (BodyCapsule): lying down, the struck pose held now
+    // (the Animator's Pose value, 0 for none) and climbing.
+    public bool Prone => prone;
+    public int ShownPose => ShownStruckPose;
+    public bool Climbing => climbing.On;
+
     private static BodyAnimation Of(Animator animator)
     {
         if (animator == null) return null;

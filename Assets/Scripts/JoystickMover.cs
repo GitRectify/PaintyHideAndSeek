@@ -117,8 +117,7 @@ public class JoystickMover : MonoBehaviour
         if (cc != null && character != null)
         {
             float s = Mathf.Max(0.1f, character.lossyScale.y);
-            float h = cc.height;
-            cc.stepOffset = Mathf.Clamp(climbStepHeight / s, 0.1f, s * h - 0.5f);
+            cc.stepOffset = Mathf.Clamp(climbStepHeight / s, 0.1f, BodyCapsule.MaxStep(cc));
         }
 
         // The rotate pair hides itself when its toggle button is not on screen.
@@ -363,7 +362,7 @@ public class JoystickMover : MonoBehaviour
         }
 
         float step = Mathf.Clamp(room - 2f * skin, 0f, climbStepHeight);
-        cc.stepOffset = Mathf.Clamp(step / s, 0.1f, Mathf.Max(0.1f, s * cc.height - 0.5f));
+        cc.stepOffset = Mathf.Clamp(step / s, 0.1f, BodyCapsule.MaxStep(cc));
     }
 
     // How far the head can rise from here before it meets something, up to max.
