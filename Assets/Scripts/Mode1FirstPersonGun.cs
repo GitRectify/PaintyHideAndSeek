@@ -168,6 +168,8 @@ public class Mode1FirstPersonGun : MonoBehaviour
     }
 
     // Gun mode = round running with the player as the seeker; re-applied only when it flips.
+    // Jump is both sides' (2026-11-23): its button is up through any round, for a hider too, and
+    // away while the player is frozen (caught, spotted), when JoystickMover.Jump would refuse anyway.
     private void Update()
     {
         bool on = gmm != null && gmm.RoundActive && gmm.PlayerIsSeeker;
@@ -176,6 +178,9 @@ public class Mode1FirstPersonGun : MonoBehaviour
             Apply(on);
             wasGunMode = on;
         }
+
+        bool jump = gmm != null && gmm.RoundActive && !gmm.PlayerFrozen;
+        if (jumpBtn != null && jumpBtn.activeSelf != jump) jumpBtn.SetActive(jump);
     }
 
     private void LateUpdate()
@@ -231,8 +236,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
         if (camCtrl != null) camCtrl.SetFirstPerson(on);
         if (gunHolder != null) gunHolder.SetForceVisible(on);
         if (fireBtn != null) fireBtn.SetActive(on);
-        if (jumpBtn != null) jumpBtn.SetActive(on);
-        if (namBtn != null) namBtn.SetActive(on);
+        if (namBtn != null) namBtn.SetActive(on);   // Jump is both sides' (Update)
         if (aimZone != null) aimZone.SetActive(on);
         if (crosshair != null) crosshair.SetActive(on);
         if (on)

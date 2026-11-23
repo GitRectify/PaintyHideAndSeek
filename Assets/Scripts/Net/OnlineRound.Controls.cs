@@ -7,16 +7,18 @@ using UnityEngine;
 using UnityEngine.UI;
 
 // The online round's own controls, over Single Play's HUD (the paint panel stays above them all):
-//   * Exit: leaves the match and goes back to the room list (Multiple Play's menu), without closing
+//   * Exit: leaves the match and goes back to the play setup (Multiple Play's menu), without closing
 //     the game. The match goes on: the server keeps the seat, and the player rejoins it from their
 //     matches (OnlineMatches) while it runs. It asks first.
 //   * Everyone's results at the end (OnlineMatches.ShowMatchEnd, the only results screen), and the
 //     seconds left before the next shot on the Shoot button.
 //   * The hiders' ready list: in the hide phase every hider sees who has pressed Start (the
 //     server's S2C.HidersReady; bots are always ready), and a banner when another one does.
+// The Shop is the HUD's own Shop button (HomeMenuUI's, in the right-hand column): one per screen
+// (2026-11-23; this class had a second one beside Exit).
 public partial class OnlineRound
 {
-    private Button exitButton, shopButton;
+    private Button exitButton;
     private GameObject exitConfirm;
     private Text exitConfirmText;
     private Text readyPanel;
@@ -32,14 +34,6 @@ public partial class OnlineRound
         ert.anchorMin = ert.anchorMax = ert.pivot = new Vector2(0f, 1f);
         ert.anchoredPosition = new Vector2(24f, -24f);
         exitButton.gameObject.SetActive(false);
-
-        // Shop, beside Exit: what is bought in a match is used in it (poses, weapons, bullets).
-        shopButton = OnlineUI.NewButton(canvas, "SHOP", Vector2.zero, new Vector2(180f, 76f), new Color(0.52f, 0.30f, 0.80f, 0.97f), OpenShopInMatch);
-        shopButton.name = "MatchShop";
-        RectTransform srt = (RectTransform)shopButton.transform;
-        srt.anchorMin = srt.anchorMax = srt.pivot = new Vector2(0f, 1f);
-        srt.anchoredPosition = new Vector2(220f, -24f);
-        shopButton.gameObject.SetActive(false);
 
         RectTransform panel = OnlineUI.Modal(canvas, "ExitMatchConfirm", new Vector2(900f, 460f));
         exitConfirm = panel.parent.gameObject;
@@ -66,8 +60,8 @@ public partial class OnlineRound
         readyPanel.gameObject.SetActive(false);
     }
 
-    // Exit and Shop while the round is played (after it, Exit and Results: UpdateAfterMatch); the
-    // ready list in the hide phase, for hiders.
+    // Exit while the round is played (after it, Exit and Results: UpdateAfterMatch); the ready list
+    // in the hide phase, for hiders.
     private void UpdateMatchControls()
     {
         if (exitButton != null)
@@ -75,7 +69,6 @@ public partial class OnlineRound
             bool playing = !resultShown;
             if (playing && !exitButton.gameObject.activeSelf) exitButton.gameObject.SetActive(true);
             if (!playing && exitConfirm.activeSelf) exitConfirm.SetActive(false);
-            if (shopButton != null && shopButton.gameObject.activeSelf != playing) shopButton.gameObject.SetActive(playing);
         }
 
         if (readyPanel != null)
@@ -92,7 +85,6 @@ public partial class OnlineRound
     private void HideMatchControls()
     {
         if (exitButton != null) exitButton.gameObject.SetActive(false);
-        if (shopButton != null) shopButton.gameObject.SetActive(false);
         if (exitConfirm != null) exitConfirm.SetActive(false);
         if (readyPanel != null) readyPanel.gameObject.SetActive(false);
         readyShown = 0;
@@ -101,16 +93,9 @@ public partial class OnlineRound
 
     // ---- Shop ----
 
-    // The shop over the match, which goes on under it. A pose bought is in the pose picker at once
-    // (the server adds it to this match's loadout), bullets join the stock, and a weapon bought or
-    // equipped is carried straight away (HandleShopChangedInMatch).
-    private void OpenShopInMatch()
-    {
-        ShopUI shop = FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
-        if (shop == null) return;
-        shop.OpenFrom(null);
-    }
-
+    // The shop over the match (the HUD's Shop button), which goes on under it. A pose bought is in
+    // the pose picker at once (the server adds it to this match's loadout), bullets join the stock,
+    // and a weapon bought or equipped is carried straight away.
     // The shop's listing or the equipped weapon changed: carry the weapon now equipped.
     private void HandleShopChangedInMatch()
     {

@@ -481,3 +481,10 @@ Entry {0} · real players	入场费 {0} · 仅真人玩家	Вход {0} · то�
 FIND MATCH	寻找比赛	НАЙТИ МАТЧ
 Entry {0}	入场费 {0}	Вход {0}
 PLAY	开始	ИГРАТЬ
+# 2026-11-23: the play setup's redesign
+In the Shop	在商店	В магазине
+Bots fill empty seats	空位由机器人补齐	Пустые места займут боты
+Real players only	仅真人玩家	Только живые игроки
+FREE	免费	БЕСПЛАТНО
+YOUR MATCH	你的比赛	ВАШ МАТЧ
+Not unlocked online. Pick another character, or get it in the Shop.	未在线解锁。请换一个角色，或在商店获取。	Не открыт онлайн. Выберите другого персонажа или купите в магазине.

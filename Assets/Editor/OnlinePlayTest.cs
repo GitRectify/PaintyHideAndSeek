@@ -25,8 +25,8 @@ using Object = UnityEngine.Object;
 //             [-playtestMap <0-4>]
 //
 // The flow: Multiplayer sign-in (first-run name if the server asks) -> special bullets bought in
-// the shop -> the play setup (PlaySetupUI: side, character, room and map on one screen, its
-// SINGLE PLAY / MULTIPLAYER tabs, then FIND MATCH) -> matchmaking -> the round (seeker: shoots and switches bullet
+// the shop -> the play setup (PlaySetupUI: side, character, room and map on one screen, in the mode
+// chosen on Home, then FIND MATCH) -> matchmaking -> the round (seeker: shoots and switches bullet
 // type; hider: presses Start and paints) -> the result popup -> Home (wallet refreshed) -> match
 // history -> the shop's bullet cards. Bots or headless clients fill the lobby.
 //
@@ -123,7 +123,6 @@ public static class OnlinePlayTest
     private static bool ExitTest => System.Environment.GetCommandLineArgs().Contains("-playtestExit");
     private static bool ReadyTest => System.Environment.GetCommandLineArgs().Contains("-playtestReady");
     private static int matchesAtNext;
-    private static bool modeBackDone, modeBackChecked;
 
     // -playtestAway: the room list's Back, the round's Shop button and coin balance, the paint panel
     // on top, Exit and Rejoin from the matches list, everyone's results at the end, the Shoot
@@ -375,30 +374,12 @@ public static class OnlinePlayTest
 
             case Step.Body:
                 if (InStep < 0.5f) return;
-                if (!modeBackDone)
-                {
-                    // The SINGLE PLAY tab, then MULTIPLAYER again: out of Multiple Play and back, the
-                    // screen staying (the side screen's buttons used to start Single Play here).
-                    modeBackDone = true;
-                    SetupButton("SinglePlayTab")?.onClick.Invoke();
-                    stepStarted = Time.realtimeSinceStartup;
-                    return;
-                }
-                if (!modeBackChecked)
-                {
-                    modeBackChecked = true;
-                    Check(!OnlineLobby.InMultiplayer && FindByName("PlaySetup") is { activeInHierarchy: true }
-                          && FindByName("PlaySetupExtras") is not { activeInHierarchy: true } && FindByName("SetupRooms") is not { activeInHierarchy: true },
-                          "the SINGLE PLAY tab leaves Multiplayer, the setup staying without rooms or online buttons");
-                    SetupButton("MultiplayerTab")?.onClick.Invoke();   // signed in already: straight back
-                    stepStarted = Time.realtimeSinceStartup;
-                    return;
-                }
-                if (InStep < 1f) return;
                 GameModeManager modes = Object.FindAnyObjectByType<GameModeManager>();
+                Text setupTitle = FindByName("SetupTitle")?.GetComponent<Text>();
                 Check(modes != null && !modes.RoundActive && OnlineLobby.InSetup != null && FindByName("PlaySetupExtras") is { activeInHierarchy: true }
-                      && FindByName("LoadingCanvas") is not { activeInHierarchy: true },
-                      "and the MULTIPLAYER tab is Multiplayer's setup again, no Single Play round");
+                      && setupTitle != null && setupTitle.text == L.T("MULTIPLAYER") && SetupButton("SinglePlayTab") == null && SetupButton("MultiplayerTab") == null,
+                      $"the setup keeps the mode chosen on Home: Multiplayer, with no mode buttons of its own ('{setupTitle?.text}')");
+                Check(FindByName("LoadingCanvas") is not { activeInHierarchy: true }, "and picking the side started no Single Play round");
                 SetupButton(Seeker ? "SeekerChoice" : "HiderChoice")?.onClick.Invoke();
                 PickBodyOnline();
                 Go(Step.Room);
@@ -1450,8 +1431,22 @@ public static class OnlinePlayTest
         }
         else report.Add("INFO  this account owns every character online: no locked one to try");
 
-        Card(inUse)?.onClick.Invoke();   // the character already in use: nothing to swap
-        Check(characters.CurrentIndex == inUse, $"the character in use ({inUse}) stays chosen");
+        bool inUseOwned = profile.OwnedAvatars == null || profile.OwnedAvatars.Length == 0 || Array.IndexOf(profile.OwnedAvatars, inUse) >= 0;
+        if (inUseOwned)
+        {
+            Card(inUse)?.onClick.Invoke();   // the character already in use: nothing to swap
+            Check(characters.CurrentIndex == inUse, $"the character in use ({inUse}) stays chosen");
+        }
+        else
+        {
+            // Picked earlier for Single Play, not owned online: the setup says so, and an owned one is picked.
+            string note = FindByName("SetupSummary")?.GetComponent<Text>()?.text ?? "";
+            Check(note.Contains(L.T("Not unlocked online. Pick another character, or get it in the Shop.")) || note.Contains(L.T("Not unlocked online. Get it in the Shop.")),
+                  $"the setup says the character in use ({inUse}) isn't unlocked online ('{note}')");
+            int owned = profile.OwnedAvatars[0];
+            Card(owned)?.onClick.Invoke();
+            Check(characters.CurrentIndex == owned, $"an owned character ({owned}) is picked instead");
+        }
     }
 
     private static bool mapMustBuy;

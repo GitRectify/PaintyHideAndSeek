@@ -390,7 +390,8 @@ public class JoystickMover : MonoBehaviour
     private bool IsOwn(Collider col) =>
         col == null || col == cc || (character != null && col.transform.IsChildOf(character));
 
-    // Seeker-mode jump: only when grounded, not on a wall, not scouting, not frozen / counting down.
+    // Jump, for either side (2026-11-23; it was the seeker's): only when grounded, not on a wall, not
+    // scouting, not frozen / counting down.
     public void Jump()
     {
         if (cc == null || !cc.enabled || !cc.isGrounded) return;
