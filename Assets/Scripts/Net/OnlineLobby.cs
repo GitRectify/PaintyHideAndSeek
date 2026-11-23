@@ -6,18 +6,18 @@ using Meccha.Shared.Protocol;
 using UnityEngine;
 using UnityEngine.UI;
 
-// Multiple Play after sign-in: Seeker/Hider, on Single Play's own role screen (RoleSelectCanvas:
-// its Hider/Seeker buttons reach HomeUI.BeginMatch, which hands the choice here while this flow
-// is on that step) -> Room Selection (a price tier) -> the map, in Single Play's own map picker (MapSelectPopup; the server matches players only with others on the same
-// map) -> Matchmaking with Players, shown in the game's own MatchmakingUI with the server's real
-// roster -> Game Start: from MatchStart the round itself belongs to OnlineRound. Adapted from the
-// role, room and lobby parts of the SDK sample's OnlineFlow.
+// Multiple Play after sign-in: the play setup (PlaySetupUI, 2026-11-21: side, character, room and
+// map on one screen, the same one Single Play uses) -> Find Match: a paid room's entry and a
+// locked map's purchase confirmed, the map checked against the server's (the server matches
+// players only with others on the same map) -> Matchmaking with Players, shown in the game's own
+// MatchmakingUI with the server's real roster -> Game Start: from MatchStart the round itself
+// belongs to OnlineRound. Adapted from the role, room and lobby parts of the SDK sample's OnlineFlow.
 //
 // Rooms: Practice is free and bots take the empty seats. Standard costs an entry (20 coins on the
 // default server): real players only, no bots, so its lobby waits until every seat is taken, and
 // the server refunds the entry if it does not fill in time. The entry is confirmed before every
-// search (PayScreen). After a match, Next and the round's Exit open the room list: the player
-// picks any room again (the server no longer queues anyone by itself). Leaving a lobby is never
+// search (PayScreen). After a match, Next and the round's Exit open the play setup again: the
+// player picks any room again (the server no longer queues anyone by itself). Leaving a lobby is never
 // held against anyone: there is no cooldown.
 //
 // Drops: a MatchFound for the round on screen is the server giving a held seat back (the round
@@ -26,7 +26,7 @@ using UnityEngine.UI;
 // round that was running (OfferRejoin): signing in then lands straight back in the held seat.
 public class OnlineLobby : MonoBehaviour
 {
-    private enum Step { Idle, Role, Body, Room, Map, Searching, Lobby, Match, Rejoin }
+    private enum Step { Idle, Setup, Searching, Lobby, Match, Rejoin }
 
     [Tooltip("Rejoining after a restart: how long after signing in to wait for the held seat.")]
     [SerializeField] private float rejoinWaitSeconds = 3f;
@@ -60,13 +60,12 @@ public class OnlineLobby : MonoBehaviour
     private string[] serverMaps;          // the maps the server has baked (ListRooms)
 
     // ---- UI ---------------------------------------------------------------------------------
-    private GameObject roomScreen, lobbyBar, noticeScreen, rejoinScreen, payScreen;
+    private GameObject lobbyBar, noticeScreen, rejoinScreen, payScreen;
     private Text payTitle, payBody, payStatus;
     private Button payButton;
     private Action afterPay;
     private Action payBack;                 // the pay screen's BACK; the rooms when null
-    private Text roomBalance, roomError, lobbyMessage, noticeText;
-    private RectTransform roomList;
+    private Text lobbyMessage, noticeText;
 
     private string lobbyText = "";   // the lobby bar's message while connected
     private float rejoinDeadline;
@@ -142,7 +141,7 @@ public class OnlineLobby : MonoBehaviour
     private static OnlineLobby current;
 
     /// <summary>
-    /// True while the player is in Multiple Play: choosing a side, body, room or map, searching, in a
+    /// True while the player is in Multiple Play: on the play setup, searching, in a
     /// lobby or an online round, rejoining. False at Home and in Single Play. What needs the server
     /// (the coin balance, Shop buttons, match notices) shows only then (2026-11-13: Single Play runs
     /// without the server and shows none of it).
@@ -176,7 +175,7 @@ public class OnlineLobby : MonoBehaviour
         profile = signedIn;
         onClosed = closed;
         Hook();
-        ShowRoleScreen();
+        ShowSetup(null);
     }
 
     private void Hook()
@@ -366,50 +365,90 @@ public class OnlineLobby : MonoBehaviour
         pendingLobby = null;
         step = Step.Idle;
         HideScreens();
+        PlaySetupUI.CloseIfOpen();
         if (matchmaking != null) matchmaking.EndOnline();
-        if (home != null) home.SetHomeVisible(true);
+        if (home != null) home.HidePlaySetup(true);
         if (fromRound && home != null) home.GoHome();
         onClosed?.Invoke();
     }
 
-    // ================= Seeker / Hider =================
+    // ================= Play setup =================
 
-    // Single Play's role screen. Its buttons go to HomeUI.BeginMatch (TryPickRole below) and its
-    // Back to HomeMenuUI.ShowHome (RoleSelectClosed). Strict roles: the player always gets the
-    // side they pick, as in Single Play.
-    private void ShowRoleScreen()
+    // Side, character, room and map on one screen (PlaySetupUI, over Single Play's side screen).
+    // Its rooms come from the server each time it opens, and the shop's listing with them (a map or
+    // character bought on another device unlocks).
+    private void ShowSetup(string message)
     {
-        step = Step.Role;
+        step = Step.Setup;
         HideScreens();
-        if (home == null)
-        {
-            // No role screen in this scene: let the server pick the side.
-            PickRole(RolePreference.Any);
-            return;
-        }
-        home.ShowRoleSelect();
-    }
-
-    // The side, then the body as in Single Play (SelectPlayerCanvas), then the room.
-    private void PickRole(RolePreference preference)
-    {
-        role = preference;
-        step = Step.Body;
+        PlaySetupUI setup = PlaySetupUI.Get();
+        setup.ShowOnline(this, message);
 
         int version = flowVersion;
-        int mode = preference == RolePreference.Seeker ? 1 : 2;
-        bool shown = home != null && home.ShowSelectPlayerOnline(mode,
-            () => { if (version == flowVersion && step == Step.Body) BodyChosen(); },
-            () => { if (version == flowVersion && step == Step.Body) ShowRoleScreen(); },
-            NotOwnedOnline);
+        Meta.ListRooms(reply =>
+        {
+            if (version != flowVersion || step != Step.Setup) return;
 
-        if (!shown) BodyChosen();
+            if (reply.TimedOut || reply.Error != MetaError.None)
+            {
+                setup.SetRooms(null, reply.TimedOut
+                    ? "The server's room list did not answer. Try again."
+                    : $"The server could not list its rooms ({reply.Error}).");
+                return;
+            }
+
+            serverMaps = reply.Maps;
+            setup.SetRooms(reply.Rooms, "");
+        });
+        ShopInventory.Refresh(null);
     }
 
-    private void BodyChosen()
+    /// <summary>Multiple Play's flow while its choices are on the play setup, or null.</summary>
+    public static OnlineLobby InSetup => current != null && current.step == Step.Setup ? current : null;
+
+    /// <summary>A character this account cannot play online (the setup shows it locked).</summary>
+    public bool CharacterLocked(int character) => NotOwnedOnline(character);
+
+    /// <summary>The price of a map (LevelManager's index) this account has to buy before playing it online; 0 when it may play it.</summary>
+    public long MapPrice(int index)
     {
-        if (home != null) home.HideRoleSelect();   // back to Home, under the room screen
-        ShowRoomScreen(null);
+        if (!ShopInventory.MapLocked(index + 1)) return 0;
+        ShopItem item = ShopInventory.MapItem(index + 1);
+        return item != null ? ShopInventory.PriceCents(item) : 0;
+    }
+
+    /// <summary>Whether the server has this map (LevelManager's index); an older server's list names none, so then all.</summary>
+    public bool MapOnline(int index)
+    {
+        LevelManager levels = LevelManager.Instance;
+        return levels != null && ServerHasMap(levels.RoomNameAt(index));
+    }
+
+    /// <summary>
+    /// The setup's Find Match: this side, this room, this map (LevelManager's index). The checks
+    /// the old screens made one after another, in the same order: a paid room's entry is confirmed,
+    /// then the map is checked and, if locked, offered to buy, then the search starts.
+    /// </summary>
+    public void FindFromSetup(RolePreference side, MetaRoom picked, int mapIndex)
+    {
+        if (step != Step.Setup) return;
+        role = side;
+        room = picked;
+        if (picked.EntryCents > 0) ConfirmEntry(() => ChooseMap(mapIndex));
+        else ChooseMap(mapIndex);
+    }
+
+    /// <summary>The setup's Single Play tab: out of Multiple Play, with the setup staying on screen.</summary>
+    public static void LeaveForSinglePlay()
+    {
+        OnlineLobby lobby = current;
+        if (lobby == null || lobby.step == Step.Idle) return;
+        lobby.flowVersion++;
+        if (Net != null && lobby.InQueueOrMatch) Net.LeaveMatch();
+        lobby.pendingLobby = null;
+        lobby.step = Step.Idle;
+        lobby.HideScreens();
+        if (lobby.matchmaking != null) lobby.matchmaking.EndOnline();
     }
 
     // The characters this account cannot play online: those the server does not list as owned.
@@ -417,103 +456,28 @@ public class OnlineLobby : MonoBehaviour
         profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0 && !OwnsAvatarOnline(character);
 
     // Owned by the profile read at sign-in, or bought since (the shop's listing is current: a
-    // character bought from the room screen's SHOP is playable straight away, without Equip).
+    // character bought from the setup's SHOP is playable straight away, without Equip).
     private bool OwnsAvatarOnline(int character) =>
         (profile.OwnedAvatars != null && Array.IndexOf(profile.OwnedAvatars, character) >= 0) ||
         ShopInventory.OwnsAvatar(character);
 
-    // Choosing the side, or the character after it: either way the side screen's buttons are
-    // this online match's. A side screen shown while the flow was still on the character step
-    // (a Back that did not go through SelectPlayerUI) must never start Single Play.
-    private static OnlineLobby ChoosingRole()
-    {
-        OnlineLobby lobby = FindAnyObjectByType<OnlineLobby>();
-        return lobby != null && (lobby.step == Step.Role || lobby.step == Step.Body) ? lobby : null;
-    }
-
     /// <summary>
-    /// RoleSelectCanvas's Hider (2) / Seeker (1) button, from HomeUI.BeginMatch: true when it
-    /// picked the side of an online match, false when it is Single Play's own choice.
+    /// The side screen's own Hider (2) / Seeker (1) buttons, from HomeUI.BeginMatch (hidden under
+    /// the setup, but wired in the scene): while this flow is on the setup they pick its side and
+    /// never start Single Play.
     /// </summary>
     public static bool TryPickRole(int mode)
     {
-        OnlineLobby lobby = ChoosingRole();
-        if (lobby == null) return false;
-        lobby.PickRole(mode == 1 ? RolePreference.Seeker : RolePreference.Hider);
+        if (InSetup == null) return false;
+        PlaySetupUI.TrySelectRole(mode);
         return true;
     }
 
-    /// <summary>RoleSelectCanvas's Back (HomeMenuUI.ShowHome): leaves the online flow when it was choosing a side.</summary>
+    /// <summary>The side screen's Back (HomeMenuUI.ShowHome): leaves Multiple Play when its setup was up.</summary>
     public static void RoleSelectClosed()
     {
-        OnlineLobby lobby = ChoosingRole();
+        OnlineLobby lobby = InSetup;
         if (lobby != null) lobby.GoHome();
-    }
-
-    // ================= Room (price tier) =================
-
-    private void ShowRoomScreen(string error)
-    {
-        step = Step.Room;
-        HideScreens();
-        if (home != null) home.SetHomeVisible(true);
-        roomScreen.SetActive(true);
-        roomError.text = error ?? "Loading rooms...";
-
-        for (int i = roomList.childCount - 1; i >= 0; i--) Destroy(roomList.GetChild(i).gameObject);
-
-        int version = flowVersion;
-        Meta.ListRooms(reply =>
-        {
-            if (version != flowVersion || step != Step.Room) return;
-
-            if (reply.TimedOut || reply.Error != MetaError.None)
-            {
-                roomError.text = reply.TimedOut
-                    ? "The server's room list did not answer. Try again."
-                    : $"The server could not list its rooms ({reply.Error}).";
-                return;
-            }
-
-            if (error == null) roomError.text = "";
-            serverMaps = reply.Maps;
-            BuildRoomButtons(reply.Rooms);
-        });
-    }
-
-    private void BuildRoomButtons(MetaRoom[] rooms)
-    {
-        if (rooms == null || rooms.Length == 0)
-        {
-            roomError.text = "The server has no rooms configured.";
-            return;
-        }
-
-        // Free rooms first: they start fastest, because bots fill the empty seats.
-        var sorted = new List<MetaRoom>(rooms);
-        sorted.Sort((a, b) => a.EntryCents.CompareTo(b.EntryCents));
-
-        for (int i = 0; i < sorted.Count; i++)
-        {
-            MetaRoom r = sorted[i];
-            bool free = r.EntryCents == 0;
-
-            string detail = free
-                ? "Free - bots fill empty seats"
-                : $"Entry {OnlineUI.CoinsText(r.EntryCents)} - real players only";
-
-            OnlineUI.NewButton(roomList, $"{RoomTitle(r.Id)}\n<size=26>{detail}</size>",
-                               new Vector2(0f, 140f - i * 130f), new Vector2(820f, 112f),
-                               free ? OnlineUI.Green : OnlineUI.Blue, () => PickRoom(r));
-        }
-    }
-
-    private void PickRoom(MetaRoom picked)
-    {
-        AudioManager.ButtonTap();
-        room = picked;
-        if (picked.EntryCents > 0) ConfirmEntry(PickMap);
-        else PickMap();
     }
 
     // ================= Paid entry =================
@@ -525,13 +489,12 @@ public class OnlineLobby : MonoBehaviour
         string fee = OnlineUI.CoinsText(room.EntryCents);
         if (CoinBalance.Known && CoinBalance.Cents < room.EntryCents)
         {
-            ShowRoomScreen($"<color=#FFC759>Not enough coins for this room. The entry is {fee}; top up in WALLET.</color>");
+            ShowSetup($"<color=#FFC759>Not enough coins for this room. The entry is {fee}; top up in WALLET.</color>");
             return;
         }
 
-        step = Step.Room;
+        step = Step.Setup;
         HideScreens();
-        if (home != null) home.SetHomeVisible(true);
         afterPay = onPay;
         payBack = null;
         payTitle.text = RoomTitle(room.Id);
@@ -550,11 +513,12 @@ public class OnlineLobby : MonoBehaviour
         next?.Invoke();   // the entry is held when the server seats this player, not before
     }
 
-    // ================= Map (Single Play's picker) =================
+    // ================= Map =================
 
-    // The same map picker as Single Play. A room that fixes its map skips it, and so does a server
-    // that has none of this build's maps (it then picks one itself).
-    private void PickMap()
+    // The map Find Match goes with: the room's own when it fixes one; none when the server has none
+    // of this build's maps (it then picks one itself); else the one picked on the setup, when the
+    // server has it and once it is bought (every map but the first is bought once, 2026-11-13).
+    private void ChooseMap(int index)
     {
         if (!string.IsNullOrEmpty(room.Map))
         {
@@ -563,52 +527,29 @@ public class OnlineLobby : MonoBehaviour
             return;
         }
 
-        MapSelectPopup popup = MapSelectPopup.Instance;
         LevelManager levels = LevelManager.Instance;
-        if (popup == null || !popup.Ready || levels == null || !ServerHasAnyMapOf(levels))
+        if (levels == null || !ServerHasAnyMapOf(levels))
         {
             chosenMap = "";
             StartSearch();
             return;
         }
 
-        step = Step.Map;
-        HideScreens();
-
-        int version = flowVersion;
-        popup.Show(() =>
+        string map = levels.RoomNameAt(index) ?? levels.CurrentRoomName;
+        if (!ServerHasMap(map))
         {
-            if (version != flowVersion || step != Step.Map) return;
+            ShowSetup($"<color=#FFC759>{MapTitle(map)} isn't available online yet. Pick another map.</color>");
+            return;
+        }
 
-            string map = levels.CurrentRoomName;
-            if (!ServerHasMap(map))
-            {
-                ShowRoomScreen($"<color=#FFC759>{MapTitle(map)} isn't available online yet. Pick another map.</color>");
-                return;
-            }
-
-            // Every map but the first is bought once before it is played online (2026-11-13).
-            if (ShopInventory.MapLocked(MapNumber(map)))
-            {
-                ConfirmMapPurchase(map);
-                return;
-            }
-
-            chosenMap = map;
-            StartSearch();
-        },
-        () =>
+        if (ShopInventory.MapLocked(MapNumber(map)))
         {
-            if (version != flowVersion || step != Step.Map) return;
-            ShowRoomScreen(null);
-        },
-        index => ShopInventory.MapLocked(index + 1) ? ShopInventory.PriceCents(ShopInventory.MapItem(index + 1)) : 0);
+            ConfirmMapPurchase(map);
+            return;
+        }
 
-        // The locks as the server has them now (bought on another device, say).
-        ShopInventory.Refresh(_ =>
-        {
-            if (version == flowVersion && step == Step.Map) popup.RefreshLocks();
-        });
+        chosenMap = map;
+        StartSearch();
     }
 
     // The game's map number: Room = 1, Room2 = 2 ... (the shop's GameId for a map).
@@ -622,25 +563,24 @@ public class OnlineLobby : MonoBehaviour
     }
 
     // A map this account has not bought: its price, then BUY buys it in the shop and the search
-    // starts; BACK goes back to the map picker.
+    // starts; BACK goes back to the setup.
     private void ConfirmMapPurchase(string map)
     {
         ShopItem item = ShopInventory.MapItem(MapNumber(map));
         if (item == null)
         {
-            ShowRoomScreen($"<color=#FFC759>{FindMatchErrorText(FindMatchError.MapLocked)}</color>");
+            ShowSetup($"<color=#FFC759>{FindMatchErrorText(FindMatchError.MapLocked)}</color>");
             return;
         }
 
         string price = OnlineUI.CoinsText(ShopInventory.PriceCents(item));
-        step = Step.Room;
+        step = Step.Setup;
         HideScreens();
-        if (home != null) home.SetHomeVisible(true);
         payTitle.text = MapTitle(map);
         payBody.text = $"{MapTitle(map)} is locked. Buy it once for {price} and play it online whenever you like.";
         OnlineUI.SetButtonText(payButton, $"BUY {price}");
         afterPay = () => BuyMap(item, map);
-        payBack = PickMap;
+        payBack = () => ShowSetup(null);
         payScreen.SetActive(true);
     }
 
@@ -648,7 +588,7 @@ public class OnlineLobby : MonoBehaviour
     {
         if (CoinBalance.Known && CoinBalance.Cents < ShopInventory.PriceCents(item))
         {
-            ShowRoomScreen($"<color=#FFC759>Not enough coins for {MapTitle(map)}. Top up in WALLET.</color>");
+            ShowSetup($"<color=#FFC759>Not enough coins for {MapTitle(map)}. Top up in WALLET.</color>");
             return;
         }
 
@@ -658,7 +598,7 @@ public class OnlineLobby : MonoBehaviour
             if (version != flowVersion) return;
             if (!bought)
             {
-                ShowRoomScreen($"<color=#FFC759>{message}</color>");
+                ShowSetup($"<color=#FFC759>{message}</color>");
                 return;
             }
 
@@ -690,6 +630,8 @@ public class OnlineLobby : MonoBehaviour
     {
         step = Step.Searching;
         HideScreens();
+        PlaySetupUI.CloseIfOpen();                      // first, so its screen closing is not a Back
+        if (home != null) home.HidePlaySetup(false);
         if (home != null) home.SetHomeVisible(false);
         mapName = chosenMap;
 
@@ -736,14 +678,9 @@ public class OnlineLobby : MonoBehaviour
         Net.LeaveMatch();
         if (matchmaking != null) matchmaking.EndOnline();
 
-        // Back where the search started: the map picker, Play there searches (and rejoins this
-        // lobby while it has a seat) again. A paid room goes back to the rooms, so its entry is
-        // confirmed again before it is paid again.
-        if (room.EntryCents == 0 && string.IsNullOrEmpty(room.Map) && MapSelectPopup.Instance is { Ready: true } &&
-            LevelManager.Instance != null && ServerHasAnyMapOf(LevelManager.Instance))
-            PickMap();
-        else
-            ShowRoomScreen(null);
+        // Back where the search started: the setup, as it was. Find Match there searches (and
+        // rejoins this lobby while it has a seat) again; a paid room's entry is confirmed again.
+        ShowSetup(null);
     }
 
     private void HandleFindMatchFailed(FindMatchError error)
@@ -775,7 +712,7 @@ public class OnlineLobby : MonoBehaviour
             return;
         }
 
-        ShowRoomScreen($"<color=#FFC759>{FindMatchErrorText(error)}</color>");
+        ShowSetup($"<color=#FFC759>{FindMatchErrorText(error)}</color>");
     }
 
     private void HandleMatchFound(MecchaNetClient.MatchFoundInfo info)
@@ -912,11 +849,11 @@ public class OnlineLobby : MonoBehaviour
         GoHome();
     }
 
-    /// <summary>The result popup's Next: the room list, to pick any room for the next match.</summary>
+    /// <summary>The results' Next: the play setup, to pick any room and map for the next match.</summary>
     public void PlayAgainFromRound() => ExitToRoomsFromRound();
 
     /// <summary>
-    /// Out of the match (the result's Next, or the round's Exit) and back to the room list, signed
+    /// Out of the match (the results' Next, or the round's Exit) and back to the play setup, signed
     /// in and on the same side and character. Leaves the match on the server first, and any lobby
     /// an older server queued this player into meanwhile.
     /// </summary>
@@ -927,76 +864,41 @@ public class OnlineLobby : MonoBehaviour
         if (Net != null && InQueueOrMatch) Net.LeaveMatch();
         pendingLobby = null;
         if (matchmaking != null) matchmaking.EndOnline();
-        if (home != null) home.GoHome();   // back to the menu scene state; the room list covers it
-        ShowRoomScreen(null);
+        if (home != null) home.GoHome();   // back to the menu scene state; the setup goes over it
+        ShowSetup(null);
     }
 
     /// <summary>The room of the match being played costs an entry (Standard).</summary>
     public bool PaidRoom => room.EntryCents > 0;
 
-    // ================= Match history =================
+    // ================= The setup's other places =================
 
-    // The room screen's HISTORY: the player's own records (OnlineHistory), then back to the rooms.
-    private void ShowHistory()
+    // History, profile and wallet open over the setup (their screens sort above it); it is still
+    // there when they close. The Shop is the side screen's own button (HomeMenuUI).
+
+    /// <summary>The player's own match records (OnlineHistory).</summary>
+    public void OpenHistory()
+    {
+        AudioManager.ButtonTap();
+        OnlineHistory.Show(transform, null);
+    }
+
+    /// <summary>The username and display name (OnlineSignIn.OpenAccount); the next match shows the new name.</summary>
+    public void OpenAccount()
     {
         AudioManager.ButtonTap();
         int version = flowVersion;
-        roomScreen.SetActive(false);
-        OnlineHistory.Show(transform, () =>
+        OnlineSignIn.OpenAccount(profile, saved =>
         {
-            if (version == flowVersion && step == Step.Room) roomScreen.SetActive(true);
-        });
+            if (version == flowVersion) profile = saved;
+        }, null);
     }
 
-    // The room screen's PROFILE: change the username and display name, then back to the rooms.
-    // The next match shows the new display name (the server reads it when seating the player).
-    private void ShowAccount()
+    /// <summary>Deposits, withdrawals and the coin ledger (OnlineWallet).</summary>
+    public void OpenWallet()
     {
         AudioManager.ButtonTap();
-        int version = flowVersion;
-        roomScreen.SetActive(false);
-        OnlineSignIn.OpenAccount(profile,
-            saved =>
-            {
-                if (version == flowVersion) profile = saved;
-            },
-            () =>
-            {
-                if (version == flowVersion && step == Step.Room) roomScreen.SetActive(true);
-            });
-    }
-
-    // The room screen's BACK: the character screen, as it was (the side stays chosen).
-    private void BackToCharacters()
-    {
-        AudioManager.ButtonTap();
-        HideScreens();
-        PickRole(role);
-    }
-
-    // The shop, from the rooms: the room screen comes back when it closes.
-    private void ShowShop()
-    {
-        ShopUI shop = FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
-        if (shop == null) return;
-        int version = flowVersion;
-        roomScreen.SetActive(false);
-        shop.OpenFrom(() =>
-        {
-            if (version == flowVersion && step == Step.Room) roomScreen.SetActive(true);
-        });
-    }
-
-    // Deposits, withdrawals and the coin ledger (OnlineWallet), over the room screen.
-    private void ShowWallet()
-    {
-        AudioManager.ButtonTap();
-        int version = flowVersion;
-        roomScreen.SetActive(false);
-        OnlineWallet.Show(() =>
-        {
-            if (version == flowVersion && step == Step.Room) roomScreen.SetActive(true);
-        });
+        OnlineWallet.Show(null);
     }
 
     // ================= UI =================
@@ -1005,28 +907,8 @@ public class OnlineLobby : MonoBehaviour
     {
         Transform canvas = OnlineUI.CreateCanvas("OnlineLobbyCanvas", transform, 50).transform;
 
-        // Seeker / Hider is Single Play's RoleSelectCanvas (ShowRoleScreen).
-
-        // Room (price tier).
-        RectTransform p = OnlineUI.Modal(canvas, "RoomScreen", new Vector2(1060f, 820f));
-        roomScreen = p.parent.gameObject;
-        OnlineUI.NewLabel(p, "Choose a room", 52, new Vector2(0f, 340f), new Vector2(980f, 80f), TextAnchor.MiddleCenter, true);
-        roomBalance = OnlineUI.NewLabel(p, "", 32, new Vector2(0f, 275f), new Vector2(980f, 50f));
-        roomBalance.color = OnlineUI.Muted;
-        CoinBalance.Bind(roomBalance, "Your coins: {0}");   // the server's balance, kept up to date
-        roomList = (RectTransform)new GameObject("RoomList", typeof(RectTransform)).transform;
-        roomList.SetParent(p, false);
-        OnlineUI.Place(roomList, Vector2.zero, new Vector2(1000f, 600f));
-        roomError = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -260f), new Vector2(980f, 70f));
-        roomError.color = OnlineUI.Warning;
-        // Back is the screen before this one: the character choice.
-        OnlineUI.NewButton(p, "BACK", new Vector2(-416f, -345f), new Vector2(196f, 80f), OnlineUI.Gray, BackToCharacters);
-        OnlineUI.NewButton(p, "MATCHES", new Vector2(-208f, -345f), new Vector2(196f, 80f), new Color(0.85f, 0.52f, 0.12f, 0.97f), OnlineMatches.ShowList);
-        OnlineUI.NewButton(p, "WALLET", new Vector2(0f, -345f), new Vector2(196f, 80f), OnlineUI.Green, ShowWallet);
-        OnlineUI.NewButton(p, "HISTORY", new Vector2(208f, -345f), new Vector2(196f, 80f), OnlineUI.Blue, ShowHistory);
-        OnlineUI.NewButton(p, "SHOP", new Vector2(416f, -345f), new Vector2(196f, 80f), new Color(0.52f, 0.30f, 0.80f, 0.97f), ShowShop);
-        // The username and display name, changed here (OnlineSignIn.OpenAccount).
-        OnlineUI.NewButton(p, "PROFILE", new Vector2(404f, 340f), new Vector2(196f, 64f), OnlineUI.Blue, ShowAccount);
+        // The choices before a match are the play setup's (PlaySetupUI).
+        RectTransform p;
 
         // Lobby: a bar under MatchmakingUI's panel (this canvas sorts above it).
         Image bar = OnlineUI.NewImage("LobbyBar", canvas, OnlineUI.PanelColor);
@@ -1051,7 +933,7 @@ public class OnlineLobby : MonoBehaviour
             Action back = payBack;
             payBack = null;
             if (back != null) back();
-            else ShowRoomScreen(null);
+            else ShowSetup(null);
         });
 
         // A notice after a round ended on its own (seat ran out, another device).
@@ -1075,7 +957,6 @@ public class OnlineLobby : MonoBehaviour
 
     private void HideScreens()
     {
-        roomScreen.SetActive(false);
         payScreen.SetActive(false);
         lobbyBar.SetActive(false);
         noticeScreen.SetActive(false);

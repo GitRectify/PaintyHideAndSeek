@@ -464,3 +464,20 @@ Drag to look around. Pinch to zoom.	拖动以环顾四周，双指缩放。	Пе
 Drag to look around. Scroll to zoom. Left and Right arrow keys switch players.	拖动以环顾四周，滚轮缩放，左右方向键切换玩家。	Перетаскивайте, чтобы осмотреться. Колесо мыши — масштаб. Стрелки влево и вправо — сменить игрока.
 Loading the results...	正在加载结果……	Загрузка итогов...
 This is the only hider still in.	这是唯一还在场上的躲藏者。	Это единственный оставшийся прячущийся.
+# 2026-11-21: the play setup (side, character, room and map on one screen)
+SINGLE PLAY	单人游戏	ОДИНОЧНАЯ ИГРА
+MULTIPLAYER	多人游戏	МУЛЬТИПЛЕЕР
+SIDE	阵营	СТОРОНА
+CHARACTER	角色	ПЕРСОНАЖ
+ROOM	房间	КОМНАТА
+MAP	地图	КАРТА
+MAP  ·  set by this room	地图  ·  由该房间决定	КАРТА  ·  задана комнатой
+Paint yourself and hide	给自己涂色，然后躲起来	Раскрасьтесь и спрячьтесь
+Find and catch the hiders	找到并抓住躲藏者	Найдите и поймайте прячущихся
+Locked	未解锁	Заблокировано
+Not online yet	暂未上线	Пока не в сети
+Free · bots fill empty seats	免费 · 空位由机器人补齐	Бесплатно · пустые места займут боты
+Entry {0} · real players	入场费 {0} · 仅真人玩家	Вход {0} · только живые игроки
+FIND MATCH	寻找比赛	НАЙТИ МАТЧ
+Entry {0}	入场费 {0}	Вход {0}
+PLAY	开始	ИГРАТЬ

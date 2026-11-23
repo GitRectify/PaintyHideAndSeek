@@ -65,27 +65,31 @@ public class HomeUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Multiple Play's body choice: the same SelectPlayerCanvas Single Play shows after the side,
-    /// with the characters this account cannot play online locked. False when the scene has no
-    /// picker (the caller then goes straight on).
+    /// The play setup's screen (PlaySetupUI, 2026-11-21): the side screen, which keeps its Back,
+    /// Settings, Rate and Shop buttons, with the setup's panel over it; Home and the old character
+    /// screen off.
     /// </summary>
-    public bool ShowSelectPlayerOnline(int mode, Action onConfirm, Action onBack, Func<int, bool> locked)
+    public void ShowPlaySetup()
     {
-        if (SelectPlayerUI.Instance == null || !SelectPlayerUI.Instance.Ready) return false;
-
         SetHome(false);
+        SetSelectPlayer(false);
+        SetRoleSelect(true);
+    }
+
+    /// <summary>The play setup's screen off (a match starting), and Home back when asked.</summary>
+    public void HidePlaySetup(bool showHome)
+    {
         SetRoleSelect(false);
-        SetSelectPlayer(true);
-        SelectPlayerUI.Instance.Show(mode, () =>
-        {
-            SetSelectPlayer(false);
-            onConfirm?.Invoke();
-        }, () =>
-        {
-            SetSelectPlayer(false);
-            onBack?.Invoke();
-        }, locked);
-        return true;
+        if (showHome) SetHome(true);
+    }
+
+    /// <summary>
+    /// The play setup's PLAY in Single Play: the match as it started after the old map picker, with
+    /// the character and map already set (CharacterSelect, LevelManager). Mode 1 seeker, 2 hider.
+    /// </summary>
+    public void PlaySingle(int mode)
+    {
+        RunMatch(mode);
     }
 
     public void HideRoleSelect()
@@ -277,8 +281,10 @@ public class HomeUI : MonoBehaviour
     public void BeginMatch(int mode)
     {
         // Multiple Play uses this same role screen: while it is choosing a side, the button
-        // picks the online match's side instead of starting Single Play.
+        // picks the online match's side instead of starting Single Play. Under the play setup the
+        // side is the setup's (its panel has the choice; these buttons are hidden then).
         if (OnlineLobby.TryPickRole(mode)) return;
+        if (PlaySetupUI.TrySelectRole(mode)) return;
 
         // Only the player picker should be visible when choosing a character.
         SetHome(false);

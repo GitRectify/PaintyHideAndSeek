@@ -25,8 +25,8 @@ using Object = UnityEngine.Object;
 //             [-playtestMap <0-4>]
 //
 // The flow: Multiplayer sign-in (first-run name if the server asks) -> special bullets bought in
-// the shop -> Single Play's role screen (HomeUI.BeginMatch) -> Single Play's character screen
-// (SelectPlayerCanvas) -> the room screen's Practice button -> Single Play's map picker -> matchmaking -> the round (seeker: shoots and switches bullet
+// the shop -> the play setup (PlaySetupUI: side, character, room and map on one screen, its
+// SINGLE PLAY / MULTIPLAYER tabs, then FIND MATCH) -> matchmaking -> the round (seeker: shoots and switches bullet
 // type; hider: presses Start and paints) -> the result popup -> Home (wallet refreshed) -> match
 // history -> the shop's bullet cards. Bots or headless clients fill the lobby.
 //
@@ -42,7 +42,7 @@ public static class OnlinePlayTest
     private const string CharacterKey = "MecchaPlayTest.Character";
     private const string CharacterPrefsKey = "SelectedCharacter";      // CharacterSelect.prefsKey
 
-    // -playtestSwitchBody: the account buys the other character, picks it on SelectPlayerCanvas (the
+    // -playtestSwitchBody: the account buys the other character, picks it on the play setup (the
     // body is swapped in place, no scene reload) and plays the match with it.
     private static bool SwitchBody => System.Environment.GetCommandLineArgs().Contains("-playtestSwitchBody");
     private static int switchedTo = -1;
@@ -354,15 +354,22 @@ public static class OnlinePlayTest
 
             case Step.Role:
                 if (InStep < 1f) return;
-                GameObject roleCanvas = FindByName("RoleSelectCanvas");
-                Check(roleCanvas != null && roleCanvas.activeInHierarchy, "online side choice is Single Play's RoleSelectCanvas");
-                Check(FindByName("RoleShopBtn") is { activeInHierarchy: true } && roleCanvas.transform.Find("AdBtn") == null,
-                      "its Ad button is a Shop button in Multiplayer");
-                Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } rolePill && rolePill.transform.Find("CoinIcon") != null
-                      && roleCanvas.transform.Find("CoinPanel") is not { gameObject: { activeSelf: true } },
-                      "and the coin balance is Home's pill (the side screen's own coin panel is hidden)");
-                Shot("role_online");
-                Object.FindAnyObjectByType<HomeUI>().BeginMatch(Seeker ? 1 : 2);   // its Seeker / Hider button
+                {
+                    GameObject roleCanvas = FindByName("RoleSelectCanvas");
+                    Check(roleCanvas != null && roleCanvas.activeInHierarchy && FindByName("PlaySetup") is { activeInHierarchy: true },
+                          "Multiplayer opens the play setup, over Single Play's side screen");
+                    Check(FindByName("RoleShopBtn") is { activeInHierarchy: true } && roleCanvas.transform.Find("AdBtn") == null,
+                          "its Ad button is a Shop button in Multiplayer");
+                    Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } rolePill && rolePill.transform.Find("CoinIcon") != null
+                          && roleCanvas.transform.Find("CoinPanel") is not { gameObject: { activeSelf: true } },
+                          "and the coin balance is Home's pill (the side screen's own coin panel is hidden)");
+                    Check(FindByName("PlayNowBtn") is not { activeInHierarchy: true } && FindByName("SeekerBtn") is not { activeInHierarchy: true },
+                          "the side screen's old Hider / Seeker buttons give way to the setup's");
+                    Shot("role_online");
+                    Button sideChoice = SetupButton(Seeker ? "SeekerChoice" : "HiderChoice");
+                    Check(sideChoice != null, "the setup offers the side");
+                    sideChoice?.onClick.Invoke();
+                }
                 Go(Step.Body);
                 return;
 
@@ -370,50 +377,49 @@ public static class OnlinePlayTest
                 if (InStep < 0.5f) return;
                 if (!modeBackDone)
                 {
-                    // The character screen's own Back (BtnExit, which the scene wires to the side
-                    // screen), then the side again: this used to start Single Play.
+                    // The SINGLE PLAY tab, then MULTIPLAYER again: out of Multiple Play and back, the
+                    // screen staying (the side screen's buttons used to start Single Play here).
                     modeBackDone = true;
-                    Button exit = FindByName("SelectPlayerCanvas")?.GetComponentsInChildren<Button>(true).FirstOrDefault(b => b.name == "BtnExit");
-                    Check(exit != null, "the character screen has its Back button");
-                    exit?.onClick.Invoke();
+                    SetupButton("SinglePlayTab")?.onClick.Invoke();
                     stepStarted = Time.realtimeSinceStartup;
                     return;
                 }
                 if (!modeBackChecked)
                 {
                     modeBackChecked = true;
-                    GameObject sides = FindByName("RoleSelectCanvas");
-                    Check(sides != null && sides.activeInHierarchy && FindByName("SelectPlayerCanvas") is not { activeInHierarchy: true },
-                          "Back on the character screen goes to the side screen");
-                    Object.FindAnyObjectByType<HomeUI>().BeginMatch(Seeker ? 1 : 2);   // the side again
+                    Check(!OnlineLobby.InMultiplayer && FindByName("PlaySetup") is { activeInHierarchy: true }
+                          && FindByName("PlaySetupExtras") is not { activeInHierarchy: true } && FindByName("SetupRooms") is not { activeInHierarchy: true },
+                          "the SINGLE PLAY tab leaves Multiplayer, the setup staying without rooms or online buttons");
+                    SetupButton("MultiplayerTab")?.onClick.Invoke();   // signed in already: straight back
                     stepStarted = Time.realtimeSinceStartup;
                     return;
                 }
                 if (InStep < 1f) return;
                 GameModeManager modes = Object.FindAnyObjectByType<GameModeManager>();
-                Check(modes != null && !modes.RoundActive && FindByName("SelectPlayerCanvas") is { activeInHierarchy: true }
+                Check(modes != null && !modes.RoundActive && OnlineLobby.InSetup != null && FindByName("PlaySetupExtras") is { activeInHierarchy: true }
                       && FindByName("LoadingCanvas") is not { activeInHierarchy: true },
-                      "and picking a side again stays in Multiplayer: the character screen again, no Single Play round");
+                      "and the MULTIPLAYER tab is Multiplayer's setup again, no Single Play round");
+                SetupButton(Seeker ? "SeekerChoice" : "HiderChoice")?.onClick.Invoke();
                 PickBodyOnline();
                 Go(Step.Room);
                 return;
 
             case Step.Room:
-                Button practice = FindButton("RoomScreen", "Practice");
+                Button practice = FindButton("PlaySetup", "Practice");
                 if (practice == null) return;
                 if (switchedTo >= 0 && !switchChecked)
                 {
-                    // Straight on to the room screen, as the new character, in the same scene.
+                    // The new character, chosen on the setup, in the same scene.
                     switchChecked = true;
                     Transform body = PlayerRef.Active;
                     string expected = switchedTo == 0 ? "Player" : "Player" + (switchedTo + 1);
                     int bodies = Object.FindObjectsByType<SeekerCamProfile>(FindObjectsInactive.Include).Length;
                     Check(body != null && body.name == expected && bodies == 1,
-                          $"after the switch the game went on to the room screen as {expected} ({(body != null ? body.name : "none")}, {bodies} player bodies)");
+                          $"after the switch the room shows {expected} ({(body != null ? body.name : "none")}, {bodies} player bodies)");
                     HomeUI homeNow = Object.FindAnyObjectByType<HomeUI>(FindObjectsInactive.Include);
                     Check(homeNow != null && sceneMarker != null && homeNow == sceneMarker, "without reloading the scene");
-                    Check(FindByName("SelectPlayerCanvas") is not { activeInHierarchy: true } && FindByName("RoleSelectCanvas") is not { activeInHierarchy: true },
-                          "with the side and character screens closed");
+                    Check(FindByName("PlaySetup") is { activeInHierarchy: true } && FindByName("SelectPlayerCanvas") is not { activeInHierarchy: true },
+                          "with the setup still open and no character screen");
                     Check(Net != null && Net.IsConnected, "still connected to the server");
 
                     // Everything that moves, films, paints, climbs, poses or arms the player has the new body.
@@ -433,35 +439,62 @@ public static class OnlinePlayTest
                     Animator poseAnim = Object.FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include) is PoseSelectorUI ps ? Get<Animator>(ps, "anim") : null;
                     Check(poseAnim != null && poseAnim.transform.IsChildOf(body), "the pose picker drives the new body's animator");
                 }
-                Check(FindButton("RoomScreen", "HISTORY") != null, "room screen has the HISTORY button");
+                Check(FindButton("PlaySetupCanvas", "HISTORY") != null && FindButton("PlaySetupCanvas", "MATCHES") != null && FindButton("PlaySetupCanvas", "WALLET") != null,
+                      "the setup has HISTORY, MATCHES and WALLET");
                 if ((AwayTest || AwayEndTest) && !roomBackChecked)
                 {
-                    // BACK is the screen before: the character choice, then Play comes back here.
                     roomBackChecked = true;
-                    FindButton("RoomScreen", "BACK")?.onClick.Invoke();
-                    Check(FindByName("SelectPlayerCanvas") is { activeInHierarchy: true } && FindByName("RoomScreen") is not { activeInHierarchy: true },
-                          "the room list's BACK goes to the character screen");
-                    SelectPlayerUI.Instance.Confirm();
-                    Check(FindButton("RoomScreen", "Practice") != null && FindButton("RoomScreen", "MATCHES") != null && FindButton("RoomScreen", "SHOP") != null,
-                          "and Play there comes back to the room list (with MATCHES and SHOP)");
-                    return;
+                    Check(FindByName("RoleSelectCanvas")?.GetComponentsInChildren<Button>(true).Any(b => b.name == "BackBtn") == true,
+                          "the setup has a way back Home (the side screen's Back)");
                 }
                 if (Standard)
                 {
                     // The paid room: open now, real players only, its entry confirmed before the search.
-                    Button standard = FindButton("RoomScreen", "Standard");
-                    string standardText = standard != null ? standard.GetComponentInChildren<Text>(true).text.Replace("\n", " / ") : "none";
-                    Check(standard != null && standard.interactable && standardText.Contains("20 coins") && standardText.Contains("real players only"),
+                    Button standard = FindButton("PlaySetup", "Standard");
+                    string standardText = standard != null ? string.Join(" / ", standard.GetComponentsInChildren<Text>(true).Select(t => t.text)) : "none";
+                    Check(standard != null && standard.interactable && standardText.Contains("20 coins") && standardText.Contains("real players"),
                           $"the Standard room can be picked: '{standardText}'");
                     if (standard == null) { Finish(); return; }
                     standardCoinsBefore = CoinBalance.Cents;
                     Shot("rooms");
                     standard.onClick.Invoke();
-                    Go(Step.Pay);
+                    Go(Step.Map);
                     return;
                 }
                 practice.onClick.Invoke();
                 Go(Step.Map);
+                return;
+
+            case Step.Map:
+                if (InStep < 0.5f) return;
+                {
+                    LevelManager levels = Object.FindAnyObjectByType<LevelManager>();
+                    Button mapCard = levels != null ? SetupButton("Map_" + levels.RoomNameAt(MapIndex)) : null;
+                    if (mapCard == null)
+                    {
+                        Check(levels == null, "the setup shows the maps");
+                        SetupButton("SetupPlay")?.onClick.Invoke();
+                        Go(Standard ? Step.Pay : Step.Match);
+                        return;
+                    }
+                    if (MapsSold)
+                    {
+                        int locked = Enumerable.Range(2, 4).Count(n => ShopInventory.MapLocked(n));
+                        int priced = FindByName("SetupMaps").GetComponentsInChildren<Text>(true).Count(t => t.text.EndsWith("coins"));
+                        Check(locked == 4 && priced == 4 && !ShopInventory.MapLocked(1),
+                              $"Room is free and Room 2-5 show a lock and their price ({locked} locked, {priced} prices)");
+                        Shot("map_locks");
+                    }
+                    mapCard.onClick.Invoke();
+                    Text summary = FindByName("SetupSummary")?.GetComponent<Text>();
+                    Check(levels.Current == MapIndex && summary != null && summary.text.Contains(L.T(levels.CurrentDisplayName)),
+                          $"the map card picks the map, and the line over Play says so ('{summary?.text}')");
+                    mapMustBuy = MapsSold && MapIndex > 0 && ShopInventory.MapLocked(MapIndex + 1);
+                    SetupButton("SetupPlay")?.onClick.Invoke();
+                    Check(true, "FIND MATCH from the setup");
+                }
+                if (Standard) { Go(Step.Pay); return; }
+                Go(mapMustBuy ? Step.BuyMap : Step.Match);
                 return;
 
             case Step.Pay:
@@ -476,39 +509,7 @@ public static class OnlinePlayTest
                 Check(payButton != null, "its button says PAY 20 coins");
                 if (payButton == null) { Finish(); return; }
                 payButton.onClick.Invoke();
-                Go(Step.Map);
-                return;
-
-            case Step.Map:
-                if (InStep < 0.5f) return;
-                MapSelectPopup popup = MapSelectPopup.Instance;
-                if (popup != null && popup.Ready)
-                {
-                    if (MapsSold)
-                    {
-                        int locked = Enumerable.Range(2, 4).Count(n => ShopInventory.MapLocked(n));
-                        int priced = Object.FindObjectsByType<Text>(FindObjectsInactive.Exclude).Count(t => t.name == "LockPrice" && t.text.EndsWith("coins"));
-                        Check(locked == 4 && priced == 4 && !ShopInventory.MapLocked(1),
-                              $"Room is free and Room 2-5 show a lock and their price ({locked} locked, {priced} prices)");
-                        Shot("map_locks");
-                    }
-                    popup.SelectMap(MapIndex);
-                    Text roomName = FindByName("SelectedRoomName")?.GetComponent<Text>();
-                    LevelManager levels = Object.FindAnyObjectByType<LevelManager>();
-                    Check(roomName != null && roomName.gameObject.activeInHierarchy && levels != null && !string.IsNullOrEmpty(roomName.text)
-                          && roomName.text == levels.CurrentDisplayName,
-                          $"the chosen room's name shows above Play ('{roomName?.text}')");
-                    bool mustBuy = MapsSold && MapIndex > 0 && ShopInventory.MapLocked(MapIndex + 1);
-                    popup.Confirm();
-                    Check(true, "map chosen in Single Play's map picker");
-                    if (mustBuy)
-                    {
-                        Go(Step.BuyMap);
-                        return;
-                    }
-                }
-                else Check(true, "no map picker in the scene: the server picks the map");
-                Go(Step.Match);
+                Go(mapMustBuy ? Step.BuyMap : Step.Match);
                 return;
 
             case Step.BuyMap:
@@ -610,12 +611,11 @@ public static class OnlinePlayTest
 
             case Step.NextRooms:
                 if (InStep < 4f) return;     // long enough for a lobby to turn up if one were coming
-                Check(!OnlineRound.Active && FindByName("RoomScreen") is { activeInHierarchy: true } && FindButton("RoomScreen", "Practice") != null,
-                      "Next after the match opens the room list, with every room the server has to pick from");
+                Check(!OnlineRound.Active && FindByName("PlaySetup") is { activeInHierarchy: true } && FindButton("PlaySetup", "Practice") != null,
+                      "Next after the match opens the play setup, with every room the server has to pick from");
                 Shot("next_rooms");
                 Check(matchesFound == matchesAtNext && !Net.InMatch, "and nobody put this player into another match by themselves");
-                // Out the way a player goes: the room list's BACK, then the side screen's Back.
-                FindButton("RoomScreen", "BACK")?.onClick.Invoke();
+                // Out the way a player goes: the side screen's Back, under the setup.
                 FindByName("RoleSelectCanvas")?.GetComponentsInChildren<Button>(true).FirstOrDefault(b => b.name == "BackBtn")?.onClick.Invoke();
                 Go(Step.Home);
                 return;
@@ -758,18 +758,18 @@ public static class OnlinePlayTest
                 ShopUI.CloseOpen();
                 if (FindByName("HistoryScreen") is { activeSelf: true } history) history.SetActive(false);
                 {
-                    // Single Play's map picker: every map free, no ad sign, no lock, no price.
-                    MapSelectPopup picker = MapSelectPopup.Instance;
-                    if (picker != null && picker.Ready)
-                    {
-                        picker.Show(() => { }, () => { });
-                        int badges = Enumerable.Range(2, 4).Count(n => FindByName("Map" + n)?.transform.Find("Image") is { gameObject: { activeSelf: true } });
-                        int prices = Object.FindObjectsByType<Text>(FindObjectsInactive.Exclude).Count(t => t.name == "LockPrice");
-                        Check(badges == 0 && prices == 0 && !Enumerable.Range(0, 5).Any(picker.IsLocked),
-                              $"Single Play: every map is free, with no ad sign, lock or price ({badges} badges, {prices} prices)");
-                        Shot("single_maps");
-                        picker.Back();
-                    }
+                    // Single Play's setup: every map free, no lock, no price, no rooms, no online buttons.
+                    PlaySetupUI.OpenSingle();
+                    GameObject setup = FindByName("PlaySetup");
+                    List<Button> mapCards = setup != null ? setup.GetComponentsInChildren<Button>(true).Where(b => b.name.StartsWith("Map_")).ToList() : new List<Button>();
+                    int locks = mapCards.Count(b => b.transform.Find("Lock") is { gameObject: { activeSelf: true } });
+                    int prices = mapCards.Count(b => b.GetComponentsInChildren<Text>(true).Any(t => t.text.EndsWith("coins")));
+                    Check(mapCards.Count > 0 && mapCards.All(b => b.interactable) && locks == 0 && prices == 0
+                          && FindByName("SetupRooms") is not { activeInHierarchy: true } && FindByName("PlaySetupExtras") is not { activeInHierarchy: true },
+                          $"Single Play's setup: every map free, no lock or price, no rooms or online buttons ({mapCards.Count} maps, {locks} locks, {prices} prices)");
+                    Shot("single_setup");
+                    PlaySetupUI.CloseIfOpen();
+                    Object.FindAnyObjectByType<HomeUI>()?.HidePlaySetup(true);
                 }
                 gmm.ShowMenu();
                 gmm.BeginRound(false);      // Play Now: the player hides, the bots hunt
@@ -1409,51 +1409,63 @@ public static class OnlinePlayTest
         return string.Join(", ", far);
     }
 
-    // Multiple Play's body choice: Single Play's SelectPlayerCanvas after the side. A character this
-    // account does not own online is refused there; the one in use goes on to the rooms.
+    // Multiple Play's character choice: the play setup's character cards. A character this account
+    // does not own online is refused there (the setup says so); the one in use stays chosen.
     private static void PickBodyOnline()
     {
-        SelectPlayerUI picker = SelectPlayerUI.Instance;
-        GameObject canvas = FindByName("SelectPlayerCanvas");
-        if (picker == null || !picker.Ready)
+        GameObject setup = FindByName("PlaySetup");
+        CharacterSelect characters = Object.FindAnyObjectByType<CharacterSelect>();
+        if (setup == null || characters == null)
         {
-            report.Add("INFO  no character screen in the scene: straight to the rooms");
+            report.Add("INFO  no setup or characters in the scene: straight to the rooms");
             return;
         }
-        Check(canvas != null && canvas.activeInHierarchy, "online body choice is Single Play's SelectPlayerCanvas, after the side");
+        Check(setup.activeInHierarchy, "the online character choice is on the play setup");
+        Button Card(int i) => SetupButton("Character_" + i);
 
-        int inUse = (int)typeof(SelectPlayerUI).GetField("_pending", Any).GetValue(picker);
+        int inUse = characters.CurrentIndex;
+        int count = characters.characterPrefabs.Length;
         int locked = -1;
         if (profile.OwnedAvatars != null && profile.OwnedAvatars.Length > 0)
-            for (int i = 0; i < picker.buttonNames.Length && locked < 0; i++)
+            for (int i = 0; i < count && locked < 0; i++)
                 if (Array.IndexOf(profile.OwnedAvatars, i) < 0) locked = i;
 
         if (SwitchBody && switchedTo < 0)
         {
-            // The other character, which this account now owns: Play swaps the body in place.
+            // The other character, which this account now owns: a tap swaps the body in place.
             switchedTo = 1 - inUse;
             sceneMarker = Object.FindAnyObjectByType<HomeUI>(FindObjectsInactive.Include);
-            picker.PickCharacter(switchedTo);
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            picker.Confirm();
+            Card(switchedTo)?.onClick.Invoke();
             report.Add($"INFO  picked character {switchedTo} (was {inUse}): body swapped in {watch.Elapsed.TotalMilliseconds:0.0} ms");
             return;
         }
 
         if (locked >= 0)
         {
-            picker.PickCharacter(locked);
-            picker.Confirm();
-            Text message = FindByName("LockMessage")?.GetComponent<Text>();
-            Check(canvas.activeInHierarchy && message != null && message.gameObject.activeInHierarchy,
-                  $"a character not owned online is refused ('{message?.text}')");
+            Card(locked)?.onClick.Invoke();
+            Text summary = FindByName("SetupSummary")?.GetComponent<Text>();
+            Check(characters.CurrentIndex == inUse && summary != null && summary.text.Contains(L.T("Not unlocked online. Get it in the Shop.")),
+                  $"a character not owned online is refused ('{summary?.text}')");
         }
         else report.Add("INFO  this account owns every character online: no locked one to try");
 
-        picker.PickCharacter(inUse);
-        picker.Confirm();               // the character already in use: nothing to swap
-        Check(!canvas.activeInHierarchy, $"Play on the character in use ({inUse}) goes on to the rooms");
+        Card(inUse)?.onClick.Invoke();   // the character already in use: nothing to swap
+        Check(characters.CurrentIndex == inUse, $"the character in use ({inUse}) stays chosen");
     }
+
+    private static bool mapMustBuy;
+
+    // A button of the play setup (its panel, tabs, cards or Play), by object name.
+    private static Button SetupButton(string name)
+    {
+        GameObject canvas = FindByName("PlaySetupCanvas");
+        return canvas != null ? canvas.GetComponentsInChildren<Button>(true).FirstOrDefault(b => b.name == name) : null;
+    }
+
+    // The coin balance over Multiple Play's screens (OnlineMatches' copy of Home's pill).
+    private static Text GlobalCoinLabel() =>
+        FindByName("GlobalCoinPill") is GameObject pill ? pill.transform.Find("CoinText")?.GetComponent<Text>() : null;
 
     private static int languageStage;
     private static Text languageLabel;
@@ -1679,8 +1691,8 @@ public static class OnlinePlayTest
                 exitStage = 5;
                 return;
             case 5:
-                Check(!OnlineRound.Active && FindByName("RoomScreen") is { activeInHierarchy: true } && !Net.InMatch && Net.IsConnected,
-                      "LEAVE goes back to the room list, out of the match, still signed in, the game still running");
+                Check(!OnlineRound.Active && FindByName("PlaySetup") is { activeInHierarchy: true } && !Net.InMatch && Net.IsConnected,
+                      "LEAVE goes back to the play setup, out of the match, still signed in, the game still running");
                 Shot("exit_rooms");
                 exitStage = 9;
                 Go(Step.Exited);
@@ -1783,7 +1795,7 @@ public static class OnlinePlayTest
             case 4:
                 if (now < awayAt) return;
                 MyMatchEntry kept = Net.MyMatches.FirstOrDefault(m => m.MatchId == (uint)awayMatch);
-                Check(!OnlineRound.Active && FindByName("RoomScreen") is { activeInHierarchy: true } && kept.State == MyMatchState.Away && kept.SecondsLeft > 0,
+                Check(!OnlineRound.Active && FindByName("PlaySetup") is { activeInHierarchy: true } && kept.State == MyMatchState.Away && kept.SecondsLeft > 0,
                       $"after Exit the match goes on and is listed as in progress ({kept.State}, {kept.Phase}, {kept.SecondsLeft} s left)");
                 Check(FindByName("LoadingCanvas") is not { activeInHierarchy: true }, "no loading screen on the way out");
                 Check(FindByName("MatchesChip") is { activeInHierarchy: true } chip && chip.GetComponentInChildren<Text>().text.Contains("in progress"),
@@ -1826,13 +1838,12 @@ public static class OnlinePlayTest
                 if (now < awayAt) return;
                 if (System.Environment.GetCommandLineArgs().Contains("-playtestSwitchSides"))
                 {
-                    OnlineLobby lobby = Object.FindAnyObjectByType<OnlineLobby>();
-                    typeof(OnlineLobby).GetField("role", Any).SetValue(lobby, Seeker ? RolePreference.Hider : RolePreference.Seeker);
+                    SetupButton(Seeker ? "HiderChoice" : "SeekerChoice")?.onClick.Invoke();
                     report.Add($"INFO  the second match is played on the other side ({(Seeker ? "hider" : "seeker")})");
                 }
                 {
-                    Button practice = FindButton("RoomScreen", "Practice");
-                    Check(practice != null, "the room list offers Practice for a second match");
+                    Button practice = FindButton("PlaySetup", "Practice");
+                    Check(practice != null, "the play setup offers Practice for a second match");
                     practice?.onClick.Invoke();
                 }
                 awayAt = now + 1f;
@@ -1842,10 +1853,11 @@ public static class OnlinePlayTest
             case 31:
                 if (now < awayAt) return;
                 {
-                    MapSelectPopup popup = MapSelectPopup.Instance;
-                    if (popup == null || !popup.Ready) { Check(false, "the map picker opens for the second match"); Go(Step.Done); return; }
-                    popup.SelectMap(SwitchMapB);
-                    popup.Confirm();
+                    LevelManager levels = Object.FindAnyObjectByType<LevelManager>();
+                    Button mapB = levels != null ? SetupButton("Map_" + levels.RoomNameAt(SwitchMapB)) : null;
+                    if (mapB == null) { Check(false, "the setup offers the second match's map"); Go(Step.Done); return; }
+                    mapB.onClick.Invoke();
+                    SetupButton("SetupPlay")?.onClick.Invoke();
                 }
                 awayAt = now + 40f;
                 awayStage = 32;
@@ -3991,16 +4003,17 @@ public static class OnlinePlayTest
                 Check(rolePill != null && rolePill.gameObject.activeInHierarchy && rolePill.text == CoinBalance.Text,
                       $"the role screen's coin pill shows the server's balance, not the scene's number ('{rolePill?.text}')");
 
-                typeof(OnlineLobby).GetMethod("ShowRoomScreen", Any).Invoke(lobby, new object[] { null });
+                typeof(OnlineLobby).GetMethod("ShowSetup", Any).Invoke(lobby, new object[] { null });
                 walletStage = 1;
                 return;
             }
 
             case 1:
             {
-                Button open = FindButton("RoomScreen", "WALLET");
-                if (!Awaited(open != null, 8f, "the room screen has a WALLET button")) return;
-                Check(Get<Text>(lobby, "roomBalance")?.text == "Your coins: 0", $"the room screen shows the same balance ('{Get<Text>(lobby, "roomBalance")?.text}')");
+                Button open = FindButton("PlaySetupCanvas", "WALLET");
+                if (!Awaited(open != null, 8f, "the play setup has a WALLET button")) return;
+                Text pill = GlobalCoinLabel();
+                Check(pill != null && pill.gameObject.activeInHierarchy && pill.text == "0", $"the coin balance over the setup shows the same balance ('{pill?.text}')");
                 if (open != null) open.onClick.Invoke();
                 walletStage = 2;
                 return;
@@ -4125,9 +4138,10 @@ public static class OnlinePlayTest
 
             case 13:
             {
-                GameObject rooms = FindByName("RoomScreen");
-                if (!Awaited(rooms != null && rooms.activeInHierarchy, 5f, "closing the wallet goes back to the room screen")) return;
-                Check(Get<Text>(lobby, "roomBalance")?.text == "Your coins: 299.70", $"which shows the balance now ('{Get<Text>(lobby, "roomBalance")?.text}')");
+                GameObject rooms = FindByName("PlaySetup");
+                if (!Awaited(rooms != null && rooms.activeInHierarchy, 5f, "closing the wallet leaves the play setup there")) return;
+                Text pill = GlobalCoinLabel();
+                Check(pill != null && pill.text == "299.70", $"and the balance over it is the new one ('{pill?.text}')");
 
                 Call(lobby, "GoHome");
                 walletStage = 14;

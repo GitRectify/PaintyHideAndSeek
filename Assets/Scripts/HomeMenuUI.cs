@@ -8,9 +8,9 @@ using UnityEngine;
 // a number of its own), and tapping it signs in and opens the wallet (OnlineWallet). The Shop signs
 // in first too. A player who has signed in before is signed in quietly when Home first shows
 // (NetBootstrap.QuietSignIn), so the balance is simply there.
-// Play opens the role-selection screen (the original home canvas: PlayNow = Hider,
-// SeekerMode = Seeker, both still wired to HomeUI.BeginMatch). Multiplayer signs in and opens the
-// same role screen for the online match (OnlineLobby).
+// Play opens the play setup (PlaySetupUI, 2026-11-21: side, character and map on one screen, over
+// the role-selection canvas). Multiplayer signs in and opens the same setup for the online match,
+// with the rooms (OnlineLobby).
 public class HomeMenuUI : MonoBehaviour
 {
     [Header("References")]
@@ -115,14 +115,14 @@ public class HomeMenuUI : MonoBehaviour
     {
         AudioManager.ButtonTap();
         if (roleSelectCanvas == null) return;
-        if (homeCanvas != null) homeCanvas.SetActive(false);
-        roleSelectCanvas.SetActive(true);
+        PlaySetupUI.OpenSingle();   // it shows the role-selection canvas under its panel
     }
 
     // Role selection -> back to the main home menu (and out of Multiple Play, when it was choosing a side).
     public void ShowHome()
     {
         AudioManager.ButtonTap();
+        PlaySetupUI.CloseIfOpen();
         if (roleSelectCanvas != null) roleSelectCanvas.SetActive(false);
         if (homeCanvas != null) homeCanvas.SetActive(true);
         OnlineLobby.RoleSelectClosed();
