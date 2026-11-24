@@ -1,5 +1,7 @@
 using System;
+using Meccha.Shared.Game;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
@@ -37,6 +39,19 @@ public class Mode1FirstPersonGun : MonoBehaviour
     private bool prone;
     private bool gunModeOn;
     private bool wasGunMode;
+
+    // The Shoot button held (FireHold): online the gun fires again each time the bullet's cooldown
+    // ends (OnlineRound keeps the wait).
+    private bool fireHeld;
+
+    // Single Play has no wait between shots (the user's choice, 2026-11-24): every tap fires. Held
+    // down there, the gun repeats at the seeker bots' own rate.
+    private const float HeldRepeatSeconds = GameTuning.BotFireIntervalSeconds;
+    private float heldNextShotAt;
+
+    // The wait, counting down on the Shoot button with a shade that empties.
+    private Text fireCooldownText;
+    private Image fireCooldownShade;
 
     [Header("Aim (Mode 1 — drag the RIGHT side of the screen)")]
     [Tooltip("Yaw degrees per pixel of horizontal drag (turns the player + gun left/right).")]
@@ -181,6 +196,94 @@ public class Mode1FirstPersonGun : MonoBehaviour
 
         bool jump = gmm != null && gmm.RoundActive && !gmm.PlayerFrozen;
         if (jumpBtn != null && jumpBtn.activeSelf != jump) jumpBtn.SetActive(jump);
+
+        // Held down: the next shot as soon as the wait after the last one is over.
+        if (fireHeld && (!gunModeOn || (gmm != null && !gmm.RoundActive))) fireHeld = false;
+        if (fireHeld) FireHeldShot();
+
+        UpdateFireCooldown();
+    }
+
+    /// <summary>
+    /// The Shoot button went down (FireHold): a shot now if the gun is ready, then, while held, one
+    /// each time the cooldown ends online, or every <see cref="HeldRepeatSeconds"/> in Single Play.
+    /// </summary>
+    public void PressFire()
+    {
+        if (!gunModeOn) return;
+        fireHeld = true;
+        heldNextShotAt = 0f;
+        FireHeldShot();
+    }
+
+    private void FireHeldShot()
+    {
+        if (!ReadyToFire) return;
+        if (!OnlineRound.Active)
+        {
+            if (Time.time < heldNextShotAt) return;
+            heldNextShotAt = Time.time + HeldRepeatSeconds;
+        }
+        Fire();
+    }
+
+    /// <summary>The Shoot button was let go: no more shots until it is pressed again.</summary>
+    public void ReleaseFire() => fireHeld = false;
+
+    /// <summary>True while the Shoot button is held down.</summary>
+    public bool FireHeld => fireHeld;
+
+    // A shot now would go: not while the hiders hide, nor online inside the wait after the last shot.
+    private bool ReadyToFire
+    {
+        get
+        {
+            if (gmm != null && (gmm.SeekerHideCountdown || !gmm.RoundActive || !gmm.PlayerIsSeeker)) return false;
+            return !OnlineRound.Active || OnlineRound.ReadyToFire;
+        }
+    }
+
+    // The seconds until the next shot, on the Shoot button: online the round's wait (the bullet's
+    // own, lifted by a catch). Single Play has none to show.
+    private void UpdateFireCooldown()
+    {
+        float left = 0f, total = 1f;
+        bool show = OnlineRound.Active && OnlineRound.FireWait(out left, out total);
+
+        if (!show || fireBtn == null)
+        {
+            if (fireCooldownText != null && fireCooldownText.gameObject.activeSelf) fireCooldownText.gameObject.SetActive(false);
+            if (fireCooldownShade != null && fireCooldownShade.gameObject.activeSelf) fireCooldownShade.gameObject.SetActive(false);
+            return;
+        }
+
+        if (fireCooldownText == null)
+        {
+            Image shade = OnlineUI.NewImage("CooldownShade", fireBtn.transform, new Color(0f, 0f, 0f, 0.55f));
+            OnlineUI.Stretch(shade.rectTransform);
+            Image fireImage = fireBtn.GetComponent<Image>();
+            if (fireImage != null) shade.sprite = fireImage.sprite;
+            shade.preserveAspect = true;
+            shade.type = Image.Type.Filled;
+            shade.fillMethod = Image.FillMethod.Radial360;
+            shade.fillOrigin = (int)Image.Origin360.Top;
+            shade.fillClockwise = false;
+            shade.raycastTarget = false;
+            fireCooldownShade = shade;
+
+            fireCooldownText = OnlineUI.NewLabel(fireBtn.transform, "", 60, Vector2.zero, new Vector2(180f, 100f), TextAnchor.MiddleCenter, true);
+            fireCooldownText.name = "CooldownText";
+            OnlineUI.Stretch(fireCooldownText.rectTransform);
+            fireCooldownText.raycastTarget = false;
+            Outline outline = fireCooldownText.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            outline.effectDistance = new Vector2(3f, -3f);
+        }
+
+        fireCooldownShade.fillAmount = Mathf.Clamp01(left / total);
+        fireCooldownText.text = left.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+        fireCooldownShade.gameObject.SetActive(true);
+        fireCooldownText.gameObject.SetActive(true);
     }
 
     private void LateUpdate()
@@ -231,6 +334,8 @@ public class Mode1FirstPersonGun : MonoBehaviour
     private void Apply(bool on)
     {
         gunModeOn = on;
+        fireHeld = false;
+        heldNextShotAt = 0f;
         SetProne(false);
         RefreshGunLayerWeight();
         if (camCtrl != null) camCtrl.SetFirstPerson(on);
@@ -804,6 +909,16 @@ public class Mode1FirstPersonGun : MonoBehaviour
         }
         Button btn = SceneUI.GetOrAdd<Button>(btnGO);
         btn.targetGraphic = bg;
+
+        // Pressed, it fires and keeps firing while held (FireHold), so the click the scene wires to
+        // Fire is switched off: it would add a second shot as the button comes up. Only in play:
+        // the scene itself stays as it is.
+        if (Application.isPlaying)
+        {
+            for (int i = 0; i < btn.onClick.GetPersistentEventCount(); i++)
+                if (btn.onClick.GetPersistentMethodName(i) == nameof(Fire)) btn.onClick.SetPersistentListenerState(i, UnityEventCallState.Off);
+            SceneUI.GetOrAdd<FireHold>(btnGO).gun = this;
+        }
 
         if (gunIcon != null)
         {

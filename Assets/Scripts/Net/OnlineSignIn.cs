@@ -334,6 +334,7 @@ public class OnlineSignIn : MonoBehaviour
             }
 
             profile = reply.Profile;
+            Shoes.Note(profile);
             if (string.IsNullOrEmpty(profile.UserId)) ShowProfileScreen();
             else Finish();
         });

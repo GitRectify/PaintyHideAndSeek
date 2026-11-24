@@ -489,7 +489,7 @@ public class OnlineLobby : MonoBehaviour
         string fee = OnlineUI.CoinsText(room.EntryCents);
         if (CoinBalance.Known && CoinBalance.Cents < room.EntryCents)
         {
-            ShowSetup($"<color=#FFC759>Not enough coins for this room. The entry is {fee}; top up in WALLET.</color>");
+            ShowSetup($"<color=#FFC759>Not enough coins for this room. The entry is {fee}; tap your coins to top up.</color>");
             return;
         }
 
@@ -588,7 +588,7 @@ public class OnlineLobby : MonoBehaviour
     {
         if (CoinBalance.Known && CoinBalance.Cents < ShopInventory.PriceCents(item))
         {
-            ShowSetup($"<color=#FFC759>Not enough coins for {MapTitle(map)}. Top up in WALLET.</color>");
+            ShowSetup($"<color=#FFC759>Not enough coins for {MapTitle(map)}. Tap your coins to top up.</color>");
             return;
         }
 
@@ -873,10 +873,11 @@ public class OnlineLobby : MonoBehaviour
 
     // ================= The setup's other places =================
 
-    // History, profile and wallet open over the setup (their screens sort above it); it is still
-    // there when they close. The Shop is the side screen's own button (HomeMenuUI).
+    // History and profile open over the setup (their screens sort above it); it is still there
+    // when they close. The Shop is the side screen's own button (HomeMenuUI), and the wallet opens
+    // from the coin balance (OnlineWallet.MakeOpener).
 
-    /// <summary>The player's own match records (OnlineHistory).</summary>
+    /// <summary>The coin ledger and the player's own match records (OnlineHistory).</summary>
     public void OpenHistory()
     {
         AudioManager.ButtonTap();
@@ -892,13 +893,6 @@ public class OnlineLobby : MonoBehaviour
         {
             if (version == flowVersion) profile = saved;
         }, null);
-    }
-
-    /// <summary>Deposits, withdrawals and the coin ledger (OnlineWallet).</summary>
-    public void OpenWallet()
-    {
-        AudioManager.ButtonTap();
-        OnlineWallet.Show(null);
     }
 
     // ================= UI =================

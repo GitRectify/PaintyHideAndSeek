@@ -139,6 +139,27 @@ public partial class OnlineRound : MonoBehaviour
     }
 
     /// <summary>
+    /// Whether a shot now would go, asking nothing of the server and spending nothing: what the
+    /// held Shoot button waits for between shots (Mode1FirstPersonGun). True outside online play.
+    /// </summary>
+    public static bool ReadyToFire => !Active || _instance.FireReady();
+
+    /// <summary>
+    /// The wait before this seeker's next shot online, for the Shoot button to count down: the
+    /// seconds left and the whole wait. False when there is none to show (a hider, out, the match
+    /// over, or no wait left).
+    /// </summary>
+    public static bool FireWait(out float left, out float total)
+    {
+        left = total = 0f;
+        if (!Active) return false;
+        OnlineRound round = _instance;
+        left = round.nextFireAt - Time.unscaledTime;
+        total = Mathf.Max(0.1f, MecchaNetClient.CooldownAfter(round.firedBullet));
+        return round.hunter && !round.localOut && !round.resultShown && left > 0.05f;
+    }
+
+    /// <summary>
     /// How far along this shot it would meet a hider, by the very test the server will judge it
     /// with. The bodies of other players have no colliders online, so this is how the crosshair
     /// lands on them rather than on the wall behind.
@@ -411,7 +432,6 @@ public partial class OnlineRound : MonoBehaviour
             Net.OnMatchResults -= HandleMatchResults;
         }
         OnlineMatches.HideResults();
-        HideFireCooldown();
 
         StopHostingBots();
         ClearSpot();
@@ -472,7 +492,6 @@ public partial class OnlineRound : MonoBehaviour
         UpdateSpectating();
         UpdateAfterMatch();
         UpdateMatchControls();
-        UpdateFireCooldown();
         WatchConnection();
         if (!active) return;   // a seat that ran out ends the round right there
         PumpPaintReplay();
@@ -728,11 +747,14 @@ public partial class OnlineRound : MonoBehaviour
         }
     }
 
+    private bool FireReady() =>
+        !localOut && !resultShown &&
+        Net.IsConnected &&                     // the shot would go nowhere; the banner says why
+        Time.unscaledTime >= nextFireAt;
+
     private bool CanFire()
     {
-        if (localOut || resultShown) return false;
-        if (!Net.IsConnected) return false;   // the shot would go nowhere; the banner says why
-        if (Time.unscaledTime < nextFireAt) return false;
+        if (!FireReady()) return false;
 
         // No bullet check: with none of the chosen special type left the seeker shoots default
         // bullets. The wait that follows is this bullet's cooldown, as the server counts it.

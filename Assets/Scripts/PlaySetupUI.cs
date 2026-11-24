@@ -10,7 +10,7 @@ using UnityEngine.UI;
 // its Back, Settings, Rate and Shop buttons and the home room behind it):
 //
 //   SINGLE PLAY / MULTIPLAYER   the title: the mode chosen on Home (Play or Multiplayer), kept for
-//                               the whole flow; Multiplayer adds its Matches, Wallet, History, Profile
+//                               the whole flow; Multiplayer adds its Matches, History, Profile
 //   SIDE        Hider / Seeker
 //   CHARACTER   the bodies, by their pictures; a tap makes it the player's body at once
 //               (CharacterSelect swaps it in place, no scene reload)
@@ -624,11 +624,12 @@ public class PlaySetupUI : MonoBehaviour
         // Multiplayer's other places, small, under the title: they open over this screen.
         extras = new GameObject("PlaySetupExtras", typeof(RectTransform));
         extras.transform.SetParent(p, false);
-        float w = (Inner - 3f * 12f) / 4f;
+        // No WALLET here (2026-11-24): the coin balance opens the wallet, and its history is
+        // HISTORY's first tab.
+        float w = (Inner - 2f * 12f) / 3f;
         Extra("MATCHES", 0, w, OnlineMatches.ShowList);
-        Extra("WALLET", 1, w, () => lobby?.OpenWallet());
-        Extra("HISTORY", 2, w, () => lobby?.OpenHistory());
-        Extra("PROFILE", 3, w, () => lobby?.OpenAccount());
+        Extra("HISTORY", 1, w, () => lobby?.OpenHistory());
+        Extra("PROFILE", 2, w, () => lobby?.OpenAccount());
 
         // The side.
         sideSection = NewSection(p, "SIDE", "SetupSides");

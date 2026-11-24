@@ -335,7 +335,29 @@ public static class OnlinePlayTest
                         avatarAnswered = true;
                     });
                 }
-                if (!boughtAnswered || (Pair && !posesAnswered) || (SwitchBody && (!avatarAnswered || !profileRefreshed))) return;
+                if (ShopTabsTest) { shoesAsked = true; shoesAnswered = true; }   // it buys them on the Shoes tab, with a tap
+                if (!shoesAsked)
+                {
+                    // Sneakers (2026-11-24), the cheapest pair: bought (kept from an earlier run), then
+                    // worn, the way the Shoes tab does it.
+                    shoesAsked = true;
+                    Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "shoes-sneakers", Quantity = 1 } }, receipt =>
+                    {
+                        Check(receipt.Status == PurchaseStatus.Completed || receipt.Status == PurchaseStatus.AlreadyOwned,
+                              $"bought sneakers ({receipt.Status}, {receipt.Error})");
+                        Shoes.Equip(1, (worn, message) =>
+                        {
+                            Check(worn && Shoes.Equipped == 1, $"and put them on: saved with the account ('{message}', worn {Shoes.Equipped})");
+                            Meta.GetProfile(reply =>
+                            {
+                                Check(reply.Error == MetaError.None && reply.Profile.EquippedShoes == 1,
+                                      $"the profile says so when asked again ({reply.Error}, {reply.Profile.EquippedShoes})");
+                                shoesAnswered = true;
+                            });
+                        });
+                    });
+                }
+                if (!boughtAnswered || !shoesAnswered || (Pair && !posesAnswered) || (SwitchBody && (!avatarAnswered || !profileRefreshed))) return;
 
                 if (ShopTabsTest)
                 {
@@ -420,8 +442,8 @@ public static class OnlinePlayTest
                     Animator poseAnim = Object.FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include) is PoseSelectorUI ps ? Get<Animator>(ps, "anim") : null;
                     Check(poseAnim != null && poseAnim.transform.IsChildOf(body), "the pose picker drives the new body's animator");
                 }
-                Check(FindButton("PlaySetupCanvas", "HISTORY") != null && FindButton("PlaySetupCanvas", "MATCHES") != null && FindButton("PlaySetupCanvas", "WALLET") != null,
-                      "the setup has HISTORY, MATCHES and WALLET");
+                Check(FindButton("PlaySetupCanvas", "HISTORY") != null && FindButton("PlaySetupCanvas", "MATCHES") != null && FindByName("Extra_WALLET") == null,
+                      "the setup has HISTORY and MATCHES, and no WALLET (2026-11-24: the coin balance opens the wallet)");
                 if ((AwayTest || AwayEndTest) && !roomBackChecked)
                 {
                     roomBackChecked = true;
@@ -621,19 +643,42 @@ public static class OnlinePlayTest
 
             case Step.Language:
                 if (!CheckLanguages()) return;
-                OnlineHistory.Show(Object.FindAnyObjectByType<OnlineLobby>().transform, null);
+                OnlineHistory.Show(Object.FindAnyObjectByType<OnlineLobby>().transform, OnlineHistory.Tab.Matches, null);
                 Go(Step.History);
                 return;
 
             case Step.History:
+            {
                 if (InStep < 2f) return;
-                Text status = FindByName("HistoryScreen")?.GetComponentsInChildren<Text>(true)
-                    .FirstOrDefault(t => t.text.Contains("No matches") || t.text.Contains("did not answer") || t.text.Contains("could not"));
-                bool rows = FindByName("HistoryScreen")?.GetComponentsInChildren<Transform>(true).Any(t => t.name == "Record") == true;
-                Check(rows || (status != null && status.text.StartsWith("No matches")),
-                      "match history loads from the server" + (status != null ? $" (\"{status.text}\")" : rows ? " (records listed)" : ""));
+                GameObject historyScreen = FindByName("HistoryScreen");
+                if (nextAction == 0f)
+                {
+                    Text status = historyScreen?.GetComponentsInChildren<Text>(false)
+                        .FirstOrDefault(t => t.text.Contains("No matches") || t.text.Contains("did not answer") || t.text.Contains("could not"));
+                    bool rows = historyScreen?.GetComponentsInChildren<Transform>(false).Any(t => t.name == "Record") == true;
+                    Check(rows || (status != null && status.text.StartsWith("No matches")),
+                          "MATCH HISTORY loads from the server" + (status != null ? $" (\"{status.text}\")" : rows ? " (records listed)" : ""));
+                    Check(FindByName("Extra_WALLET") == null && FindByName("Extra_HISTORY") != null,
+                          "the Multiplayer setup has HISTORY and no WALLET button (the coin balance opens the wallet)");
+                    Button walletTab = FindButton("HistoryScreen", "WALLET HISTORY");
+                    Check(walletTab != null, "the history has a WALLET HISTORY tab");
+                    Shot("history_matches");
+                    if (walletTab != null) walletTab.onClick.Invoke();
+                    nextAction = 1f;
+                    return;
+                }
+
+                if (InStep < 4f) return;
+                // The coin ledger: what this account bought, with the balance after each.
+                string ledger = historyScreen != null ? string.Join(" | ", historyScreen.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "";
+                bool lines = historyScreen?.GetComponentsInChildren<Transform>(false).Any(t => t.name == "Line") == true;
+                Check(lines ? ledger.Contains("balance ") : ledger.Contains("Nothing has moved your coins yet."),
+                      $"WALLET HISTORY lists the coin ledger ({(ledger.Length > 200 ? ledger.Substring(0, 200) + "..." : ledger)})");
+                Check(historyScreen?.GetComponentsInChildren<Transform>(false).Any(t => t.name == "Record") != true, "and only the ledger while that tab is picked");
+                Shot("history_wallet");
                 Go(Step.ShopCards);
                 return;
+            }
 
             case Step.ShopCards:
                 ShopUI shop = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
@@ -1231,6 +1276,7 @@ public static class OnlinePlayTest
 
         if (Net.Phase == MatchPhase.Seek || (!Seeker && Net.Phase == MatchPhase.Hide))
         {
+            CheckShoesInRound();
             float now = Time.realtimeSinceStartup;
             if (!haveLastFeet)
             {
@@ -2318,13 +2364,26 @@ public static class OnlinePlayTest
                 Shot("bullet_button");
             }
 
-            Mode1FirstPersonGun gun = Object.FindAnyObjectByType<Mode1FirstPersonGun>();
-            if (gun != null)
+            // The Shoot button held down, as a finger holds it: the gun fires again each time the
+            // bullet's cooldown ends. Held for 12 s, let go for 5 s (no shot then), held again.
+            float now = Time.realtimeSinceStartup;
+            bool shot = NewShot();
+            if (shot) shotsFired++;
+            switch (fireHold)
             {
-                gun.Fire();   // the fire button; the gun waits out the bullet's cooldown itself
-                shotsFired++;
+                case 0:
+                    if (FireButton(true)) { fireHold = 1; fireHeldAt = now; }
+                    break;
+                case 1:
+                    if (shot) shotsWhileHeld++;
+                    if (now - fireHeldAt > 12f && FireButton(false)) { fireHold = 2; fireLetGoAt = now; }
+                    break;
+                case 2:
+                    if (shot && now - fireLetGoAt > 0.3f) shotsAfterLetGo++;
+                    if (now - fireLetGoAt > 5f && FireButton(true)) fireHold = 3;
+                    break;
             }
-            nextAction = Time.realtimeSinceStartup + 0.5f;
+            nextAction = now + 0.1f;
             if (Net.SpecialBullets.Special2 < stockBeforeRound.Special2) specialSpent = true;
         }
         else
@@ -2346,6 +2405,44 @@ public static class OnlinePlayTest
 
     private static int catches;
     private static float hideSeenAt = -1f;
+
+    // ---- Shoes and the held Shoot button (2026-11-24) ----
+    private static bool shoesAsked, shoesAnswered, shoesChecked;
+    private static int fireHold;                 // 0 not yet, 1 held, 2 let go, 3 held again
+    private static float fireHeldAt, fireLetGoAt, lastFireLeft;
+    private static int shotsWhileHeld, shotsAfterLetGo;
+
+    // The Shoot button pressed or let go as a finger does it: the events reach the button itself.
+    private static bool FireButton(bool down)
+    {
+        GameObject button = FindByName("FireBtn");
+        if (button == null || !button.activeInHierarchy || EventSystem.current == null) return false;
+        var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left, pointerId = 3 };
+        pointer.position = RectTransformUtility.WorldToScreenPoint(null, ((RectTransform)button.transform).position);
+        pointer.pointerPress = button;
+        if (down) ExecuteEvents.ExecuteHierarchy(button, pointer, ExecuteEvents.pointerDownHandler);
+        else ExecuteEvents.ExecuteHierarchy(button, pointer, ExecuteEvents.pointerUpHandler);
+        return true;
+    }
+
+    // A new shot shows as the wait before the next one starting again (it only counts down otherwise).
+    private static bool NewShot()
+    {
+        float left = OnlineRound.FireWait(out float l, out _) ? l : 0f;
+        bool fresh = left > lastFireLeft + 0.3f;
+        lastFireLeft = left;
+        return fresh;
+    }
+
+    private static void CheckShoesInRound()
+    {
+        if (shoesChecked) return;
+        JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+        if (mover == null) return;
+        shoesChecked = true;
+        Check(Net.ShoeId == 1 && Mathf.Abs(mover.RunSpeed - mover.moveSpeed * 1.1f) < 0.01f,
+              $"in the match the server has the sneakers on (ShoeId {Net.ShoeId}) and the player runs 10% faster ({mover.RunSpeed:F1} against {mover.moveSpeed:F1})");
+    }
 
     // ================= Other players' bodies =================
 
@@ -3578,6 +3675,13 @@ public static class OnlinePlayTest
         if (Seeker)
         {
             Check(shotsFired > 0 && loadoutAnswers > 0, $"shots fired through the gun were answered by the server ({shotsFired} fired, {loadoutAnswers} loadout answers)");
+            if (fireHold >= 2)
+            {
+                // Special bullet 2 waits 2 s, a default one 3 s, a catch none: in 12 s held, 4 at the least.
+                Check(shotsWhileHeld >= 4, $"holding the Shoot button kept the gun firing after each cooldown ({shotsWhileHeld} shots in 12 s held)");
+                Check(shotsAfterLetGo == 0, $"letting go of it stopped the firing at once ({shotsAfterLetGo} shots in the 5 s after)");
+            }
+            else report.Add($"INFO  the seek ended before the held Shoot button could be judged (stage {fireHold}, {shotsWhileHeld} shots held)");
             Check(chosenSpecial && specialSpent, "switched to special bullet 2 by the bullet label and spent it");
         }
         else
@@ -3821,9 +3925,12 @@ public static class OnlinePlayTest
                     bool confirmed = toast.EndsWith("unlocked!");
                     if (!confirmed && now - purchaseTappedAt < 3f) return;
                     ShopItemCard card = CardFor(purchaseCard);
-                    Check(confirmed && now - purchaseTappedAt < 1.5f && card != null && CardAction(card) == "Equip",
-                          $"buying a character says so at once and its card offers Equip ('{toast}', '{(card != null ? CardAction(card) : "-")}', {(now - purchaseTappedAt) * 1000f:F0} ms)");
-                    TapAt(card?.GetComponentsInChildren<Button>(false).FirstOrDefault());
+                    // A bought character is the one played at once (2026-11-19): its card says Equipped.
+                    Check(confirmed && now - purchaseTappedAt < 1.5f && card != null && CardAction(card) == "Equipped",
+                          $"buying a character says so at once and puts it on ('{toast}', '{(card != null ? CardAction(card) : "-")}', {(now - purchaseTappedAt) * 1000f:F0} ms)");
+                    // The first character again: an Equip tap on its card.
+                    ShopItemCard first = ShownCards().FirstOrDefault(c => c.Item.category == ShopCategory.Avatars && c.Item.gameId == 0);
+                    TapAt(first?.GetComponentsInChildren<Button>(false).FirstOrDefault());
                 }
                 shopAt = now + 0.6f;
                 shopStage = 8;
@@ -3855,6 +3962,84 @@ public static class OnlinePlayTest
             case 11:
                 VerifyTab(ShopCategory.Coins, "Coins after quick taps");
                 Shot("shop_coins");
+                {
+                    // The Shoes tab (2026-11-24): in the column under Bullets, tapped as a finger does.
+                    Button shoesTab = ShopTab(ShopCategory.Shoes);
+                    Button bulletsTab = ShopTab(ShopCategory.Bullets);
+                    Check(shoesTab != null && shoesTab.gameObject.activeInHierarchy && OnlineUI.GetAnyText(shoesTab.gameObject) == "Shoes"
+                          && bulletsTab != null && shoesTab.transform.GetSiblingIndex() == bulletsTab.transform.GetSiblingIndex() + 1,
+                          $"the shop has a Shoes tab under Bullets ('{(shoesTab != null ? OnlineUI.GetAnyText(shoesTab.gameObject) : "none")}')");
+                }
+                shopAt = now + 0.3f;     // a frame of its own: the picture moves the canvases for a moment
+                shopStage = 20;
+                return;
+
+            case 20:
+                Check(TapAt(ShopTab(ShopCategory.Shoes)) != null, "and a tap reaches it");
+                shopAt = now + 0.5f;
+                shopStage = 12;
+                return;
+
+            case 12:
+                if (Shoes.Equipped != ShoeSpecs.Standard)
+                {
+                    // Worn from an earlier run: the standard pair first, so the sneakers can be put on by a tap.
+                    if (purchaseTappedAt < shopAt) { purchaseTappedAt = now; Shoes.Equip(ShoeSpecs.Standard, null); }
+                    if (now - purchaseTappedAt < 5f) return;
+                }
+                VerifyTab(ShopCategory.Shoes, "Shoes");
+                {
+                    List<ShopItemCard> cards = ShownCards().ToList();
+                    string names = string.Join(", ", cards.Select(c => $"{c.Item.displayName} {c.Item.badge} [{CardAction(c)}]"));
+                    Check(cards.Count == ShoeSpecs.Count && cards.All(c => c.Item.icon != null), $"every pair of shoes has a card with its picture ({names})");
+                    ShopItemCard standard = cards.FirstOrDefault(c => c.Item.gameId == ShoeSpecs.Standard);
+                    Check(standard != null && (CardAction(standard) == "Equipped" || CardAction(standard) == "Equip"), $"the standard pair is everyone's ({(standard != null ? CardAction(standard) : "-")})");
+                    Shot("shop_shoes");
+                }
+                shopAt = now + 0.3f;
+                shopStage = 21;
+                return;
+
+            case 21:
+                {
+                    // Buy the sneakers (or put them on, when owned): one tap on their card.
+                    ShopItemCard sneakers = ShownCards().FirstOrDefault(c => c.Item.category == ShopCategory.Shoes && c.Item.gameId == 1);
+                    Button buy = sneakers != null ? sneakers.GetComponentsInChildren<Button>(false).FirstOrDefault() : null;
+                    purchaseTappedAt = now;
+                    Check(buy != null && buy.interactable && TapAt(buy) != null, $"the sneakers are for sale (or owned) and tapped ({(sneakers != null ? CardAction(sneakers) : "no card")})");
+                }
+                shopAt = now + 0.05f;
+                shopStage = 13;
+                return;
+
+            case 13:
+                {
+                    ShopItemCard sneakers = ShownCards().FirstOrDefault(c => c.Item.category == ShopCategory.Shoes && c.Item.gameId == 1);
+                    bool worn = Shoes.Equipped == 1 && sneakers != null && CardAction(sneakers) == "Equipped";
+                    if (!worn && now - purchaseTappedAt < 5f) return;
+                    Check(worn, $"bought (or owned), they are put on at once: the card says Equipped and the account wears them ('{(sneakers != null ? CardAction(sneakers) : "-")}', worn {Shoes.Equipped}, '{ShopToast().Replace("\n", " / ")}')");
+                    JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+                    Check(mover != null && Mathf.Abs(mover.RunSpeed - mover.moveSpeed * 1.1f) < 0.01f, $"and the player runs 10% faster in them ({mover?.RunSpeed:F1})");
+                    Shot("shop_shoes_bought");
+                }
+                shopAt = now + 0.3f;
+                shopStage = 22;
+                return;
+
+            case 22:
+                {
+                    // Back to the standard pair: a tap on its card.
+                    ShopItemCard standard = ShownCards().FirstOrDefault(c => c.Item.category == ShopCategory.Shoes && c.Item.gameId == ShoeSpecs.Standard);
+                    Check(TapAt(standard?.GetComponentsInChildren<Button>(false).FirstOrDefault()) != null, "the standard pair's card is tapped");
+                    purchaseTappedAt = now;
+                }
+                shopAt = now + 0.05f;
+                shopStage = 14;
+                return;
+
+            case 14:
+                if (Shoes.Equipped != ShoeSpecs.Standard && now - purchaseTappedAt < 5f) return;
+                Check(Shoes.Equipped == ShoeSpecs.Standard, $"tapping the standard pair puts it back on ({Shoes.Equipped})");
                 Check(tabMismatches == 0, $"every tab shows its own cards ({(tabProblems.Count == 0 ? "all right" : string.Join(" | ", tabProblems))})");
                 Check(comingSoonToasts == 0, $"no 'Coming soon' for an item on sale ({comingSoonToasts})");
                 shop.Close();
@@ -3919,8 +4104,8 @@ public static class OnlinePlayTest
     // ================= -playtestWallet: the wallet screen and every coin label =================
     //
     // Against a server running the mock wallet and giving new accounts no coins: a deposit paid on
-    // the wallet's own page (this test presses its Pay button over HTTP, as the browser would), a
-    // withdrawal and a shop purchase. After each, every label that shows coins has to show the
+    // the wallet's own page (this test presses its Pay button over HTTP, as the browser would), the
+    // ledger on the History screen, and a shop purchase. After each, every label that shows coins has to show the
     // server's balance without anyone refreshing it by hand, and none may show a number of its own.
     private static bool Wallet => System.Environment.GetCommandLineArgs().Contains("-playtestWallet");
 
@@ -3929,6 +4114,8 @@ public static class OnlinePlayTest
     private static float walletWaitUntil, walletNotBefore;
     private static System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> walletPay;
     private static bool walletBought;
+    private static long walletAfterPurchase = -1;
+    private static string WalletAfterText => CoinBalance.Format(walletAfterPurchase);
     private static readonly System.Net.Http.HttpClient walletHttp = new System.Net.Http.HttpClient();
 
     private static Text HomeCoinLabel()
@@ -3949,6 +4136,14 @@ public static class OnlinePlayTest
     private static string WalletShown()
     {
         GameObject root = FindByName("WalletScreen");
+        if (root == null || !root.activeInHierarchy) return "";
+        return string.Join(" | ", root.GetComponentsInChildren<Text>(false).Select(t => t.text));
+    }
+
+    /// <summary>Every text showing on the history screen, joined.</summary>
+    private static string HistoryShown()
+    {
+        GameObject root = FindByName("HistoryScreen");
         if (root == null || !root.activeInHierarchy) return "";
         return string.Join(" | ", root.GetComponentsInChildren<Text>(false).Select(t => t.text));
     }
@@ -4000,10 +4195,11 @@ public static class OnlinePlayTest
                 OnlineLobby.Open(profile, null);                         // shows the role screen
                 lobby = Object.FindAnyObjectByType<OnlineLobby>();
 
-                // The role screen's own coin pill: saved in the scene with "1000" typed into it.
+                // The role screen's own coin pill (saved in the scene with "1000" typed into it) is hidden
+                // since the play setup went over it (2026-11-23); shown, it would have to be the server's.
                 Text rolePill = CoinPillOf("RoleSelectCanvas");
-                Check(rolePill != null && rolePill.gameObject.activeInHierarchy && rolePill.text == CoinBalance.Text,
-                      $"the role screen's coin pill shows the server's balance, not the scene's number ('{rolePill?.text}')");
+                Check(rolePill == null || !rolePill.gameObject.activeInHierarchy || rolePill.text == CoinBalance.Text,
+                      $"the role screen's coin pill is hidden or shows the server's balance, never the scene's number ('{rolePill?.text}', shown {rolePill != null && rolePill.gameObject.activeInHierarchy})");
 
                 typeof(OnlineLobby).GetMethod("ShowSetup", Any).Invoke(lobby, new object[] { null });
                 walletStage = 1;
@@ -4012,10 +4208,13 @@ public static class OnlinePlayTest
 
             case 1:
             {
-                Button open = FindButton("PlaySetupCanvas", "WALLET");
-                if (!Awaited(open != null, 8f, "the play setup has a WALLET button")) return;
+                // No WALLET button in the setup (2026-11-24): the coin balance over it opens the wallet.
                 Text pill = GlobalCoinLabel();
+                if (!Awaited(FindByName("Extra_HISTORY") != null, 8f, "the play setup is up")) return;
+                Check(FindByName("Extra_WALLET") == null, "the play setup has no WALLET button");
                 Check(pill != null && pill.gameObject.activeInHierarchy && pill.text == "0", $"the coin balance over the setup shows the same balance ('{pill?.text}')");
+                Button open = pill != null ? pill.GetComponent<Button>() : null;
+                Check(open != null, "tapping that balance opens the wallet");
                 if (open != null) open.onClick.Invoke();
                 walletStage = 2;
                 return;
@@ -4073,7 +4272,11 @@ public static class OnlinePlayTest
             case 7:
             {
                 if (!Awaited(WalletField("account").Contains("95.01 XTS"), 10f, $"the wallet account is down by the price ('{WalletField("account")}')")) return;
+                Check(FindButton("WalletScreen", "WITHDRAW") == null && Get<GameObject>(screen, "withdrawControls") == null,
+                      "the wallet offers no withdrawal");
+                // The ledger is the History screen's, one tap away.
                 Button history = FindButton("WalletScreen", "HISTORY");
+                Check(history != null, "the wallet has a HISTORY button");
                 if (history != null) history.onClick.Invoke();
                 walletStage = 8;
                 return;
@@ -4081,57 +4284,39 @@ public static class OnlinePlayTest
 
             case 8:
             {
-                if (!Awaited(WalletShown().Contains("Deposit (coins-550)"), 10f, "HISTORY lists the deposit")) return;
-                Check(WalletShown().Contains("+550"), "with its amount");
-                Button withdrawTab = FindButton("WalletScreen", "WITHDRAW");
-                if (withdrawTab != null) withdrawTab.onClick.Invoke();
-                walletStage = 9;
-                return;
-            }
-
-            case 9:
-            {
-                GameObject controls = Get<GameObject>(screen, "withdrawControls");
-                if (!Awaited(controls != null && controls.activeInHierarchy, 5f, "WITHDRAW offers withdrawals")) return;
-
-                InputField amount = Get<InputField>(screen, "amountInput");
-                Button withdraw = Get<Button>(screen, "withdrawButton");
-
-                amount.text = "99999";
-                Check(!withdraw.interactable && WalletField("quoteLabel").Contains("You have 550"), $"more than the balance cannot be asked for ('{WalletField("quoteLabel")}')");
-
-                amount.text = "250";
-                Check(withdraw.interactable && WalletField("quoteLabel").Contains("2.00 XTS"), $"250 coins are quoted at the server's rate ('{WalletField("quoteLabel")}')");
-                withdraw.onClick.Invoke();
-                walletStage = 10;
-                return;
-            }
-
-            case 10:
-                if (!Awaited(WalletField("status").Contains("Withdrew"), 25f, $"the withdrawal was paid ('{WalletField("status")}')")) return;
-                Check(Net.CoinCents == 30000, $"250 coins left the balance ({Net.CoinCents})");
-                Check(WalletShown().Contains("Coins: <b>300</b>"), "and the screen shows 300");
+                if (!Awaited(HistoryShown().Contains("Deposit (coins-550)"), 10f, "it opens WALLET HISTORY, which lists the deposit")) return;
+                Check(HistoryShown().Contains("+550") && HistoryShown().Contains("balance 550"), "with its amount and the balance after it");
+                Check(FindByName("HistoryScreen")?.GetComponentsInChildren<Transform>(false).Any(t => t.name == "Record") != true,
+                      "and no match records under it");
                 walletStage = 11;
                 return;
+            }
 
             case 11:
-                if (!Awaited(WalletField("account").Contains("97.01 XTS"), 10f, $"the wallet account is up by 2.00 ('{WalletField("account")}')")) return;
-
-                // A purchase made elsewhere in the game while the wallet is open.
+                // A purchase made elsewhere in the game while the wallet and its history are open.
                 Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "bullets-2", Quantity = 3 } }, receipt =>
                 {
                     bool done = !receipt.TimedOut && receipt.Error == MetaError.None && receipt.Status == PurchaseStatus.Completed;
                     Check(done, $"bought 3 special bullets ({(receipt.Error == MetaError.None ? receipt.Status.ToString() : receipt.Error.ToString())})");
+                    walletAfterPurchase = receipt.CoinCents;
                     walletBought = true;
                 });
                 walletStage = 12;
                 return;
 
             case 12:
-            {
                 if (!Awaited(walletBought, 10f, "the purchase was answered")) return;
-                Check(Net.CoinCents == 29970, $"the purchase took its price ({Net.CoinCents})");
-                Check(WalletShown().Contains("Coins: <b>299.70</b>"), "the open wallet followed, with no refresh asked for");
+                walletStage = 23;
+                return;
+
+            case 23:
+            {
+                if (!Awaited(HistoryShown().Contains("Shop: bullets-2"), 10f, "the open history lists the purchase as it happens")) return;
+                Check(walletAfterPurchase >= 0 && walletAfterPurchase < 55000 && Net.CoinCents == walletAfterPurchase,
+                      $"the purchase took its price ({Net.CoinCents}, the receipt says {walletAfterPurchase})");
+                Button closeHistory = FindButton("HistoryScreen", "CLOSE");
+                if (closeHistory != null) closeHistory.onClick.Invoke();
+                Check(WalletShown().Contains($"Coins: <b>{WalletAfterText}</b>"), $"the wallet under it followed, with no refresh asked for ({WalletAfterText})");
                 Button close = FindButton("WalletScreen", "CLOSE");
                 if (close != null) close.onClick.Invoke();
                 walletStage = 13;
@@ -4143,7 +4328,7 @@ public static class OnlinePlayTest
                 GameObject rooms = FindByName("PlaySetup");
                 if (!Awaited(rooms != null && rooms.activeInHierarchy, 5f, "closing the wallet leaves the play setup there")) return;
                 Text pill = GlobalCoinLabel();
-                Check(pill != null && pill.text == "299.70", $"and the balance over it is the new one ('{pill?.text}')");
+                Check(pill != null && pill.text == WalletAfterText, $"and the balance over it is the new one ('{pill?.text}')");
 
                 Call(lobby, "GoHome");
                 walletStage = 14;
@@ -4154,14 +4339,14 @@ public static class OnlinePlayTest
             {
                 Text home = HomeCoinLabel();
                 if (!Awaited(home != null && home.gameObject.activeInHierarchy, 5f, "back on Home")) return;
-                Check(home != null && home.text == "299.70", $"Home shows it ('{home?.text}')");
+                Check(home != null && home.text == WalletAfterText, $"Home shows it ('{home?.text}')");
 
                 // The role screen again, as Single Play's Play button shows it.
                 HomeUI homeUi = Object.FindAnyObjectByType<HomeUI>();
                 if (homeUi != null) homeUi.ShowRoleSelect();
                 Text rolePill = CoinPillOf("RoleSelectCanvas");
-                Check(rolePill != null && rolePill.gameObject.activeInHierarchy && rolePill.text == "299.70",
-                      $"the role screen shows it too ('{rolePill?.text}')");
+                Check(rolePill == null || !rolePill.gameObject.activeInHierarchy || rolePill.text == WalletAfterText,
+                      $"the role screen's own pill, if shown, shows it too ('{rolePill?.text}')");
                 HomeMenuUI menu = Object.FindAnyObjectByType<HomeMenuUI>(FindObjectsInactive.Include);
                 if (menu != null) menu.ShowHome();
 
@@ -4177,13 +4362,13 @@ public static class OnlinePlayTest
                 if (!Awaited(shop != null && ShopInventory.TopUpsLoaded && ShopInventory.Loaded && InStep > 1f, 10f, "the shop loaded its listing")) return;
 
                 Text shopCoins = shop != null ? Get<Text>(shop, "coinText") : null;
-                Check(shopCoins != null && shopCoins.text == "299.70", $"the shop shows it ('{shopCoins?.text}')");
+                Check(shopCoins != null && shopCoins.text == WalletAfterText, $"the shop shows it ('{shopCoins?.text}')");
                 Check(shopCoins != null && shopCoins.GetComponent<Button>() != null, "and its balance opens the wallet too");
 
                 // The coin pack cards: the server's amounts or nothing, never the card's own number.
                 ShopItemCard[] cards = shop != null ? shop.GetComponentsInChildren<ShopItemCard>(false) : new ShopItemCard[0];
                 var amounts = cards.Select(c => Get<Text>(c, "bottomLabel")?.text ?? "").ToList();
-                Check(amounts.Count > 0 && amounts.All(a => a == "" || a == "100" || a == "550" || a == "1,200"),
+                Check(amounts.Count > 0 && amounts.All(a => a == "" || a == "100" || a == "550" || a == "1 200"),
                       $"coin pack cards show the server's amounts only ({string.Join(", ", amounts.Select(a => a == "" ? "(none)" : a))})");
                 if (shop != null) shop.Close();
 
@@ -4195,7 +4380,7 @@ public static class OnlinePlayTest
                     string during = pill?.text;
                     bool shown = pill != null && pill.gameObject.activeInHierarchy;
                     matchmaking.EndOnline();
-                    Check(pill != null && pill.GetComponent<CoinLabel>() != null && during == "299.70" && pill.text == "299.70",
+                    Check(pill != null && pill.GetComponent<CoinLabel>() != null && during == WalletAfterText && pill.text == WalletAfterText,
                           $"the matchmaking screen's coin pill is the server's balance, online and after ('{during}', '{pill?.text}')");
                     if (!shown) report.Add("INFO  the matchmaking screen's coin pill is switched off in the scene; it is bound for when it is shown");
                 }

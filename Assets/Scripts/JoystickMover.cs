@@ -23,6 +23,12 @@ public class JoystickMover : MonoBehaviour
     [Header("Character")]
     public string characterRootName = "Player";
     public float moveSpeed = 20f;
+
+    /// <summary>
+    /// How fast the player runs now: moveSpeed in the shoes they wear (Shoes, 2026-11-24). Online
+    /// the server allows exactly this (GameTuning.MoveSpeed times the same ShoeSpecs scale).
+    /// </summary>
+    public float RunSpeed => moveSpeed * Shoes.SpeedScale;
     [Tooltip("Acceleration/deceleration (u/s²) for smooth movement: pushing the joystick gradually accelerates to `moveSpeed`, while releasing it gradually decelerates to zero (avoiding jerky stops). Lower values ​​result in smoother, more fluid motion; higher values ​​provide snappier, more responsive control. Setting this to a very high value (e.g., 999) results in instantaneous response, mimicking the original behavior.")]
     public float acceleration = 80f;
     private Vector3 _moveVel;
@@ -227,7 +233,7 @@ public class JoystickMover : MonoBehaviour
                 {
                     right.Normalize();
                 }
-                target = (fwd * d.y + right * d.x) * moveSpeed;
+                target = (fwd * d.y + right * d.x) * RunSpeed;
             }
         }
         else
@@ -245,7 +251,7 @@ public class JoystickMover : MonoBehaviour
                 {
                     float mag = Mathf.Clamp01(inp.magnitude);
                     dir.Normalize();
-                    target = dir * (mag * moveSpeed);
+                    target = dir * (mag * RunSpeed);
                     if (faceMovement)
                     {
                         character.rotation = Quaternion.Slerp(character.rotation, Quaternion.LookRotation(dir), turnSpeed * Time.deltaTime);
@@ -254,13 +260,14 @@ public class JoystickMover : MonoBehaviour
             }
         }
 
-        _moveVel = Vector3.MoveTowards(_moveVel, target, acceleration * Mathf.Min(Time.deltaTime, 0.05f));
+        // Faster shoes get there as quickly as standard ones: the acceleration scales with them.
+        _moveVel = Vector3.MoveTowards(_moveVel, target, acceleration * Shoes.SpeedScale * Mathf.Min(Time.deltaTime, 0.05f));
         Vector3 posBefore = character.position;
         MoveWithGravity(_moveVel);
         float speed = 0f;
-        if (moveSpeed > 0.01f)
+        if (RunSpeed > 0.01f)
         {
-            speed = Mathf.Clamp01(_moveVel.magnitude / moveSpeed);
+            speed = Mathf.Clamp01(_moveVel.magnitude / RunSpeed);
         }
         SetSpeed(speed);
         UnstickIfWedged(_moveVel, posBefore, speed);

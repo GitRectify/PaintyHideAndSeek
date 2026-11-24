@@ -17,7 +17,7 @@ public class ShopUI : MonoBehaviour
     [SerializeField] private UnityEngine.UI.Button closeButton;
     [SerializeField] private UnityEngine.UI.Text coinText;
 
-    [Header("Tabs (order = ShopCategory: Coins, Avatars, Poses, Weapons, Bullets; Extras is added at runtime)")]
+    [Header("Tabs (order = ShopCategory: Coins, Avatars, Poses, Weapons, Bullets; Extras and Shoes are added at runtime)")]
     [SerializeField] private UnityEngine.UI.Button[] tabButtons;
     [SerializeField] private UnityEngine.UI.Image[] tabBackgrounds;
     [SerializeField] private Sprite tabActiveSprite;
@@ -45,6 +45,7 @@ public class ShopUI : MonoBehaviour
     private void Awake()
     {
         EnsureExtrasTab();
+        EnsureShoesTab();
         if (closeButton != null) closeButton.onClick.AddListener(Close);
         for (int i = 0; i < tabButtons.Length; i++)
         {
@@ -77,6 +78,7 @@ public class ShopUI : MonoBehaviour
     private void OnEnable()
     {
         ShopInventory.Changed += HandleChanged;
+        Shoes.Changed += HandleChanged;
         PendingTopUp.Settled += HandleTopUpSettled;
         SelectTab((int)_current);
         if (ToastObject != null) ToastObject.SetActive(false);
@@ -85,6 +87,7 @@ public class ShopUI : MonoBehaviour
     private void OnDisable()
     {
         ShopInventory.Changed -= HandleChanged;
+        Shoes.Changed -= HandleChanged;
         PendingTopUp.Settled -= HandleTopUpSettled;
     }
 
@@ -114,6 +117,32 @@ public class ShopUI : MonoBehaviour
         System.Array.Resize(ref tabBackgrounds, extras + 1);
         UnityEngine.UI.Image lastBackground = tabBackgrounds[extras - 1];
         tabBackgrounds[extras] = lastBackground != null && lastBackground.gameObject == last
+            ? copy.GetComponent<UnityEngine.UI.Image>()
+            : null;
+    }
+
+    // The Shoes tab (ShopCategory.Shoes, 2026-11-24): another copy of the last scene tab, put
+    // between Bullets and Extras in the column. Its icon is the copied tab's, so it is hidden.
+    private void EnsureShoesTab()
+    {
+        int shoes = (int)ShopCategory.Shoes;
+        if (tabButtons == null || tabButtons.Length != shoes || tabButtons[shoes - 1] == null) return;
+        if (tabBackgrounds == null || tabBackgrounds.Length != shoes) return;
+
+        int bullets = (int)ShopCategory.Bullets;
+        GameObject source = tabButtons[bullets].gameObject;
+        GameObject copy = Instantiate(source, source.transform.parent);
+        copy.name = "Tab_Shoes";
+        copy.transform.SetSiblingIndex(source.transform.GetSiblingIndex() + 1);
+        Transform icon = copy.transform.Find("Icon");
+        if (icon != null) icon.gameObject.SetActive(false);
+        OnlineUI.SetAnyText(copy, "Shoes");
+
+        System.Array.Resize(ref tabButtons, shoes + 1);
+        tabButtons[shoes] = copy.GetComponent<UnityEngine.UI.Button>();
+        System.Array.Resize(ref tabBackgrounds, shoes + 1);
+        UnityEngine.UI.Image sourceBackground = tabBackgrounds[bullets];
+        tabBackgrounds[shoes] = sourceBackground != null && sourceBackground.gameObject == source
             ? copy.GetComponent<UnityEngine.UI.Image>()
             : null;
     }
@@ -197,6 +226,7 @@ public class ShopUI : MonoBehaviour
 
         List<ShopItem> items = catalog != null ? catalog.GetItems(_current) : new List<ShopItem>();
         if (_current == ShopCategory.Extras) items.AddRange(ShopInventory.MapItems());   // maps for online play (2026-11-13)
+        if (_current == ShopCategory.Shoes) items = ShopInventory.ShoeItems();             // made from ShoeSpecs (2026-11-24)
         for (int i = 0; i < cards.Length; i++)
         {
             if (cards[i] == null) continue;
@@ -208,6 +238,14 @@ public class ShopUI : MonoBehaviour
     {
         AudioManager.ButtonTap();
         if (_busy) return;
+
+        if (ShopInventory.CanEquip(item) && ShopInventory.IsOwned(item) && item.category == ShopCategory.Shoes)
+        {
+            // Saved with the account on the server; in a match the new speed starts at once.
+            if (ShopInventory.IsEquipped(item)) return;
+            WearShoes(item);
+            return;
+        }
 
         if (ShopInventory.CanEquip(item) && ShopInventory.IsOwned(item))
         {
@@ -270,6 +308,13 @@ public class ShopUI : MonoBehaviour
             // match too: OnlineRound sends it), and a character is unlocked and becomes the one
             // played — after the match, when bought during one (the body cannot change in it).
             if (bought && item.category == ShopCategory.Weapons) ShopInventory.Equip(item);
+            if (bought && item.category == ShopCategory.Shoes)
+            {
+                RefreshCards();
+                ShowToast(message, true);
+                WearShoes(item);
+                return;
+            }
             if (bought && item.category == ShopCategory.Avatars)
             {
                 if (OnlineRound.Active) message = item.displayName + " unlocked. Play it in your next match.";
@@ -277,6 +322,21 @@ public class ShopUI : MonoBehaviour
             }
             RefreshCards();
             ShowToast(message, bought);
+        });
+    }
+
+    // Puts a pair on (Shoes.Equip): the server saves it with the account.
+    private void WearShoes(ShopItem item)
+    {
+        _busy = true;
+        Shoes.Equip(item.gameId, (worn, message) =>
+        {
+            _busy = false;
+            if (this == null || !isActiveAndEnabled) return;
+            RefreshCards();
+            // Two lines, each translated on its own: "Sneakers equipped" and "+10% speed".
+            string speed = Shoes.SpeedText(item.gameId);
+            ShowToast(worn && speed.Length > 0 ? message + "\n" + speed : message, worn);
         });
     }
 

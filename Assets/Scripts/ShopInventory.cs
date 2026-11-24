@@ -14,6 +14,8 @@ using UnityEngine;
 //   * poses are picked in the round itself (PoseSelectorUI);
 //   * features (Extras): unlocked for good, nothing to equip; Next Player (GameFeatures) is what
 //     lets a player knocked out of an online round switch between the players still in;
+//   * shoes: each pair runs faster (ShoeSpecs); the pair worn is the account's, saved on the
+//     server (Shoes.Equip), and sets the player's speed in both modes (Shoes.SpeedScale);
 //   * bullets: default bullets are free and unlimited; special bullets 1-3 are bought per type
 //     (a bullet card's gameId is the type, as the server's GameId) and spent by shooting. The type
 //     to shoot is switched in the round (tapping the bullet label) and remembered here
@@ -135,8 +137,10 @@ public static class ShopInventory
     private static bool TryListing(ShopItem item, out MetaItem listed)
     {
         listed = default;
-        if (item == null || string.IsNullOrEmpty(item.serverId)) return false;     // no server id: not for sale anywhere
-        if (listing.TryGetValue(item.serverId, out listed)) return true;
+        if (item == null) return false;
+        // No server id: not for sale anywhere, but for shoes, which the server names by pair.
+        if (string.IsNullOrEmpty(item.serverId) && item.category != ShopCategory.Shoes) return false;
+        if (!string.IsNullOrEmpty(item.serverId) && listing.TryGetValue(item.serverId, out listed)) return true;
 
         // A server whose catalog names the item otherwise still sells the same thing: its kind and
         // the game's own number say which (2026-11-13: such cards said "Coming soon").
@@ -159,6 +163,7 @@ public static class ShopInventory
             case ShopCategory.Poses: kind = ItemKind.Pose; return true;
             case ShopCategory.Weapons: kind = ItemKind.Weapon; return true;
             case ShopCategory.Bullets: kind = ItemKind.Bullets; return true;
+            case ShopCategory.Shoes: kind = ItemKind.Shoes; return true;
             default: kind = default; return false;
         }
     }
@@ -347,6 +352,34 @@ public static class ShopInventory
         return false;
     }
 
+    // ================= Shoes =================
+
+    /// <summary>
+    /// The Shoes tab's cards: the standard pair (everyone's) and every pair the game has, faster
+    /// each time. Prices and ownership come from the server's listing by kind and pair, like any
+    /// card; a pair the server does not sell says "Coming soon".
+    /// </summary>
+    public static List<ShopItem> ShoeItems()
+    {
+        var list = new List<ShopItem>();
+        for (int id = 0; id < ShoeSpecs.Count; id++)
+        {
+            list.Add(new ShopItem
+            {
+                id = "shoes_" + id,
+                category = ShopCategory.Shoes,
+                displayName = Shoes.NameOf(id),
+                icon = Shoes.Icon(id),
+                badge = Shoes.SpeedText(id),
+                ownedByDefault = id == ShoeSpecs.Standard,
+                serverId = "",
+                gameId = id,
+                quantity = 1,
+            });
+        }
+        return list;
+    }
+
     // ================= Maps =================
 
     /// <summary>
@@ -424,12 +457,13 @@ public static class ShopInventory
     // ================= Equipping =================
 
     public static bool CanEquip(ShopItem item) =>
-        item != null && (item.category == ShopCategory.Avatars || item.category == ShopCategory.Weapons);
+        item != null && (item.category == ShopCategory.Avatars || item.category == ShopCategory.Weapons || item.category == ShopCategory.Shoes);
 
     public static bool IsEquipped(ShopItem item)
     {
         if (!CanEquip(item) || !IsOwned(item)) return false;
         if (item.category == ShopCategory.Avatars) return CurrentAvatar() == item.gameId;
+        if (item.category == ShopCategory.Shoes) return Shoes.Equipped == item.gameId;
         return EquippedWeaponId == item.gameId;
     }
 

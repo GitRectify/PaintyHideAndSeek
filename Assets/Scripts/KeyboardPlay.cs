@@ -23,7 +23,6 @@ public sealed class KeyboardPlay : MonoBehaviour
     private static readonly Dictionary<GameAction, string> TapButtons = new Dictionary<GameAction, string>
     {
         { GameAction.Jump, "Jump" },
-        { GameAction.Fire, "FireBtn" },
         { GameAction.LieDown, "btnnam" },
         { GameAction.Paint, "PaintGateButton" },
         { GameAction.Poses, "Btn_DoiDang" },
@@ -32,9 +31,11 @@ public sealed class KeyboardPlay : MonoBehaviour
         { GameAction.SwitchBullet, "BulletSwitch" },     // online seekers (OnlineRound)
     };
 
-    // Held buttons: down while the key is, up when it is let go.
+    // Held buttons: down while the key is, up when it is let go. Fire too: held, the gun keeps
+    // firing (FireHold).
     private static readonly Dictionary<GameAction, string> HoldButtons = new Dictionary<GameAction, string>
     {
+        { GameAction.Fire, "FireBtn" },
         { GameAction.ClimbUp, "ClimbUp" },
         { GameAction.ClimbDown, "ClimbDown" },
     };

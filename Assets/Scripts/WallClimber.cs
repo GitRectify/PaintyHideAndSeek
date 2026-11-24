@@ -70,12 +70,23 @@ public class WallClimber : MonoBehaviour
     private readonly RaycastHit[] _hits = new RaycastHit[16];
     private readonly Vector3[] _probeDirs = new Vector3[4];
 
-    // CONFIRMED: .cctor fills this from the metadata blob
-    // <PrivateImplementationDetails>.1EA60047B9BF4176B2692BA4F93A56901549CDBC4B01F11DD8D16E697454CF72
-    // (dump.cs: "Metadata offset 0x70D588"). The 16 bytes there in global-metadata.dat, read as
-    // little-endian floats, are 0.15, 0.45, 0.7, 0.92: the heights (as a fraction of the capsule,
-    // bottom to top) that TryGetWall probes at.
-    private static readonly float[] _probeHeights = { 0.15f, 0.45f, 0.7f, 0.92f };
+    // The probes run up the body from 0.15 to 0.92 of its height (the original game's lowest and
+    // highest of its four), no further apart than ProbeSpacing world units. Four were too few for a
+    // ladder (2026-11-24, Room4): its rungs are 1.25 thick with 4.25 of air between them, and at
+    // many heights all four looked through the gaps, so a player who stopped there let go of it
+    // after LetGoSeconds and fell.
+    private const float LowestProbe = 0.15f;
+    private const float HighestProbe = 0.92f;
+    private const float ProbeSpacing = 0.9f;
+
+    // How far past the feet and the head the climb looks for more of what it is on, as a share of
+    // the body's height: wall just under the feet is the top of it reached, wall over the head is a
+    // gap in it being crossed.
+    private const float NearReach = 0.5f;
+
+    // The walls the probes last touched, one per direction: the stick does not push into them.
+    private readonly Vector3[] _touchNormals = new Vector3[4];
+    private int _touchCount;
 
     private readonly Dictionary<Collider, bool> _isCharacterCache = new Dictionary<Collider, bool>();
 
@@ -359,87 +370,111 @@ public class WallClimber : MonoBehaviour
 
         // Already climbing — per-frame movement/animation update.
         float dt = Time.deltaTime;
-        int upBefore = up;
-        int downBefore = down;
+        int climbDir = up - down;
 
         // A seeker aims with their body, so off the ground as on it the stick moves them the way
         // they face and never turns them. The camera sits over their shoulder, pulled about by
         // the wall they are on, and going by it sent them off at an angle to where they looked.
         bool facingLed = camCtrl != null && camCtrl.IsFirstPerson;
         Vector3 camHoriz = facingLed ? FacingHorizontal(joyDir) : CameraHorizontal(joyDir);
-        bool stillOnWall = TryGetWall(out Vector3 _);
-        if (stillOnWall) lastTouchedWallAt = Time.time;
+
+        // Where the thing climbed is: against the body; or, with nothing against it, just under the
+        // feet (its top reached) or just over the head (a gap in it being crossed). Any of them is
+        // still holding on to it.
+        bool touching = TryGetWall(out Vector3 _);
+        bool above = !touching && WallNear(true);
+        bool below = !touching && !above && WallNear(false);
+        if (touching || above || below) lastTouchedWallAt = Time.time;
         clinging = Time.time - lastTouchedWallAt < LetGoSeconds;
 
         // Off the wall for good: over the top of what was climbed with something under the feet
-        // to stand on, or no wall touched for LetGoSeconds (more than a gap in it). The climb ends
+        // to stand on, or nothing of it near for LetGoSeconds (moved off its side). The climb ends
         // and JoystickMover's gravity has the body again: it used to stay "on the wall" with no
         // wall, and the stick walked it about in the air.
-        if (!stillOnWall && (!clinging || StandsOnTop()))
+        if (!touching && (!clinging || StandsOnTop()))
         {
             LeaveWall();
             BodyAnimation.SetSpeed(anim, 0f);
             return;
         }
 
-        if (down < 1 || stillOnWall)
+        BodyAnimation.SetClimbing(anim, clinging);
+
+        if (touching)
         {
-            BodyAnimation.SetClimbing(anim, clinging);
-
-            if (!stillOnWall)
-            {
-                float moveMag = Mathf.Clamp01(camHoriz.magnitude);
-                BodyAnimation.SetSpeed(anim, moveMag);
-                if (moveMag > 0.01f && !facingLed)
-                {
-                    // CONFIRMED by decoding the two unnamed helpers' ARM64 bytes in libil2cpp.so:
-                    // FUN_02349bd8 (RVA 0x2249BD8) takes a Vector3* and normalizes it
-                    // (Vector3.Normalize), and FUN_02349a84 (RVA 0x2249A84) returns the Vector3
-                    // statics at +0x18 (Vector3.up). Ghidra showed the rotation's y/z as the
-                    // arguments only because it lost track of the helpers' float return registers.
-                    Quaternion currentRot = character.rotation;
-                    Quaternion targetRot = Quaternion.LookRotation(Vector3.Normalize(camHoriz), Vector3.up);
-                    character.rotation = Quaternion.Slerp(currentRot, targetRot, dt * freeMoveTurnSpeed);
-                }
-            }
-            else
-            {
-                BodyAnimation.SetSpeed(anim, 0f);
-            }
-
-            int climbDir = upBefore - downBefore;
-            // NOTE: decompiled as three separate scalar computations against Vector3.up's raw
-            // fields — algebraically exact to this simplified form (Vector3.up has no x/z, so
-            // this reduces cleanly).
-            Vector3 motion = (camHoriz + Vector3.up * climbDir) * (dt * climbSpeed);
-
-            if (motion.sqrMagnitude > 0f)
-            {
-                if (cc != null && cc.enabled)
-                {
-                    cc.Move(motion);
-                }
-                else if (character != null)
-                {
-                    character.position += motion;
-                }
-            }
-
-            if (climbDir >= 0 || !IsGrounded()) return;
-
-            // Climbing down and touched ground — drop off the wall.
-            Grounding.ToFloor(character, charRends);
-            LeaveWall();
-            return;
+            // Against it, the stick moves the body along it, never into it: into a solid wall
+            // that went nowhere anyway, but into a ladder it pushed the body in between two
+            // rungs, wedged under the upper one (2026-11-24).
+            camHoriz = AlongWalls(camHoriz);
+            BodyAnimation.SetSpeed(anim, 0f);
         }
         else
         {
-            // Holding "down" and no longer touching a wall — fell off while descending.
-            Grounding.ToFloor(character, charRends);
-            LeaveWall();
-            up = 0;
-            down = 0;
+            float moveMag = Mathf.Clamp01(camHoriz.magnitude);
+            BodyAnimation.SetSpeed(anim, moveMag);
+            if (moveMag > 0.01f && !facingLed)
+            {
+                // CONFIRMED by decoding the two unnamed helpers' ARM64 bytes in libil2cpp.so:
+                // FUN_02349bd8 (RVA 0x2249BD8) takes a Vector3* and normalizes it
+                // (Vector3.Normalize), and FUN_02349a84 (RVA 0x2249A84) returns the Vector3
+                // statics at +0x18 (Vector3.up). Ghidra showed the rotation's y/z as the
+                // arguments only because it lost track of the helpers' float return registers.
+                Quaternion currentRot = character.rotation;
+                Quaternion targetRot = Quaternion.LookRotation(Vector3.Normalize(camHoriz), Vector3.up);
+                character.rotation = Quaternion.Slerp(currentRot, targetRot, dt * freeMoveTurnSpeed);
+            }
         }
+
+        // Up only while there is more of it at the body or over the head. At the top of a ladder
+        // or a wall the body stops there, holding on (the stick takes it over the top, or Down
+        // back down), where it used to rise on into the air for LetGoSeconds and then drop to the
+        // floor (2026-11-24).
+        int vertical = climbDir > 0 && !touching && !above ? 0 : climbDir;
+        Vector3 motion = (camHoriz + Vector3.up * vertical) * (dt * climbSpeed);
+
+        CollisionFlags flags = CollisionFlags.None;
+        if (motion.sqrMagnitude > 0f)
+        {
+            if (cc != null && cc.enabled)
+            {
+                flags = cc.Move(motion);
+            }
+            else if (character != null)
+            {
+                character.position += motion;
+            }
+        }
+
+        if (vertical >= 0) return;
+
+        // Climbing down, the body comes off it standing once the feet meet the floor (or anything
+        // else under them). It used to drop the last few units to the floor in one frame as soon
+        // as the floor was in reach, and to drop all the way whenever its probes looked through a
+        // gap on the way down.
+        if (cc != null && cc.enabled)
+        {
+            if ((flags & CollisionFlags.Below) != 0) LeaveWall();
+            return;
+        }
+
+        if (!IsGrounded()) return;
+        Grounding.ToFloor(character, charRends);
+        LeaveWall();
+    }
+
+    // The stick's way with the part of it that pushes into the walls touched taken out.
+    private Vector3 AlongWalls(Vector3 move)
+    {
+        for (int i = 0; i < _touchCount; i++)
+        {
+            Vector3 n = _touchNormals[i];
+            n.y = 0f;
+            if (n.sqrMagnitude < 0.0001f) continue;
+            n.Normalize();
+            float into = Vector3.Dot(move, n);
+            if (into < 0f) move -= n * into;
+        }
+        return move;
     }
 
     // ================= movement helpers =================
@@ -566,39 +601,67 @@ public class WallClimber : MonoBehaviour
         return false;
     }
 
-    // Probes outward from the character (forward/back/right/left) at several heights along its
+    // Probes outward from the character (forward/back/right/left) at heights all the way up its
     // capsule, looking for the nearest climbable wall hit within wallCheckDistance.
     private bool TryGetWall(out Vector3 normal)
     {
         normal = -character.forward; // fallback value even on failure — matches decompile
+        BodySpan(out float bottomY, out float topY);
+        float height = topY - bottomY;
+        return ProbeWalls(bottomY + height * LowestProbe, bottomY + height * HighestProbe, true, ref normal);
+    }
 
+    // More of the climbable thing just over the head (upward) or just under the feet, within
+    // NearReach of the body's height: the climb holds on to it there.
+    private bool WallNear(bool upward)
+    {
+        BodySpan(out float bottomY, out float topY);
+        float reach = (topY - bottomY) * NearReach;
+        Vector3 normal = Vector3.zero;
+        return upward
+            ? ProbeWalls(topY, topY + reach, false, ref normal)
+            : ProbeWalls(bottomY - reach, bottomY + (topY - bottomY) * LowestProbe, false, ref normal);
+    }
+
+    // The bottom and top of the body, in world units.
+    private void BodySpan(out float bottomY, out float topY)
+    {
+        Vector3 pos = character.position;
+        bottomY = pos.y;
+        topY = pos.y;
+        if (cc == null) return;
+
+        float scaleY = Mathf.Max(0.0001f, character.lossyScale.y);
+        float halfHeight = scaleY * cc.height * 0.5f;
+        float centerY = pos.y + scaleY * cc.center.y;
+        bottomY = centerY - halfHeight;
+        topY = centerY + halfHeight;
+    }
+
+    // Horizontal rays from the body's axis, at heights from fromY to toY no further apart than
+    // ProbeSpacing, in the four directions: the nearest climbable wall among them. With remember,
+    // the nearest wall each way is kept for AlongWalls.
+    private bool ProbeWalls(float fromY, float toY, bool remember, ref Vector3 normal)
+    {
         _probeDirs[0] = character.forward;
         _probeDirs[1] = -character.forward;
         _probeDirs[2] = character.right;
         _probeDirs[3] = -character.right;
+        if (remember) _touchCount = 0;
 
         Vector3 pos = character.position;
-        float bottomY = pos.y;
-        float topY = pos.y;
-        if (cc != null)
-        {
-            float scaleY = Mathf.Max(0.0001f, character.lossyScale.y);
-            float halfHeight = scaleY * cc.height * 0.5f;
-            float centerY = pos.y + scaleY * cc.center.y;
-            bottomY = centerY - halfHeight;
-            topY = centerY + halfHeight;
-        }
-
+        int steps = Mathf.Max(1, Mathf.CeilToInt((toY - fromY) / ProbeSpacing));
         bool found = false;
         float bestDist = float.MaxValue;
 
-        for (int h = 0; h < _probeHeights.Length; h++)
+        for (int d = 0; d < _probeDirs.Length; d++)
         {
-            float t = Mathf.Clamp01(_probeHeights[h]);
-            Vector3 probeOrigin = new Vector3(pos.x, bottomY + (topY - bottomY) * t, pos.z);
+            float dirBest = float.MaxValue;
+            Vector3 dirNormal = Vector3.zero;
 
-            for (int d = 0; d < _probeDirs.Length; d++)
+            for (int h = 0; h <= steps; h++)
             {
+                Vector3 probeOrigin = new Vector3(pos.x, Mathf.Lerp(fromY, toY, h / (float)steps), pos.z);
                 int hitCount = Physics.RaycastNonAlloc(probeOrigin, _probeDirs[d], _hits, wallCheckDistance);
                 for (int i = 0; i < hitCount; i++)
                 {
@@ -616,13 +679,21 @@ public class WallClimber : MonoBehaviour
                     if (steepness < minWallSteepness) continue;
 
                     float dist = _hits[i].distance;
-                    if (dist < bestDist)
+                    if (dist < dirBest)
                     {
-                        bestDist = dist;
-                        found = true;
-                        normal = hitNormal;
+                        dirBest = dist;
+                        dirNormal = hitNormal;
                     }
                 }
+            }
+
+            if (dirBest == float.MaxValue) continue;
+            found = true;
+            if (remember) _touchNormals[_touchCount++] = dirNormal;
+            if (dirBest < bestDist)
+            {
+                bestDist = dirBest;
+                normal = dirNormal;
             }
         }
 

@@ -186,6 +186,7 @@ You are a Seeker. Find the fugitives and catch them before the round ends.	你�
 You left too many matches early. Try again in a few minutes.	你提前离开的比赛太多，请几分钟后再试。	Вы слишком часто выходили из матчей раньше времени. Попробуйте через несколько минут.
 You signed in on another device, so you left the match here.	你已在另一台设备上登录，因此已离开这里的比赛。	Вы вошли на другом устройстве, поэтому покинули матч здесь.
 MATCH HISTORY	比赛记录	ИСТОРИЯ МАТЧЕЙ
+WALLET HISTORY	钱包记录	ИСТОРИЯ КОШЕЛЬКА
 No matches yet. Matches in rooms with an entry fee are recorded here.	还没有比赛。收费房间的比赛会记录在这里。	Матчей пока нет. Здесь записываются матчи в комнатах со взносом.
 WON	胜利	ПОБЕДА
 LOST	失败	ПОРАЖЕНИЕ
@@ -220,6 +221,14 @@ Waiting...	等待中……	Ожидание...
 {0} unlocked!	{0} 已解锁！	{0}: открыто!
 {0} equipped	已装备 {0}	Надето: {0}
 Standard gun equipped	已装备标准枪	Надето стандартное оружие
+Shoes	鞋子	Обувь
+Standard Shoes	标准鞋	Обычная обувь
+Sneakers	运动鞋	Кроссовки
+Running Shoes	跑鞋	Беговые кроссовки
+Speed Boots	疾速靴	Скоростные ботинки
++{0}% speed	速度 +{0}%	Скорость +{0}%
+Buy these shoes first.	请先购买这双鞋。	Сначала купите эту обувь.
+This server has no shoes yet.	此服务器还没有鞋子。	На этом сервере пока нет обуви.
 +{0} special bullet {1} (you have {2})	+{0} 发特殊子弹 {1}（共 {2} 发）	+{0} особых пуль {1} (всего {2})
 +{0} special bullet {1}	+{0} 发特殊子弹 {1}	+{0} особых пуль {1}
 Not enough coins	金币不足	Недостаточно монет
@@ -264,39 +273,16 @@ Wave	挥手	Привет
 {0} coins	{0} 金币	{0} монет
 Coins: <b>{0}</b>	金币：<b>{0}</b>	Монеты: <b>{0}</b>
 TEST WALLET - test currency only, no real money	测试钱包 - 仅限测试货币，不涉及真实资金	ТЕСТОВЫЙ КОШЕЛЁК - только тестовая валюта, без реальных денег
-DEPOSIT	充值	ПОПОЛНИТЬ
-WITHDRAW	提现	ВЫВЕСТИ
 OPEN WALLET PAGE	打开钱包页面	ОТКРЫТЬ КОШЕЛЁК
-MIN	最少	МИН
-HALF	一半	ПОЛОВИНА
-ALL	全部	ВСЁ
-Coins to withdraw	要提现的金币	Сколько монет вывести
 Wallet account: <b>{0}</b>	钱包账户：<b>{0}</b>	Счёт кошелька: <b>{0}</b>
 Wallet account: could not be read just now	钱包账户：暂时无法读取	Счёт кошелька: сейчас не удаётся прочитать
 No wallet is connected on this server.	此服务器未连接钱包。	На этом сервере кошелёк не подключён.
 Loading...	加载中……	Загрузка...
 Loading the coin packs...	正在加载金币包……	Загрузка наборов монет...
 Deposits are not available on this server.	此服务器不支持充值。	Пополнение на этом сервере недоступно.
-Withdrawals are not available on this server.	此服务器不支持提现。	Вывод на этом сервере недоступен.
 Pay on the wallet page that opens. The coins arrive here a few seconds after.	请在打开的钱包页面中付款，金币将在几秒后到账。	Оплатите на открывшейся странице кошелька. Монеты придут через несколько секунд.
 waiting for payment - tap to reopen	等待付款 - 点击重新打开	ждёт оплаты - нажмите, чтобы открыть
-{0} coins pay out {1}.   Smallest {2} coins, largest {3}.	{0} 金币可提现 {1}。   最少 {2} 金币，最多 {3}。	{0} монет = {1}.   Минимум {2} монет, максимум {3}.
-Takes <b>{0}</b> coins, pays <b>{1}</b> into your wallet account.	扣除 <b>{0}</b> 金币，向你的钱包账户支付 <b>{1}</b>。	Спишет <b>{0}</b> монет и зачислит <b>{1}</b> на счёт кошелька.
-Enter how many coins to withdraw.	请输入要提现的金币数量。	Введите, сколько монет вывести.
-That is not an amount of coins.	这不是有效的金币数量。	Это не количество монет.
-The smallest withdrawal is {0} coins.	最少提现 {0} 金币。	Минимальный вывод: {0} монет.
-The largest withdrawal is {0} coins.	最多提现 {0} 金币。	Максимальный вывод: {0} монет.
-You have {0} coins.	你有 {0} 金币。	У вас {0} монет.
-Withdrawing...	正在提现……	Вывод...
-Withdrew {0} coins: {1} is in your wallet account.	已提现 {0} 金币：{1} 已到账钱包账户。	Выведено {0} монет: {1} на счёте кошелька.
-The wallet refused the withdrawal. Your {0} coins are back.	钱包拒绝了提现，你的 {0} 金币已退回。	Кошелёк отклонил вывод. Ваши {0} монет возвращены.
-The wallet has not confirmed the withdrawal yet. Checking...	钱包尚未确认提现，正在查询……	Кошелёк ещё не подтвердил вывод. Проверяем...
-No answer from the server. Look at your coins and the history before trying again.	服务器没有响应。重试前请查看你的金币和记录。	Сервер не ответил. Проверьте монеты и историю, прежде чем пробовать снова.
-You do not have that many coins. Nothing was taken.	你没有那么多金币，未扣除任何金币。	У вас нет столько монет. Ничего не списано.
-That amount is outside what can be withdrawn. Nothing was taken.	该数量超出可提现范围，未扣除任何金币。	Эту сумму нельзя вывести. Ничего не списано.
-The server refused the withdrawal ({0}). Nothing was taken.	服务器拒绝了提现（{0}），未扣除任何金币。	Сервер отклонил вывод ({0}). Ничего не списано.
 The server did not answer. Close and open the wallet to try again.	服务器没有响应。请关闭并重新打开钱包再试。	Сервер не ответил. Закройте и снова откройте кошелёк.
-Only whole units are paid; coins that would not pay anything stay with you.	只支付整数单位；不足一个单位的金币会留在你的账户中。	Выплачиваются только целые единицы; монеты, которых не хватает на единицу, остаются у вас.
 Nothing has moved your coins yet.	你的金币还没有任何变动。	Движений монет пока нет.
 Deposit	充值	Пополнение
 Deposit ({0})	充值（{0}）	Пополнение ({0})
@@ -352,7 +338,7 @@ Not now	以后再说	Не сейчас
 Unlocking...	正在解锁……	Открываем...
 The shop is still loading. Try again in a moment.	商店仍在加载，请稍后再试。	Магазин ещё загружается. Попробуйте чуть позже.
 Entry {0} - real players only	报名费 {0} - 仅限真人玩家	Взнос {0} - только живые игроки
-Not enough coins for this room. The entry is {0}; top up in WALLET.	金币不足，无法进入此房间。报名费为 {0}，请在钱包中充值。	Недостаточно монет для этой комнаты. Взнос {0}; пополните в КОШЕЛЬКЕ.
+Not enough coins for this room. The entry is {0}; tap your coins to top up.	金币不足，无法进入此房间。报名费为 {0}，点击你的金币即可充值。	Недостаточно монет для этой комнаты. Взнос {0}; нажмите на монеты, чтобы пополнить.
 Entry {0}. Real players only, no bots: the match starts once all {1} seats are taken ({2} seekers, {3} hiders).	报名费 {0}。仅限真人玩家，没有机器人：{1} 个座位全部坐满后比赛开始（{2} 名寻找者，{3} 名躲藏者）。	Взнос {0}. Только живые игроки, без ботов: матч начнётся, когда будут заняты все {1} мест ({2} искателя, {3} прячущихся).
 If it does not fill in time, your entry is refunded.	如果未能按时坐满，报名费将退还。	Если матч не наберётся вовремя, взнос вернут.
 PAY {0}	支付 {0}	ОПЛАТИТЬ {0}
@@ -415,7 +401,7 @@ Get 30 extra seconds.	再获得 30 秒。	Ещё 30 секунд.
 {0} is locked. Buy it once for {1} and play it online whenever you like.	{0} 尚未解锁。一次性花费 {1} 购买，即可随时在线游玩。	{0} закрыта. Купите её один раз за {1} и играйте онлайн когда угодно.
 BUY {0}	购买 {0}	КУПИТЬ {0}
 That map is locked. Buy it to play it online.	该地图尚未解锁。购买后即可在线游玩。	Эта карта закрыта. Купите её, чтобы играть онлайн.
-Not enough coins for {0}. Top up in WALLET.	金币不足，无法购买 {0}。请在钱包中充值。	Не хватает монет на {0}. Пополните в КОШЕЛЬКЕ.
+Not enough coins for {0}. Tap your coins to top up.	金币不足，无法购买 {0}。点击你的金币即可充值。	Не хватает монет на {0}. Нажмите на монеты, чтобы пополнить.
 Room 2	房间 2	Комната 2
 Room 3	房间 3	Комната 3
 Room 4	房间 4	Комната 4

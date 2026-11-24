@@ -58,6 +58,7 @@ public static class NetBootstrap
     {
         signedInProfile = profile;
         signedInProfileAt = Time.unscaledTime;
+        Shoes.Note(profile);    // the pair the account wears
     }
 
     /// <summary>True once the player has asked for something online this session (Multiple Play, the shop, the wallet).</summary>

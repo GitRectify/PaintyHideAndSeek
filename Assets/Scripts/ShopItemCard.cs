@@ -61,6 +61,7 @@ public class ShopItemCard : MonoBehaviour
         }
 
         // Coins/Avatars put the label under the art; the other tabs put it on top (per mockups).
+        // Shoes too keep it under the art: their speed ribbon sits where a top label would be.
         bool labelOnTop = item.category == ShopCategory.Poses
                           || item.category == ShopCategory.Weapons
                           || item.category == ShopCategory.Bullets
