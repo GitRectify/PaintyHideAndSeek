@@ -113,7 +113,8 @@ public sealed class BodyCapsule : MonoBehaviour
         float radius = cc.radius * Mathf.Max(transform.lossyScale.x, transform.lossyScale.z);
         Vector3 top = transform.TransformPoint(new Vector3(cc.center.x, bottom + height - cc.radius, cc.center.z));
         Vector3 up = transform.up;
-        float reach = wanted * scale + Clearance;
+        float skin = cc.skinWidth * scale;
+        float reach = wanted * scale + Clearance + skin;
 
         int n = Physics.SphereCastNonAlloc(top, radius * 0.95f, up, hits, reach, ~0, QueryTriggerInteraction.Ignore);
         float free = reach;
@@ -124,7 +125,9 @@ public sealed class BodyCapsule : MonoBehaviour
             free = Mathf.Min(free, hits[i].distance);
         }
 
-        return Mathf.Max(0f, (free - Clearance) / scale);
+        // Clear of it by the controller's skin too: a capsule grown into its skin's reach of an
+        // underside is already touching it, and moves along under it badly.
+        return Mathf.Max(0f, (free - Clearance - skin) / scale);
     }
 
     private void SetHeight(float height)

@@ -319,7 +319,10 @@ public class JoystickMover : MonoBehaviour
             }
             _vy -= dt * gravity;
             FitStepUnderOverhangs(horizVel, dt);
-            cc.Move((horizVel + Vector3.up * _vy) * dt);
+            Vector3 motion = (horizVel + Vector3.up * _vy) * dt;
+            Vector3 before = character.position;
+            CollisionFlags flags = cc.Move(motion);
+            MoveOnWithLowerStep(motion, before, flags);
             return;
         }
         if (character != null)
@@ -363,6 +366,48 @@ public class JoystickMover : MonoBehaviour
 
         float step = Mathf.Clamp(room - 2f * skin, 0f, climbStepHeight);
         cc.stepOffset = Mathf.Clamp(step / s, 0.1f, BodyCapsule.MaxStep(cc));
+    }
+
+    // Lower steps a stopped move is tried again with, as parts of the step it was stopped with: half
+    // of it and a quarter still climb a rail or a lip under a table top, and the last is the
+    // controller's least.
+    private static readonly float[] RetrySteps = { 0.5f, 0.25f, 0f };
+
+    // The step above is a guess from a few probes, and furniture is not all flat undersides: the
+    // hanging rim of the pool table, a desk's drawers, a plant's leaves. Where the guess was wrong,
+    // the lift put the head into one of those just ahead, the controller refused the whole move,
+    // and the player stood stuck under the furniture though the body fitted along the floor (a jump
+    // got it going, because a controller moving up does not step: 2026-11-24). A tall lift can also
+    // set the feet down on the steep edge of a small lip (a rug's, a floor seam's), which the
+    // controller refuses as too steep to climb, with nothing else in the way, or leave the body
+    // hanging by its side on such an edge. So a move against something that was stopped short is
+    // tried again, from where it stopped, with half the step, a quarter of it, and then none; a
+    // wall or a slope too steep stops all of them as it stopped the first.
+    private void MoveOnWithLowerStep(Vector3 motion, Vector3 before, CollisionFlags flags)
+    {
+        if ((flags & (CollisionFlags.Below | CollisionFlags.Sides)) == 0) return;
+        Vector3 wanted = new Vector3(motion.x, 0f, motion.z);
+        float length = wanted.magnitude;
+        if (length < 0.001f) return;
+
+        float keep = cc.stepOffset;
+        for (int i = 0; i < RetrySteps.Length; i++)
+        {
+            // Gone a quarter of it anywhere, sliding along a wall included: a move like any other
+            // (UnstickIfWedged goes by the same quarter).
+            Vector3 p = character.position;
+            float done = new Vector3(p.x - before.x, 0f, p.z - before.z).magnitude / length;
+            if (done >= 0.25f) break;
+
+            float step = Mathf.Max(0.1f, keep * RetrySteps[i]);
+            if (step >= cc.stepOffset - 0.001f) continue;
+            cc.stepOffset = step;
+            // Down only by what the first try did not go down (holding it to the floor, or a fall
+            // something held up), never falling twice in a frame.
+            float down = Mathf.Min(0f, motion.y - Mathf.Min(0f, p.y - before.y));
+            cc.Move(wanted * (1f - done) + Vector3.up * down);
+        }
+        cc.stepOffset = keep;
     }
 
     // How far the head can rise from here before it meets something, up to max.
