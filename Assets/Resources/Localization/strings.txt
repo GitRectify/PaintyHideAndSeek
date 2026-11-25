@@ -567,3 +567,134 @@ Continue	继续	Продолжить
 You got caught!	你被抓住了！	Вас поймали!
 Time's up!	时间到！	Время вышло!
 Finding players...	正在寻找玩家...	Поиск игроков...
+MAP {0}	地图 {0}	КАРТА {0}
+ROLE	身份	РОЛЬ
+ROOM TYPE	房间类型	ТИП КОМНАТЫ
+Locked · {0}	未解锁 · {0}	Заблокировано · {0}
+Set by this room	由此房间设定	Задаётся комнатой
+Selected map	已选地图	Выбранная карта
+Find match	寻找对局	Найти матч
+Local round	本地对局	Локальный раунд
+Paint and blend in	涂装并融入环境	Раскрасься и слейся с фоном
+Find the Hiders	找出躲藏者	Найди прячущихся
+Free · Bots fill empty seats	免费 · 机器人补满空位	Бесплатно · Боты занимают свободные места
+{0} · Players only	{0} · 仅限真人玩家	{0} · Только игроки
+Offline	离线	Офлайн
+New Match	新对局	Новый матч
+Matches	对局	Матчи
+History	记录	История
+Profile	个人资料	Профиль
+Rate	评分	Оценка
+Rate the game	为游戏评分	Оцените игру
+How was your game?	这局游戏怎么样？	Как вам игра?
+{0} of 5 star	{0} / 5 星	{0} из 5 звёзд
+{0} of 5 stars	{0} / 5 星	{0} из 5 звёзд
+Tap a star to rate	点击星星评分	Нажмите на звезду, чтобы оценить
+Later	稍后	Позже
+Write feedback	填写反馈	Написать отзыв
+Comment	评论	Комментарий
+Optional	可选	Необязательно
+What did you like? What could be better?	你喜欢什么？哪里还可以改进？	Что понравилось? Что можно улучшить?
+Submit feedback	提交反馈	Отправить отзыв
+Your feedback was received.	我们已收到你的反馈。	Ваш отзыв получен.
+Player average {0} / 5 · {1} ratings	玩家平均 {0} / 5 · {1} 个评分	Средняя оценка {0} / 5 · оценок: {1}
+JOINED MATCHES	已加入的对局	ВАШИ МАТЧИ
+{0} active	{0} 进行中	Активных: {0}
+No active matches	没有进行中的对局	Нет активных матчей
+Won	胜利	Победа
+Finished	已结束	Завершён
+Rejoin	重新加入	Вернуться
+Results	结果	Итоги
+Join a room to play. While a match is running, you can return to it here.	加入一个房间开始游戏。对局进行中时，你可以在这里返回。	Зайдите в комнату, чтобы играть. Пока матч идёт, сюда можно вернуться.
+Open history	查看记录	Открыть историю
+Close	关闭	Закрыть
+RANK	名次	МЕСТО
+PLAYER	玩家	ИГРОК
+SCORE	得分	ОЧКИ
+COINS	金币	МОНЕТЫ
+Match History	对局记录	История матчей
+Wallet History	钱包记录	История кошелька
+Purchased coins	购买金币	Покупка монет
+Shop spend	商店消费	Покупки в магазине
+Entry fee	入场费	Взнос за вход
+Match reward	对局奖励	Награда за матч
+Refund	退款	Возврат
+Forfeit	没收	Потеря взноса
+Withdrawal	提现	Вывод
+Support	客服调整	Поддержка
+Lost	失败	Поражение
+MATCH	对局	МАТЧ
+RESULT	结果	РЕЗУЛЬТАТ
+NOTE	备注	ПРИМЕЧАНИЕ
+POINTS	积分	ОЧКИ
+TRANSACTION	交易	ОПЕРАЦИЯ
+TYPE	类型	ТИП
+CHANGE	变动	ИЗМЕНЕНИЕ
+BALANCE	余额	БАЛАНС
+Wallet	钱包	Кошелёк
+Couldn't reach the server at {0}, and none answered on this network.\nCheck that it is running and on the same network.	无法连接到 {0} 的服务器，本网络中也没有服务器响应。\n请确认服务器正在运行且在同一网络中。	Не удалось подключиться к серверу {0}, и в этой сети никто не ответил.\nПроверьте, что он запущен и находится в той же сети.
+Couldn't reach the server at {0}.\nCheck that it is running and the address is right.	无法连接到 {0} 的服务器。\n请确认服务器正在运行且地址正确。	Не удалось подключиться к серверу {0}.\nПроверьте, что он запущен и адрес указан верно.
+Save changes	保存更改	Сохранить
+Retry	重试	Повторить
+Character	角色	Персонаж
+{0}-{1} characters. Start with a letter. Use English, Russian or Chinese letters, digits, underscores or periods.	{0}-{1} 个字符。以字母开头。可使用英文、俄文或中文字母、数字、下划线或句点。	{0}–{1} символов. Начните с буквы. Можно использовать английские, русские или китайские буквы, цифры, подчёркивания и точки.
+Use my username	使用我的用户名	Использовать имя пользователя
+{0}-{1} characters. What other players see. Leave it empty to use your username.	{0}-{1} 个字符。其他玩家看到的名字。留空则使用你的用户名。	{0}–{1} символов. Это имя видят другие игроки. Оставьте пустым, чтобы использовать имя пользователя.
+The server's profile service did not answer.\nIt may be blocked by a firewall (TCP port 7779 by default).	服务器的个人资料服务没有响应。\n可能被防火墙阻止了（默认 TCP 端口 7779）。	Сервис профилей сервера не ответил.\nВозможно, его блокирует брандмауэр (по умолчанию TCP-порт 7779).
+Finding players	正在寻找玩家	Поиск игроков
+Joined	已加入	В игре
+Open slot	空位	Свободное место
+You are a Seeker	你是寻找者	Вы — искатель
+You are a Hider	你是躲藏者	Вы — прячущийся
+Find the Hiders before time runs out.	在时间耗尽前找出躲藏者。	Найдите прячущихся, пока не вышло время.
+Paint yourself to blend into the room.	给自己涂装，融入房间。	Раскрасьте себя, чтобы слиться с комнатой.
+Match starting	对局即将开始	Матч начинается
+Lobby ready	大厅已就绪	Лобби готово
+{0} of {1} joined	已加入 {0}/{1}	Присоединились: {0} из {1}
+Everyone is in. The match starts shortly.	所有人都已到齐，对局即将开始。	Все в сборе. Матч скоро начнётся.
+Entry {0}. Real players only, no bots: the match starts once all {1} seats are taken ({2} seekers, {3} hiders).\nIf it does not fill in time, your entry is refunded.	入场费 {0}。仅限真人玩家，没有机器人：{1} 个座位全部坐满后对局开始（{2} 名寻找者，{3} 名躲藏者）。\n如果未能按时满员，入场费将退还。	Взнос {0}. Только живые игроки, без ботов: матч начнётся, когда займут все {1} мест ({2} искателей, {3} прячущихся).\nЕсли комната не заполнится вовремя, взнос вернётся.
+Pay	支付	Оплатить
+Match update	对局消息	Новости матча
+Your online round is still going. Your place is kept while it runs.	你的在线对局仍在进行中，对局期间会为你保留位置。	Ваш онлайн-раунд ещё идёт. Ваше место сохраняется, пока он продолжается.
+No	否	Нет
+Leave	离开	Выйти
+Stay	留下	Остаться
+Hider readiness	躲藏者准备情况	Готовность прячущихся
+{0}/{1} ready	{0}/{1} 已准备	Готовы: {0}/{1}
+Ready	已准备	Готов
+You have {0}.	你有 {0}。	У вас {0}.
+AUDIO	音频	ЗВУК
+PREFERENCES	偏好设置	ПАРАМЕТРЫ
+Sound effects	音效	Звуковые эффекты
+Graphics	画质	Графика
+View and change keyboard bindings	查看和更改键盘按键	Просмотр и изменение клавиш
+Exit game	退出游戏	Выйти из игры
+The game closes. An online match goes on without you; rejoin it from Matches.	游戏将关闭。在线对局会继续进行，你可以在“对局”中重新加入。	Игра закроется. Онлайн-матч продолжится без вас — вернуться можно в разделе «Матчи».
+Tap a keycap, then press the new key.	点击一个按键，然后按下新按键。	Нажмите на клавишу, затем нажмите новую.
+Reset defaults	恢复默认	Сбросить
+Movement	移动	Движение
+Actions	动作	Действия
+Keyboard	键盘	Клавиатура
+Open wallet page	打开钱包页面	Открыть страницу кошелька
+Wallet history	钱包记录	История кошелька
+COIN PACKS	金币包	НАБОРЫ МОНЕТ
+Camera	镜头	Камера
+Rotate	旋转	Поворот
+Hold to turn	按住旋转	Удерживайте, чтобы повернуть
+Round menu	回合菜单	Меню раунда
+Resume	继续游戏	Продолжить
+Leave match	离开对局	Покинуть матч
+End this round?	结束本回合？	Завершить раунд?
+Leave this round and go back to Home.	离开本回合并返回主页。	Покинуть раунд и вернуться на главный экран.
+End round	结束回合	Завершить раунд
+Pose	姿势	Поза
+Colour	颜色	Цвет
+Shade	明暗	Оттенок
+Brush size	笔刷大小	Размер кисти
+Brush	笔刷	Кисть
+Erase	擦除	Ластик
+Sample	取色	Пипетка
+· End hiding	· 结束躲藏	· Закончить прятаться
+Lie down	趴下	Лечь
+Climb	攀爬	Залезть
+Down	下来	Слезть

@@ -5,24 +5,19 @@ using Meccha.Shared.Protocol;
 using UnityEngine;
 using UnityEngine.UI;
 
-// Play setup (2026-11-21, redesigned 2026-11-23): every choice before a match on one screen, for
-// Single Play and Multiple Play alike, in one panel on the side screen (RoleSelectCanvas, which keeps
-// its Back, Settings, Rate and Shop buttons and the home room behind it):
+// Play setup (2026-11-21; design B's full page since 2026-11-24): every choice before a match on one
+// page, for Single Play and Multiple Play alike, over the side screen (RoleSelectCanvas, whose Back,
+// Settings, Rate and Shop it takes the place of):
 //
-//   SINGLE PLAY / MULTIPLAYER   the title: the mode chosen on Home (Play or Multiplayer), kept for
-//                               the whole flow; Multiplayer adds its Matches, History, Profile
-//   SIDE        Hider / Seeker
-//   CHARACTER   the bodies, by their pictures; a tap makes it the player's body at once
-//               (CharacterSelect swaps it in place, no scene reload)
-//   ROOM        Multiplayer only: the server's rooms (Practice free with bots, Standard paid)
-//   MAP         the maps' pictures; online, a lock and price on one not bought yet, and none the
-//               server doesn't have
-//   YOUR MATCH  what Play starts, and PLAY / FIND MATCH
-//
-// The look (design B, "Paintbox", 2026-11-24): a paper panel and cards with ink outlines, one way
-// of showing a choice everywhere (violet, an ink ring and a yellow check badge that pop in), a veil
-// with a lock and price on what is not owned, a yellow Play button on a hard ink shadow; the panel
-// slides in when it opens, buttons sink when pressed (UiPress).
+//   Single Player / Multiplayer   the title: the mode chosen on Home, kept for the whole flow.
+//                                  Multiplayer is a hub: New Match (this page), Matches, History,
+//                                  Profile and Rate are tabs under the bar (MultiplayerHub)
+//   ROLE        Hider / Seeker
+//   CHARACTER   the bodies; a tap makes it the player's body at once (CharacterSelect swaps it in place)
+//   ROOM TYPE   Multiplayer only: the server's rooms (Practice free with bots, Standard paid)
+//   MAP         the maps' pictures; online, a lock and price on one not bought yet
+//   the map     a large picture of the map chosen, on the right
+//   the foot    what Play starts, and Play / Find match
 //
 // Nothing about a match changes: Single Play goes on as it did after the map picker
 // (HomeUI.PlaySingle), Multiple Play through the same checks as before (OnlineLobby.FindFromSetup:
@@ -34,58 +29,35 @@ public class PlaySetupUI : MonoBehaviour
 {
     private const string SideKey = "PlaySetup.Side";   // HomeUI's modes: 1 seeker, 2 hider
     private const string RoomKey = "PlaySetup.Room";   // the room id last picked online
-    private const string MapKey = "PlaySetup.Map";     // the map last picked (LevelManager's index): Home resets
-                                                       // LevelManager to the first map (GameModeManager.ShowMenu)
+    private const string MapKey = "PlaySetup.Map";     // the map last picked (LevelManager's index)
 
-    // Sizes, in the 1920 x 1080 reference canvas units.
-    private const float PanelWidth = 880f;
-    private const float Pad = 32f;
-    private const float Inner = PanelWidth - Pad * 2f;
-    private const float RightMargin = 120f;            // at least; more when the side screen's button column needs it
-    private const float BottomMargin = 36f;
-    private const float CardRadius = 20f;
-    private const float FooterHeight = 120f;
-
-    // Colours.
-    // Design B's palette (Paintbox): paper, ink, violet for what is picked, yellow for Play.
-    private static readonly Color PanelTop = Paintbox.Paper;
-    private static readonly Color PanelBottom = Paintbox.Paper;
-    private static readonly Color PanelEdge = Paintbox.PanelLine;
-    private static readonly Color CardTop = Paintbox.Paper;
-    private static readonly Color CardBottom = Paintbox.Paper;
-    private static readonly Color CardEdge = Paintbox.Ink;
-    private static readonly Color PickedTop = Paintbox.Violet;
-    private static readonly Color PickedBottom = Paintbox.Violet;
-    private static readonly Color HiderTop = Paintbox.Violet;
-    private static readonly Color HiderBottom = Paintbox.Violet;
-    private static readonly Color SeekerTop = Paintbox.Violet;
-    private static readonly Color SeekerBottom = Paintbox.Violet;
-    private static readonly Color Gold = Paintbox.Yellow;
-    private static readonly Color Ink = Paintbox.Ink;
-    private static readonly Color Muted = Paintbox.Muted;
-    private static readonly Color Warning = Paintbox.Bad;
-    private static readonly Color PlayTop = Paintbox.Yellow;
-    private static readonly Color PlayBottom = Paintbox.Yellow;
-    private static readonly Color PlayLip = Paintbox.Ink;
+    private const float CardRadius = 22f;
+    private const float ChoiceHeight = 96f;
+    private const float MapHeight = 118f;
 
     public static PlaySetupUI Instance { get; private set; }
 
-    /// <summary>Whether the setup panel is on screen.</summary>
+    /// <summary>Whether the setup page is on screen.</summary>
     public static bool IsOpen => Instance != null && Instance.root != null && Instance.root.activeSelf;
+
+    /// <summary>Multiple Play's flow while it is the one shown (null in Single Play).</summary>
+    public OnlineLobby Lobby => lobby;
 
     private sealed class Card
     {
         public Button Button;
-        public UiGradient Fill;
-        public Image Ring;
-        public GameObject Badge;
+        public PaintboxFrame Frame;
+        public Image Check;          // the tick of a picked choice
+        public Image Ring;           // a map's picked ring
+        public GameObject Badge;     // a map's picked badge
         public Image Picture;
         public Text Title;
         public Text Detail;
-        public GameObject Veil;          // "Lock": a dark veil with a lock, over what isn't owned
+        public Image Icon;
+        public GameObject Veil;      // "Lock": over what isn't owned
         public Text VeilText;
+        public RectTransform VeilIcon;   // a choice's padlock, just before its words
         public GameObject Pill;
-        public Image PillImage;
         public Text PillText;
         public bool Picked;
     }
@@ -103,31 +75,26 @@ public class PlaySetupUI : MonoBehaviour
     private string message = "";
 
     // UI
-    private GameObject root, panel, extras;      // root: the panel and its shadow, shown and hidden together
-    private RectTransform panelRect, shadowRect;
-    private CanvasGroup panelGroup;
+    private GameObject root;
+    private CanvasGroup group;
+    private PaintboxPage page;
     private float openedAt = -1f;
-    private float rightMargin = RightMargin;
-    private readonly List<RectTransform> column = new List<RectTransform>();
-    private readonly Vector3[] corners = new Vector3[4];
-    private Text title, summaryCaption, summary;
+    private Text title;
+    private GameObject tabsRow, offlineChip, balance, shopButton, rateButton;
     private Card hiderCard, seekerCard;
-    private Section sideSection, characterSection, roomSection, mapSection;
-    private RectTransform footer;
+    private RectTransform roomRow;
+    private GameObject roomSection;
     private Text roomStatus;
+    private RectTransform characterRow, mapRow;
     private Button playButton;
-    private Text playLabel, playDetail;
+    private Image heroPicture;
+    private Text heroKicker, heroTitle, heroLine;
+    private Image heroLineIcon;
+    private Text summary;
     private readonly List<Card> characterCards = new List<Card>();
     private readonly List<Card> roomCards = new List<Card>();
     private readonly List<Card> mapCards = new List<Card>();
     private readonly List<(RectTransform rt, float at)> pops = new List<(RectTransform, float)>();
-
-    private sealed class Section
-    {
-        public Text Label;
-        public Image Line;
-        public RectTransform Row;
-    }
 
     // ================= Opening =================
 
@@ -147,10 +114,14 @@ public class PlaySetupUI : MonoBehaviour
         Open(flow, note);
     }
 
-    /// <summary>Puts the panel away (a match is starting, the player went home).</summary>
+    /// <summary>Puts the page away (a match is starting, the player went home).</summary>
     public static void CloseIfOpen()
     {
-        if (Instance != null && Instance.root != null) Instance.root.SetActive(false);
+        if (Instance != null && Instance.root != null && Instance.root.activeSelf)
+        {
+            Instance.root.SetActive(false);
+            MultiplayerHub.CloseAll();
+        }
     }
 
     /// <summary>A side picked elsewhere (the side screen's own buttons, hidden while this is up).</summary>
@@ -168,12 +139,6 @@ public class PlaySetupUI : MonoBehaviour
         characters = FindAnyObjectByType<CharacterSelect>();
         levels = LevelManager.Instance != null ? LevelManager.Instance : FindAnyObjectByType<LevelManager>();
         roleCanvas = SceneObject("RoleSelectCanvas");
-        if (roleCanvas != null)
-        {
-            // The side screen's right-hand buttons (Settings, Shop, Rate): the panel stays left of them.
-            foreach (string name in new[] { "SettingsBtn", "AdBtn", "RoleShopBtn", "Ratebtn" })
-                if (FindUnder(roleCanvas.transform, name) is RectTransform rt) column.Add(rt);
-        }
         side = PlayerPrefs.GetInt(SideKey, 2) == 1 ? 1 : 2;
         Build();
         root.SetActive(false);
@@ -200,11 +165,11 @@ public class PlaySetupUI : MonoBehaviour
         HideOldRoleButtons();
         bool wasOpen = root.activeSelf;
         root.SetActive(true);
-        if (!wasOpen) openedAt = Time.unscaledTime;   // slides in
+        if (!wasOpen) openedAt = Time.unscaledTime;   // fades in
         Refresh();
     }
 
-    // The side screen's own Hider / Seeker buttons: this panel is where the side is chosen now.
+    // The side screen's own Hider / Seeker buttons: this page is where the side is chosen now.
     private void HideOldRoleButtons()
     {
         if (roleCanvas == null) return;
@@ -219,12 +184,13 @@ public class PlaySetupUI : MonoBehaviour
     {
         if (roleCanvas == null || root == null) return;
 
-        // The side screen closed under the panel (its Back, Settings' Home): the panel goes with it,
-        // and Multiple Play's flow ends. The side screen shown by someone else: the panel comes too.
+        // The side screen closed under the page (its Back, Settings' Home): the page goes with it,
+        // and Multiple Play's flow ends. The side screen shown by someone else: the page comes too.
         bool screen = roleCanvas.activeInHierarchy;
         if (root.activeSelf && !screen)
         {
             root.SetActive(false);
+            MultiplayerHub.CloseAll();
             if (Online) OnlineLobby.RoleSelectClosed();
         }
         else if (!root.activeSelf && screen && !LoadingScreen.Holding)
@@ -232,53 +198,16 @@ public class PlaySetupUI : MonoBehaviour
             Open(OnlineLobby.InSetup, "");
         }
 
-        if (root.activeSelf)
-        {
-            KeepClearOfColumn();
-            Animate();
-        }
+        if (root.activeSelf) Animate();
     }
 
-    // The side screen scales by another rule than this canvas, so where its button column ends
-    // depends on the screen's shape (on a 20:9 phone it reaches further in): measured each frame,
-    // the panel standing that much in from the right edge.
-    private void KeepClearOfColumn()
-    {
-        var area = (RectTransform)root.transform;
-        Canvas own = area.GetComponentInParent<Canvas>().rootCanvas;
-        Camera ownCam = own.renderMode == RenderMode.ScreenSpaceOverlay ? null : own.worldCamera;
-        float left = float.MaxValue;
-        foreach (RectTransform rt in column)
-        {
-            if (rt == null || !rt.gameObject.activeInHierarchy) continue;
-            Canvas theirs = rt.GetComponentInParent<Canvas>().rootCanvas;
-            Camera theirCam = theirs.renderMode == RenderMode.ScreenSpaceOverlay ? null : theirs.worldCamera;
-            rt.GetWorldCorners(corners);
-            Vector2 screenPoint = RectTransformUtility.WorldToScreenPoint(theirCam, corners[0]);
-            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(area, screenPoint, ownCam, out Vector2 local))
-                left = Mathf.Min(left, local.x);
-        }
-        float wanted = left < float.MaxValue ? Mathf.Max(RightMargin, area.rect.width * 0.5f - left + 16f) : RightMargin;
-        if (Mathf.Abs(wanted - rightMargin) < 0.5f) return;
-        rightMargin = wanted;
-        if (openedAt < 0f)
-        {
-            panelRect.anchoredPosition = new Vector2(-rightMargin, BottomMargin);
-            PlaceShadow();
-        }
-    }
-
-    // The panel slides in from the right as it fades in; a ring just picked pops into place.
+    // The page fades in; a choice just picked pops into place.
     private void Animate()
     {
         if (openedAt >= 0f)
         {
-            float t = Mathf.Clamp01((Time.unscaledTime - openedAt) / 0.26f);
-            float e = 1f - Mathf.Pow(1f - t, 3f);
-            panelGroup.alpha = e;
-            float slide = (1f - e) * 60f;
-            panelRect.anchoredPosition = new Vector2(-rightMargin + slide, BottomMargin);
-            PlaceShadow();
+            float t = Mathf.Clamp01((Time.unscaledTime - openedAt) / 0.22f);
+            group.alpha = 1f - Mathf.Pow(1f - t, 3f);
             if (t >= 1f) openedAt = -1f;
         }
 
@@ -286,7 +215,7 @@ public class PlaySetupUI : MonoBehaviour
         {
             (RectTransform rt, float at) = pops[i];
             float t = Mathf.Clamp01((Time.unscaledTime - at) / 0.18f);
-            if (rt != null) rt.localScale = Vector3.one * Mathf.Lerp(1.08f, 1f, 1f - (1f - t) * (1f - t));
+            if (rt != null) rt.localScale = Vector3.one * Mathf.Lerp(1.15f, 1f, 1f - (1f - t) * (1f - t));
             if (t >= 1f || rt == null) pops.RemoveAt(i);
         }
     }
@@ -404,6 +333,22 @@ public class PlaySetupUI : MonoBehaviour
         lobby.FindFromSetup(side == 1 ? RolePreference.Seeker : RolePreference.Hider, Room, MapShown);
     }
 
+    // The bar's Back: the side screen's own Back (Home, and out of Multiple Play), as before.
+    private void Back()
+    {
+        Button back = roleCanvas != null ? FindUnder(roleCanvas.transform, "BackBtn")?.GetComponent<Button>() : null;
+        if (back != null) { back.onClick.Invoke(); return; }
+        AudioManager.ButtonTap();
+        FindAnyObjectByType<HomeMenuUI>()?.ShowHome();
+    }
+
+    // Single Play's star: the side screen's Rate button (the rating page).
+    private void OpenRate()
+    {
+        AudioManager.ButtonTap();
+        RateScreen.Open(false);
+    }
+
     // ================= Maps =================
 
     private int MapCount => levels != null ? levels.Count : 0;
@@ -430,7 +375,7 @@ public class PlaySetupUI : MonoBehaviour
         return lobby.MapOnline(index);
     }
 
-    // The map the panel shows as chosen: the saved one, or the room's own, or the first open one.
+    // The map the page shows as chosen: the saved one, or the room's own, or the first open one.
     private int MapShown
     {
         get
@@ -450,25 +395,38 @@ public class PlaySetupUI : MonoBehaviour
     {
         if (root == null) return;
 
-        title.text = Online ? "Multiplayer" : "Single Player";
-        extras.SetActive(Online);
+        bool online = Online;
+        title.text = online ? "Multiplayer" : "Single Player";
+        if (tabsRow != null) tabsRow.SetActive(online);
+        if (offlineChip != null) offlineChip.SetActive(!online);
+        if (balance != null) balance.SetActive(online);
+        if (shopButton != null) shopButton.SetActive(online);
+        if (rateButton != null) rateButton.SetActive(!online);
+        page.Content.offsetMax = new Vector2(-Paintbox.Gutter, -(online ? PaintboxPage.TabsTop + PaintboxPage.TabsHeight + 14f : PaintboxPage.TabsTop));
 
-        SetPicked(hiderCard, side == 2, HiderTop, HiderBottom);
-        SetPicked(seekerCard, side == 1, SeekerTop, SeekerBottom);
+        SetPicked(hiderCard, side == 2);
+        SetPicked(seekerCard, side == 1);
 
         int character = characters != null ? characters.CurrentIndex : 0;
         for (int i = 0; i < characterCards.Count; i++)
         {
             Card c = characterCards[i];
-            bool locked = Online && lobby.CharacterLocked(i);
-            SetPicked(c, i == character, PickedTop, PickedBottom);
+            bool locked = online && lobby.CharacterLocked(i);
+            SetPicked(c, i == character);
             c.Veil.SetActive(locked);
             c.VeilText.text = locked ? "In the Shop" : "";
+            if (locked)
+            {
+                c.Check.gameObject.SetActive(false);   // the veil's words are where the tick goes
+                if (c.VeilIcon != null) c.VeilIcon.anchoredPosition = new Vector2(-(22f + c.VeilText.preferredWidth + 10f), 0f);
+            }
         }
 
         int roomIndex = RoomIndex;
-        for (int i = 0; i < roomCards.Count; i++) SetPicked(roomCards[i], i == roomIndex, PickedTop, PickedBottom);
+        roomSection.SetActive(online);
+        for (int i = 0; i < roomCards.Count; i++) SetPicked(roomCards[i], i == roomIndex);
         roomStatus.text = roomCards.Count == 0 ? roomsNote : "";
+        roomStatus.gameObject.SetActive(roomCards.Count == 0);
 
         int shown = MapShown;
         int fixedMap = FixedMap;
@@ -476,615 +434,430 @@ public class PlaySetupUI : MonoBehaviour
         {
             Card c = mapCards[i];
             bool open = MapOpen(i);
-            long price = Online && open ? lobby.MapPrice(i) : 0;
-            SetPicked(c, i == shown && open, PickedTop, PickedBottom);
+            long price = online && open ? lobby.MapPrice(i) : 0;
+            SetPicked(c, i == shown && open);
             c.Button.interactable = open;
             c.Veil.SetActive(!open || price > 0);
             c.VeilText.text = !open ? (fixedMap >= 0 ? "" : "Not online yet") : "";
             c.Pill.SetActive(price > 0);
             c.PillText.text = price > 0 ? OnlineUI.CoinsText(price) : "";
         }
-        mapSection.Label.text = fixedMap >= 0 ? "MAP  ·  set by this room" : "MAP";
 
-        Layout();
+        RefreshHero(shown, online && MapOpen(shown) ? lobby.MapPrice(shown) : 0, fixedMap >= 0);
+        RefreshFoot(online, character);
+    }
+
+    // The large picture of the map chosen, with its name.
+    private void RefreshHero(int map, long price, bool setByRoom)
+    {
+        MapSelectPopup picker = MapSelectPopup.Instance;
+        Sprite picture = picker != null && map < MapCount ? picker.ThumbnailAt(map) : null;
+        heroPicture.sprite = picture != null ? picture : Paintbox.Art("studio");
+        CoverFit(heroPicture);
+        heroKicker.text = L.F("MAP {0}", map + 1);
+        heroTitle.text = MapCount > 0 ? L.T(levels.DisplayNameAt(map)) : "";
+        heroLine.text = price > 0 ? L.F("Locked · {0}", OnlineUI.CoinsText(price))
+                      : setByRoom ? "Set by this room" : "Selected map";
+        heroLineIcon.sprite = Paintbox.Icon(price > 0 ? "Lock" : "MapPin");
+    }
+
+    // The foot: what Play starts (or why it can't), and Play / Find match.
+    private void RefreshFoot(bool online, int character)
+    {
+        var who = new List<string> { L.T(side == 1 ? "Seeker" : "Hider") };
+        if (characters != null && characters.buttonLabels != null && character < characters.buttonLabels.Length)
+            who.Add(L.T(characters.buttonLabels[character]));
+        page.FootTitle.text = string.Join(" · ", who);
 
         // Online on a character this account doesn't own (picked for Single Play, say): said at once,
         // not only when Find Match refuses it.
         string note = message;
-        if (string.IsNullOrEmpty(note) && Online && lobby.CharacterLocked(character))
+        if (string.IsNullOrEmpty(note) && online && lobby.CharacterLocked(character))
             note = "Not unlocked online. Pick another character, or get it in the Shop.";
 
         if (string.IsNullOrEmpty(note))
         {
-            summaryCaption.text = "YOUR MATCH";
-            summaryCaption.color = Muted;
             summary.text = Summary();
-            summary.color = Paintbox.Ink;
+            summary.color = Paintbox.Muted;
         }
         else
         {
-            summaryCaption.text = "";
             summary.text = note;
-            summary.color = Warning;
+            summary.color = Paintbox.Bad;
         }
 
-        bool paid = Online && HasRoom && Room.EntryCents > 0;
-        playLabel.text = Online ? "FIND MATCH" : "PLAY";
-        playDetail.text = paid ? $"Entry {OnlineUI.CoinsText(Room.EntryCents)}" : "";
-        RectTransform lrt = playLabel.rectTransform;
-        lrt.anchorMin = new Vector2(0f, paid ? 0.36f : 0f);
-        lrt.offsetMin = new Vector2(84f, paid ? 0f : 4f);
+        Paintbox.SetText(playButton, online ? "Find match" : "Play");
+        Image icon = playButton.GetComponentInChildren<Image>(true);
+        foreach (Image i in playButton.GetComponentsInChildren<Image>(true))
+            if (i.name == "Icon") i.sprite = Paintbox.Icon(online ? "Search" : "Play");
     }
 
-    // "Hider · Player · Room 2 · Practice": what Play starts, each part in the player's language
-    // (the line as a whole is no translation's key).
+    // "Room 2 · Practice · Entry 20 coins" / "Room · Local round": what Play starts, each part in the
+    // player's language (the line as a whole is no translation's key).
     private string Summary()
     {
-        var parts = new List<string> { L.T(side == 1 ? "Seeker" : "Hider") };
-        int character = characters != null ? characters.CurrentIndex : 0;
-        if (characters != null && characters.buttonLabels != null && character < characters.buttonLabels.Length)
-            parts.Add(L.T(characters.buttonLabels[character]));
+        var parts = new List<string>();
         if (MapCount > 0) parts.Add(L.T(levels.DisplayNameAt(MapShown)));
-        if (Online && HasRoom) parts.Add(L.T(RoomTitle(Room.Id)));
-        return string.Join("  ·  ", parts);
+        if (Online && HasRoom)
+        {
+            parts.Add(L.T(RoomTitle(Room.Id)));
+            if (Room.EntryCents > 0) parts.Add(L.F("Entry {0}", OnlineUI.CoinsText(Room.EntryCents)));
+        }
+        else if (!Online) parts.Add(L.T("Local round"));
+        return string.Join(" · ", parts);
     }
 
-    // A card picked: the side's colours or the picked blue, a gold ring and a check badge that pop
-    // in; not picked, a quiet navy card.
-    private void SetPicked(Card c, bool picked, Color top, Color bottom)
+    // Picked: violet with an ink outline and a tick (a map: a yellow ring and a badge), popping in.
+    private void SetPicked(Card c, bool picked)
     {
-        if (picked) c.Fill.Set(top, bottom);
-        else c.Fill.Set(CardTop, CardBottom);
-        c.Ring.gameObject.SetActive(picked);
-        c.Badge.SetActive(picked);
-        if (picked && !c.Picked)
+        if (c == null) return;
+        if (c.Ring != null)
         {
-            pops.Add((c.Ring.rectTransform, Time.unscaledTime));
-            pops.Add(((RectTransform)c.Badge.transform, Time.unscaledTime));
+            c.Ring.gameObject.SetActive(picked);
+            c.Badge.SetActive(picked);
+            if (picked && !c.Picked) pops.Add(((RectTransform)c.Badge.transform, Time.unscaledTime));
+        }
+        else
+        {
+            c.Frame.Fill.color = picked ? Paintbox.Violet : Paintbox.Paper;
+            c.Frame.Edge.color = picked ? Paintbox.Ink : Paintbox.PanelLine;
+            c.Check.gameObject.SetActive(picked);
+            if (picked && !c.Picked) pops.Add((c.Check.rectTransform, Time.unscaledTime));
         }
         c.Picked = picked;
-    }
-
-    // Top to bottom: the title (and Multiplayer's buttons), Side, Character, Room (online only), Map,
-    // then the footer. The panel is as tall as what it shows, standing on the bottom of the screen.
-    private void Layout()
-    {
-        float y = 24f + 54f;
-        if (Online)
-        {
-            Place((RectTransform)extras.transform, Pad, y + 10f, Inner, 44f);
-            y += 10f + 44f;
-        }
-        y += 18f;
-
-        y = PlaceSection(sideSection, y, 104f, true);
-        y = PlaceSection(characterSection, y, 140f, true);
-        y = PlaceSection(roomSection, y, 84f, Online);
-        y = PlaceSection(mapSection, y, 112f, mapCards.Count > 0);
-
-        float height = y + FooterHeight;
-        panelRect.sizeDelta = new Vector2(PanelWidth, height);
-        PlaceShadow();
-        Place(footer, 0f, y, PanelWidth, FooterHeight);
-    }
-
-    // The shadow round the panel, a little larger and lower, wherever the panel is.
-    private void PlaceShadow()
-    {
-        shadowRect.sizeDelta = panelRect.sizeDelta + new Vector2(44f, 44f);
-        shadowRect.anchoredPosition = panelRect.anchoredPosition + new Vector2(22f, -32f);
-    }
-
-    private float PlaceSection(Section s, float y, float rowHeight, bool show)
-    {
-        s.Label.gameObject.SetActive(show);
-        s.Line.gameObject.SetActive(show);
-        s.Row.gameObject.SetActive(show);
-        if (!show) return y;
-
-        Place(s.Label.rectTransform, Pad, y, Inner, 26f);
-        float labelWidth = Mathf.Min(Inner - 40f, s.Label.preferredWidth + 14f);
-        Place(s.Line.rectTransform, Pad + labelWidth, y + 13f, Inner - labelWidth, 2f);
-        Place(s.Row, Pad, y + 34f, Inner, rowHeight);
-        return y + 34f + rowHeight + 18f;
     }
 
     // ================= Building =================
 
     private void Build()
     {
-        Transform canvas = OnlineUI.CreateCanvas("PlaySetupCanvas", transform, 44).transform;   // over the side screen (40), under the Shop (45)
+        Transform canvas = OnlineUI.CreateCanvas("PlaySetupCanvas", transform, 44).transform;   // over the side screen (40), under the shop
 
-        // The screen: the panel standing on the bottom right, its soft shadow behind it, the two
-        // shown, hidden and faded in together.
-        root = new GameObject("PlaySetupScreen", typeof(RectTransform));
-        root.transform.SetParent(canvas, false);
-        Stretch((RectTransform)root.transform, 0f);
-        panelGroup = root.AddComponent<CanvasGroup>();
+        RectTransform holder = Paintbox.Fill(Paintbox.NewRect(canvas, "PlaySetupScreen"));
+        root = holder.gameObject;
+        group = root.AddComponent<CanvasGroup>();
 
-        Image shadow = Shape("PlaySetupShadow", root.transform, UiArt.Shadow, 30f, new Color(0.22f, 0.137f, 0.263f, 0.35f));
-        shadowRect = shadow.rectTransform;
-        shadowRect.anchorMin = shadowRect.anchorMax = shadowRect.pivot = new Vector2(1f, 0f);
-
-        Image bg = Shape("PlaySetup", root.transform, UiArt.Rounded, 30f, Color.white);
-        bg.raycastTarget = true;
-        bg.gameObject.AddComponent<UiGradient>().Set(PanelTop, PanelBottom);
-        panel = bg.gameObject;
-        panelRect = bg.rectTransform;
-        panelRect.anchorMin = panelRect.anchorMax = panelRect.pivot = new Vector2(1f, 0f);
-        panelRect.anchoredPosition = new Vector2(-RightMargin, BottomMargin);
-        Stretch(Shape("Edge", panelRect, UiArt.RingBold, 30f, PanelEdge).rectTransform, 0f);
-        Transform p = panel.transform;
-
-        // The mode, as chosen on Home.
-        title = OnlineUI.NewLabel(p, "", 46, Vector2.zero, new Vector2(Inner, 54f), TextAnchor.MiddleLeft, true);
+        page = PaintboxPage.Build(holder, "PlaySetup", "Single Player", Back,
+                                  PaintboxPage.Top.Offline | PaintboxPage.Top.Balance | PaintboxPage.Top.Shop | PaintboxPage.Top.Settings,
+                                  HubTab.NewMatch, foot: true);
+        title = page.Title;
         title.name = "SetupTitle";
-        Place(title.rectTransform, Pad, 24f, Inner, 54f);
-        UiTranslator.Restyle(title, Paintbox.Title);
-        title.color = Paintbox.Ink;
+        tabsRow = page.Safe.Find("HubTabs")?.gameObject;
+        offlineChip = page.Right.Find("OfflineChip")?.gameObject;
+        balance = page.Right.Find("PageBalance")?.gameObject;
+        shopButton = page.Right.Find("PageShop")?.gameObject;
+        Button rate = Paintbox.IconButton(page.Right, "Star", Paintbox.Tone.Paper, OpenRate, 76f);
+        rate.name = "PageRate";
+        rate.transform.SetSiblingIndex(page.Right.Find("PageSettings").GetSiblingIndex());
+        rateButton = rate.gameObject;
 
-        // Multiplayer's other places, small, under the title: they open over this screen.
-        extras = new GameObject("PlaySetupExtras", typeof(RectTransform));
-        extras.transform.SetParent(p, false);
-        // No WALLET here (2026-11-24): the coin balance opens the wallet, and its history is
-        // HISTORY's first tab.
-        float w = (Inner - 2f * 12f) / 3f;
-        Extra("MATCHES", 0, w, OnlineMatches.ShowList);
-        Extra("HISTORY", 1, w, () => lobby?.OpenHistory());
-        Extra("PROFILE", 2, w, () => lobby?.OpenAccount());
+        summary = page.FootDetail;
+        summary.name = "SetupSummary";
+        playButton = page.FootButton("Play", Paintbox.Tone.Primary, "Play", Play, 300f);
+        playButton.name = "SetupPlay";
+
+        // The choices on the left, the map's picture on the right.
+        RectTransform choices = Paintbox.NewRect(page.Content, "Choices");
+        choices.anchorMin = new Vector2(0f, 0f);
+        choices.anchorMax = new Vector2(0.64f, 1f);
+        choices.offsetMin = Vector2.zero;
+        choices.offsetMax = new Vector2(-12f, 0f);
+        VerticalLayoutGroup column = choices.gameObject.AddComponent<VerticalLayoutGroup>();
+        column.childControlWidth = column.childControlHeight = true;
+        column.childForceExpandWidth = true;
+        column.childForceExpandHeight = false;
+        column.spacing = 8f;
 
         // The side.
-        sideSection = NewSection(p, "SIDE", "SetupSides");
-        float half = (Inner - 16f) / 2f;
-        hiderCard = SideCard(sideSection.Row, "Hider", "Paint yourself and hide", RoleIcon("FugitiveBox"), 0f, half,
-                             () => { AudioManager.ButtonTap(); PickSide(2); });
-        hiderCard.Button.name = "HiderChoice";
-        seekerCard = SideCard(sideSection.Row, "Seeker", "Find and catch the hiders", RoleIcon("HunterBox"), half + 16f, half,
-                              () => { AudioManager.ButtonTap(); PickSide(1); });
-        seekerCard.Button.name = "SeekerChoice";
+        RectTransform sides = Section(choices, "ROLE", "SetupSides", ChoiceHeight);
+        hiderCard = ChoiceCard(sides, "HiderChoice", "Hider", "Paint and blend in", "PaintRoller", null,
+                               () => { AudioManager.ButtonTap(); PickSide(2); });
+        seekerCard = ChoiceCard(sides, "SeekerChoice", "Seeker", "Find the Hiders", "ScanEye", null,
+                                () => { AudioManager.ButtonTap(); PickSide(1); });
 
         // The character.
-        characterSection = NewSection(p, "CHARACTER", "SetupCharacters");
+        characterRow = Section(choices, "CHARACTER", "SetupCharacters", ChoiceHeight);
         int count = characters != null && characters.characterPrefabs != null ? characters.characterPrefabs.Length : 0;
         for (int i = 0; i < count; i++)
         {
             int index = i;
             string label = characters.buttonLabels != null && i < characters.buttonLabels.Length ? characters.buttonLabels[i] : "Player " + (i + 1);
-            Card c = CharacterCard(characterSection.Row, label, Portrait(i), i * (150f + 14f), () => PickCharacter(index));
-            c.Button.name = "Character_" + i;
+            Card c = ChoiceCard(characterRow, "Character_" + i, label, null, null, Portrait(i) ?? Paintbox.Art(i == 0 ? "avatar" : "avatar2"),
+                                () => PickCharacter(index));
             characterCards.Add(c);
         }
 
         // The room (Multiple Play).
-        roomSection = NewSection(p, "ROOM", "SetupRooms");
-        roomStatus = OnlineUI.NewLabel(roomSection.Row, "", 26, Vector2.zero, new Vector2(Inner, 84f), TextAnchor.MiddleLeft);
-        roomStatus.color = Muted;
-        OnlineUI.Stretch(roomStatus.rectTransform);
+        roomRow = Section(choices, "ROOM TYPE", "SetupRooms", ChoiceHeight);
+        roomSection = roomRow.parent.gameObject;
+        roomStatus = Paintbox.Label(roomRow, "", 26f, Paintbox.Muted);
+        roomStatus.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
 
         // The map.
-        mapSection = NewSection(p, "MAP", "SetupMaps");
+        mapRow = Section(choices, "MAP", "SetupMaps", MapHeight);
+        mapRow.GetComponent<HorizontalLayoutGroup>().spacing = 12f;
         MapSelectPopup picker = MapSelectPopup.Instance;
-        float mapWidth = MapCount > 0 ? (Inner - (MapCount - 1) * 12f) / MapCount : 0f;
         for (int i = 0; i < MapCount; i++)
         {
             int index = i;
-            Card c = MapCard(mapSection.Row, levels.DisplayNameAt(i), picker != null ? picker.ThumbnailAt(i) : null, i * (mapWidth + 12f), mapWidth,
+            Card c = MapCard(mapRow, "Map_" + levels.RoomNameAt(i), levels.DisplayNameAt(i), picker != null ? picker.ThumbnailAt(i) : null,
                              () => PickMap(index));
-            c.Button.name = "Map_" + levels.RoomNameAt(i);
             mapCards.Add(c);
         }
+        Spacer(choices, 1f);
 
-        BuildFooter(p);
+        BuildHero(page.Content);
     }
 
-    private Section NewSection(Transform parent, string label, string rowName)
+    // A group of choices: its name in small capitals, then its row. Space spreads between groups.
+    private RectTransform Section(RectTransform column, string label, string rowName, float rowHeight)
     {
-        var s = new Section();
-        s.Label = OnlineUI.NewLabel(parent, label, 22, Vector2.zero, new Vector2(Inner, 26f), TextAnchor.MiddleLeft, true);
-        s.Label.color = Muted;
-        s.Label.horizontalOverflow = HorizontalWrapMode.Overflow;
-        s.Line = Shape("Line", parent, null, 0f, Paintbox.Line);
-        var row = new GameObject(rowName, typeof(RectTransform));
-        row.transform.SetParent(parent, false);
-        s.Row = (RectTransform)row.transform;
-        return s;
+        Spacer(column, 1f);
+        RectTransform section = Paintbox.NewRect(column, "Section_" + rowName);
+        VerticalLayoutGroup v = section.gameObject.AddComponent<VerticalLayoutGroup>();
+        v.childControlWidth = v.childControlHeight = true;
+        v.childForceExpandWidth = true;
+        v.childForceExpandHeight = false;
+        v.spacing = 8f;
+
+        Text kicker = PaintboxPage.Kicker(section, label);
+        kicker.gameObject.AddComponent<LayoutElement>().preferredHeight = 30f;
+
+        RectTransform row = Paintbox.NewRect(section, rowName);
+        row.gameObject.AddComponent<LayoutElement>().preferredHeight = rowHeight;
+        HorizontalLayoutGroup h = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = 16f;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = true;
+        h.childForceExpandHeight = true;
+        return row;
     }
 
-    // "YOUR MATCH" and what was chosen on the left, the raised Play button on the right.
-    private void BuildFooter(Transform p)
+    private static void Spacer(Transform parent, float weight)
     {
-        footer = (RectTransform)new GameObject("SetupFooter", typeof(RectTransform)).transform;
-        footer.SetParent(p, false);
-        Image line = Shape("Line", footer, null, 0f, Paintbox.Line);
-        Place(line.rectTransform, Pad, 0f, Inner, 2f);
-
-        summaryCaption = OnlineUI.NewLabel(footer, "YOUR MATCH", 20, Vector2.zero, new Vector2(420f, 26f), TextAnchor.MiddleLeft, true);
-        Place(summaryCaption.rectTransform, Pad, 24f, 430f, 26f);
-        summary = OnlineUI.NewLabel(footer, "", 28, Vector2.zero, new Vector2(430f, 62f), TextAnchor.UpperLeft, true);
-        summary.name = "SetupSummary";
-        Place(summary.rectTransform, Pad, 52f, 430f, 60f);
-        summary.resizeTextForBestFit = true;
-        summary.resizeTextMinSize = 18;
-        summary.resizeTextMaxSize = 28;
-        summary.verticalOverflow = VerticalWrapMode.Truncate;
-
-        // Play: green, lit from the top, standing on a darker lip, a play sign before its name.
-        Image face = Shape("SetupPlay", footer, UiArt.Rounded, 24f, Color.white);
-        face.raycastTarget = true;
-        face.gameObject.AddComponent<UiGradient>().Set(PlayTop, PlayBottom);
-        Outline rim = face.gameObject.AddComponent<Outline>();
-        rim.effectColor = Paintbox.Ink;
-        rim.effectDistance = new Vector2(Paintbox.Border, -Paintbox.Border);
-        Shadow lip = face.gameObject.AddComponent<Shadow>();
-        lip.effectColor = PlayLip;
-        lip.effectDistance = new Vector2(0f, -Paintbox.Shadow);
-        RectTransform frt = face.rectTransform;
-        frt.anchorMin = frt.anchorMax = frt.pivot = new Vector2(1f, 1f);
-        frt.anchoredPosition = new Vector2(-Pad, -18f);
-        frt.sizeDelta = new Vector2(330f, 88f);
-        playButton = face.gameObject.AddComponent<Button>();
-        playButton.targetGraphic = face;
-        playButton.onClick.AddListener(Play);
-        face.gameObject.AddComponent<UiPress>();
-
-        Image icon = Shape("Icon", frt, UiArt.Play, 0f, Paintbox.OnYellow);
-        icon.type = Image.Type.Simple;
-        icon.preserveAspect = true;
-        RectTransform irt = icon.rectTransform;
-        irt.anchorMin = irt.anchorMax = irt.pivot = new Vector2(0f, 0.5f);
-        irt.anchoredPosition = new Vector2(26f, 0f);
-        irt.sizeDelta = new Vector2(46f, 46f);
-
-        playLabel = OnlineUI.NewLabel(frt, "PLAY", 38, Vector2.zero, Vector2.zero, TextAnchor.MiddleLeft, true);
-        RectTransform lrt = playLabel.rectTransform;
-        lrt.anchorMin = Vector2.zero;
-        lrt.anchorMax = Vector2.one;
-        lrt.offsetMin = new Vector2(84f, 4f);
-        lrt.offsetMax = new Vector2(-16f, 0f);
-        playLabel.resizeTextForBestFit = true;
-        playLabel.resizeTextMinSize = 22;
-        playLabel.resizeTextMaxSize = 38;
-        playLabel.color = Paintbox.OnYellow;
-
-        playDetail = OnlineUI.NewLabel(frt, "", 20, Vector2.zero, Vector2.zero, TextAnchor.UpperLeft, true);
-        RectTransform drt = playDetail.rectTransform;
-        drt.anchorMin = new Vector2(0f, 0f);
-        drt.anchorMax = new Vector2(1f, 0.38f);
-        drt.offsetMin = new Vector2(86f, 6f);
-        drt.offsetMax = new Vector2(-16f, 0f);
-        playDetail.color = Paintbox.OnYellow;
+        RectTransform s = Paintbox.NewRect(parent, "Space");
+        LayoutElement le = s.gameObject.AddComponent<LayoutElement>();
+        le.flexibleHeight = weight;
+        le.minHeight = 6f;
     }
 
-    private void Extra(string text, int column, float width, Action tap)
+    // A choice: paper with a soft outline, its icon or picture, its name (and a line under it), and
+    // a tick when picked (then violet with an ink outline).
+    private Card ChoiceCard(Transform row, string name, string label, string line, string icon, Sprite picture, Action tap)
     {
-        Image face = Shape("Extra_" + text, extras.transform, UiArt.Rounded, 22f, Paintbox.Paper);
-        face.raycastTarget = true;
-        RectTransform rt = face.rectTransform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 1f);
-        rt.anchoredPosition = new Vector2(column * (width + 12f), 0f);
-        rt.sizeDelta = new Vector2(width, 44f);
-        Stretch(Shape("Edge", rt, UiArt.RingBold, 22f, Paintbox.Ink).rectTransform, 0f);
-        Button b = face.gameObject.AddComponent<Button>();
-        b.targetGraphic = face;
-        b.onClick.AddListener(() => tap());
-        face.gameObject.AddComponent<UiPress>();
-        Text label = OnlineUI.NewLabel(rt, text, 22, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
-        OnlineUI.Stretch(label.rectTransform);
-        label.color = Paintbox.Ink;
-        label.resizeTextForBestFit = true;
-        label.resizeTextMinSize = 14;
-        label.resizeTextMaxSize = 22;
-    }
+        PaintboxFrame frame = Paintbox.Frame(row, name, Paintbox.Paper, CardRadius, Paintbox.Border, 0f, Paintbox.PanelLine);
+        Button button = frame.Root.gameObject.AddComponent<Button>();
+        button.targetGraphic = frame.Fill;
+        button.transition = Selectable.Transition.None;
+        Navigation none = button.navigation;
+        none.mode = Navigation.Mode.None;
+        button.navigation = none;
+        button.onClick.AddListener(() => tap());
+        frame.Root.gameObject.AddComponent<UiPress>();
+        var c = new Card { Button = button, Frame = frame };
+        Transform body = frame.Body;
 
-    // ---- Cards ----
-
-    // A card: a rounded face (its gradient set by SetPicked) with a thin edge, a gold ring and a
-    // check badge for when it is picked, and a veil for when it is locked.
-    private Card NewCard(Transform parent, string name, float x, float width, float height, Action tap)
-    {
-        Image face = Shape(name, parent, UiArt.Rounded, CardRadius, Color.white);
-        face.raycastTarget = true;
-        RectTransform rt = face.rectTransform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 1f);
-        rt.anchoredPosition = new Vector2(x, 0f);
-        rt.sizeDelta = new Vector2(width, height);
-        var c = new Card { Fill = face.gameObject.AddComponent<UiGradient>() };
-        c.Fill.Set(CardTop, CardBottom);
-        Stretch(Shape("Edge", rt, UiArt.RingBold, CardRadius, CardEdge).rectTransform, 0f);
-
-        c.Button = face.gameObject.AddComponent<Button>();
-        c.Button.targetGraphic = face;
-        c.Button.onClick.AddListener(() => tap());
-        face.gameObject.AddComponent<UiPress>();
-        return c;
-    }
-
-    // The parts every card has over its content: the veil (locked), the ring and badge (picked).
-    private void FinishCard(Card c, bool withPill)
-    {
-        Transform t = c.Button.transform;
-
-        Image veil = Shape("Lock", t, UiArt.Rounded, CardRadius, new Color(Paintbox.Ink.r, Paintbox.Ink.g, Paintbox.Ink.b, 0.6f));
-        Stretch(veil.rectTransform, 0f);
-        c.Veil = veil.gameObject;
-        Image lockIcon = Shape("Icon", veil.transform, null, 0f, Color.white);
-        lockIcon.sprite = OnlineUI.LockSprite();
-        lockIcon.preserveAspect = true;
-        // Stacked from the bottom: the card's name stays readable, then the price (or a word on
-        // why), then the lock.
-        RectTransform lrt = lockIcon.rectTransform;
-        lrt.anchorMin = lrt.anchorMax = lrt.pivot = new Vector2(0.5f, 0f);
-        lrt.anchoredPosition = new Vector2(0f, 64f);
-        lrt.sizeDelta = new Vector2(34f, 34f);
-        c.VeilText = OnlineUI.NewLabel(veil.transform, "", 18, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
-        RectTransform vrt = c.VeilText.rectTransform;
-        vrt.anchorMin = new Vector2(0f, 0f);
-        vrt.anchorMax = new Vector2(1f, 0f);
-        vrt.pivot = new Vector2(0.5f, 0f);
-        vrt.anchoredPosition = new Vector2(0f, 36f);
-        vrt.sizeDelta = new Vector2(-12f, 24f);
-        c.VeilText.color = new Color(1f, 1f, 1f, 0.9f);
-        c.VeilText.resizeTextForBestFit = true;
-        c.VeilText.resizeTextMinSize = 12;
-        c.VeilText.resizeTextMaxSize = 18;
-        c.Veil.SetActive(false);
-
-        if (withPill)
-        {
-            // The price of what is locked, on a gold pill at the bottom.
-            Image pill = Shape("Price", veil.transform, UiArt.Rounded, 12f, Paintbox.Hot);
-            RectTransform prt = pill.rectTransform;
-            prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0f);
-            prt.anchoredPosition = new Vector2(0f, 34f);
-            prt.sizeDelta = new Vector2(132f, 26f);
-            Stretch(Shape("Edge", prt, UiArt.RingThin, 12f, Paintbox.Ink).rectTransform, 0f);
-            c.PillText = OnlineUI.NewLabel(prt, "", 17, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
-            OnlineUI.Stretch(c.PillText.rectTransform);
-            c.PillText.color = Paintbox.HotInk;
-            c.PillText.resizeTextForBestFit = true;
-            c.PillText.resizeTextMinSize = 11;
-            c.PillText.resizeTextMaxSize = 17;
-            c.Pill = pill.gameObject;
-            c.PillImage = pill;
-            c.Pill.SetActive(false);
-        }
-
-        c.Ring = Shape("Ring", t, UiArt.RingBold, CardRadius + 3f, Paintbox.Ink);
-        Stretch(c.Ring.rectTransform, -4f);
-        c.Ring.gameObject.SetActive(false);
-
-        Image badge = Shape("Badge", t, UiArt.Circle, 0f, Gold);
-        badge.type = Image.Type.Simple;
-        RectTransform brt = badge.rectTransform;
-        brt.anchorMin = brt.anchorMax = new Vector2(1f, 1f);
-        brt.pivot = new Vector2(0.5f, 0.5f);
-        brt.anchoredPosition = new Vector2(-8f, -8f);
-        brt.sizeDelta = new Vector2(30f, 30f);
-        Image tick = Shape("Check", brt, UiArt.Check, 0f, Ink);
-        tick.type = Image.Type.Simple;
-        Stretch(tick.rectTransform, 3f);
-        c.Badge = badge.gameObject;
-        c.Badge.SetActive(false);
-    }
-
-    private Card SideCard(Transform row, string label, string line, Sprite icon, float x, float width, Action tap)
-    {
-        Card c = NewCard(row, "Side", x, width, 104f, tap);
-        Transform t = c.Button.transform;
-
-        float textLeft = 24f;
-        if (icon != null)
-        {
-            Image disc = Shape("IconDisc", t, UiArt.Circle, 0f, Paintbox.Card);
-            disc.type = Image.Type.Simple;
-            RectTransform drt = disc.rectTransform;
-            drt.anchorMin = drt.anchorMax = drt.pivot = new Vector2(0f, 0.5f);
-            drt.anchoredPosition = new Vector2(18f, 0f);
-            drt.sizeDelta = new Vector2(72f, 72f);
-            Image pic = Shape("Icon", disc.transform, null, 0f, Color.white);
-            pic.sprite = icon;
-            pic.preserveAspect = true;
-            Stretch(pic.rectTransform, 8f);
-            c.Picture = pic;
-            textLeft = 106f;
-        }
-
-        c.Title = OnlineUI.NewLabel(t, label, 36, Vector2.zero, Vector2.zero, TextAnchor.LowerLeft, true);
-        Band(c.Title.rectTransform, textLeft, 0.46f, 1f, -2f);
-        Shadowed(c.Title, 0.3f);
-        c.Detail = OnlineUI.NewLabel(t, line, 20, Vector2.zero, Vector2.zero, TextAnchor.UpperLeft, false);
-        Band(c.Detail.rectTransform, textLeft, 0f, 0.46f, 2f);
-        c.Detail.color = Paintbox.Muted;
-        c.Detail.resizeTextForBestFit = true;
-        c.Detail.resizeTextMinSize = 14;
-        c.Detail.resizeTextMaxSize = 20;
-        FinishCard(c, false);
-        return c;
-    }
-
-    private Card CharacterCard(Transform row, string label, Sprite portrait, float x, Action tap)
-    {
-        Card c = NewCard(row, "Character", x, 150f, 140f, tap);
-        Transform t = c.Button.transform;
-
-        Image glow = Shape("Stage", t, UiArt.Circle, 0f, Paintbox.Wash);
-        glow.type = Image.Type.Simple;
-        RectTransform grt = glow.rectTransform;
-        grt.anchorMin = grt.anchorMax = grt.pivot = new Vector2(0.5f, 1f);
-        grt.anchoredPosition = new Vector2(0f, -10f);
-        grt.sizeDelta = new Vector2(96f, 96f);
-
-        Image pic = Shape("Picture", t, null, 0f, Color.white);
-        pic.sprite = portrait;
-        pic.preserveAspect = true;
-        pic.enabled = portrait != null;
-        RectTransform prt = pic.rectTransform;
-        prt.anchorMin = Vector2.zero;
-        prt.anchorMax = Vector2.one;
-        prt.offsetMin = new Vector2(10f, 34f);
-        prt.offsetMax = new Vector2(-10f, -8f);
-        c.Picture = pic;
-
-        c.Title = OnlineUI.NewLabel(t, label, 22, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
-        RectTransform trt = c.Title.rectTransform;
-        trt.anchorMin = new Vector2(0f, 0f);
-        trt.anchorMax = new Vector2(1f, 0f);
-        trt.pivot = new Vector2(0.5f, 0f);
-        trt.anchoredPosition = new Vector2(0f, 6f);
-        trt.sizeDelta = new Vector2(-12f, 28f);
-        c.Title.resizeTextForBestFit = true;
-        c.Title.resizeTextMinSize = 14;
-        c.Title.resizeTextMaxSize = 22;
-        FinishCard(c, false);
-        return c;
-    }
-
-    private Card MapCard(Transform row, string label, Sprite picture, float x, float width, Action tap)
-    {
-        Card c = NewCard(row, "Map", x, width, 112f, tap);
-        Transform t = c.Button.transform;
-
-        // The picture fills the card, cut to its rounded corners.
-        Image mask = Shape("Frame", t, UiArt.Rounded, CardRadius - 4f, Color.white);
-        Stretch(mask.rectTransform, 3f);
-        mask.gameObject.AddComponent<Mask>().showMaskGraphic = false;
-        Image pic = Shape("Picture", mask.transform, null, 0f, Color.white);
-        pic.sprite = picture;
-        pic.enabled = picture != null;
-        pic.preserveAspect = false;
-        Stretch(pic.rectTransform, 0f);
+        float textLeft = 28f;
         if (picture != null)
         {
-            // Cover the frame without stretching the picture: the longer side runs past the edges.
-            float aspect = picture.rect.width / Mathf.Max(1f, picture.rect.height);
-            float frameAspect = (width - 6f) / 106f;
-            RectTransform prt = pic.rectTransform;
-            prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0.5f);
-            prt.anchoredPosition = Vector2.zero;
-            prt.sizeDelta = aspect > frameAspect ? new Vector2(106f * aspect, 106f) : new Vector2(width - 6f, (width - 6f) / aspect);
+            Image well = Paintbox.Rounded(body, "Thumb", Paintbox.Card, 16f);
+            Paintbox.Pin(well.rectTransform, new Vector2(0f, 0.5f), new Vector2(16f, 0f), new Vector2(68f, 68f));
+            well.rectTransform.pivot = new Vector2(0f, 0.5f);
+            c.Picture = Paintbox.Image(well.rectTransform, "Picture", picture, Color.white);
+            c.Picture.preserveAspect = true;
+            Paintbox.Fill(c.Picture.rectTransform, 4f, 4f, 4f, 4f);
+            textLeft = 100f;
         }
-        c.Picture = pic;
+        else if (icon != null)
+        {
+            c.Icon = Paintbox.IconImage(body, icon, 40f, Paintbox.Ink);
+            Paintbox.Pin(c.Icon.rectTransform, new Vector2(0f, 0.5f), new Vector2(24f, 0f), new Vector2(40f, 40f));
+            c.Icon.rectTransform.pivot = new Vector2(0f, 0.5f);
+            textLeft = 82f;
+        }
 
-        // The name on a shade at the bottom of the picture.
-        Image shade = Shape("Shade", mask.transform, null, 0f, Color.white);
-        shade.gameObject.AddComponent<UiGradient>().Set(new Color(0f, 0f, 0f, 0f), new Color(0f, 0f, 0f, 0.8f));
-        RectTransform srt = shade.rectTransform;
-        srt.anchorMin = new Vector2(0f, 0f);
-        srt.anchorMax = new Vector2(1f, 0f);
-        srt.pivot = new Vector2(0.5f, 0f);
-        srt.anchoredPosition = Vector2.zero;
-        srt.sizeDelta = new Vector2(0f, 48f);
-        c.Title = OnlineUI.NewLabel(mask.transform, label, 20, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
-        RectTransform trt = c.Title.rectTransform;
-        trt.anchorMin = new Vector2(0f, 0f);
-        trt.anchorMax = new Vector2(1f, 0f);
-        trt.pivot = new Vector2(0.5f, 0f);
-        trt.anchoredPosition = new Vector2(0f, 4f);
-        trt.sizeDelta = new Vector2(-10f, 26f);
-        c.Title.resizeTextForBestFit = true;
-        c.Title.resizeTextMinSize = 13;
-        c.Title.resizeTextMaxSize = 20;
-        c.Title.color = Color.white;
-        Shadowed(c.Title, 0.5f);
+        c.Title = Paintbox.Label(body, label, 32f, Paintbox.Ink, Paintbox.Weight.Bold);
+        Paintbox.Fit(c.Title, 18);
+        RectTransform t = c.Title.rectTransform;
+        t.anchorMin = new Vector2(0f, line != null ? 0.48f : 0f);
+        t.anchorMax = new Vector2(1f, 1f);
+        t.offsetMin = new Vector2(textLeft, 0f);
+        t.offsetMax = new Vector2(-64f, line != null ? -8f : 0f);
+        c.Title.alignment = line != null ? TextAnchor.LowerLeft : TextAnchor.MiddleLeft;
 
-        FinishCard(c, true);
+        if (line != null)
+        {
+            c.Detail = Paintbox.Label(body, line, 22f, Paintbox.Muted);
+            Paintbox.Fit(c.Detail, 14);
+            RectTransform d = c.Detail.rectTransform;
+            d.anchorMin = new Vector2(0f, 0f);
+            d.anchorMax = new Vector2(1f, 0.48f);
+            d.offsetMin = new Vector2(textLeft, 8f);
+            d.offsetMax = new Vector2(-64f, -2f);
+            c.Detail.alignment = TextAnchor.UpperLeft;
+        }
+
+        c.Check = Paintbox.IconImage(body, "Check", 36f, Paintbox.Ink);
+        c.Check.name = "Tick";
+        Paintbox.Pin(c.Check.rectTransform, new Vector2(1f, 0.5f), new Vector2(-22f, 0f), new Vector2(36f, 36f));
+        c.Check.rectTransform.pivot = new Vector2(1f, 0.5f);
+        c.Check.gameObject.SetActive(false);
+
+        // Not owned online: a veil with a lock and a word.
+        Image veil = Paintbox.Rounded(frame.Root, "Lock", new Color(Paintbox.Ink.r, Paintbox.Ink.g, Paintbox.Ink.b, 0.62f), CardRadius);
+        Paintbox.Fill(veil.rectTransform);
+        Image padlock = Paintbox.IconImage(veil.rectTransform, "Lock", 32f, Color.white);
+        Paintbox.Pin(padlock.rectTransform, new Vector2(1f, 0.5f), new Vector2(-150f, 0f), new Vector2(32f, 32f));
+        c.VeilIcon = padlock.rectTransform;
+        c.VeilText = Paintbox.Label(veil.rectTransform, "", 24f, Color.white, Paintbox.Weight.Bold, TextAnchor.MiddleRight);
+        Paintbox.Fill(c.VeilText.rectTransform, 0f, 22f, 0f, 0f);
+        c.Veil = veil.gameObject;
+        c.Veil.SetActive(false);
         return c;
     }
 
-    // Room cards: the room's name and what it is for, and its price on a pill (FREE, or coins).
+    // A map: its picture filling the card, its name on a shade at the bottom; picked: a yellow ring
+    // and a tick badge. Locked: a veil with a lock and its price.
+    private Card MapCard(Transform row, string name, string label, Sprite picture, Action tap)
+    {
+        PaintboxFrame frame = Paintbox.Frame(row, name, Paintbox.Ink, 18f, 0f, 4f);
+        Button button = frame.Root.gameObject.AddComponent<Button>();
+        button.targetGraphic = frame.Fill;
+        Navigation none = button.navigation;
+        none.mode = Navigation.Mode.None;
+        button.navigation = none;
+        ColorBlock colors = button.colors;
+        colors.disabledColor = Color.white;
+        button.colors = colors;
+        button.onClick.AddListener(() => tap());
+        frame.Root.gameObject.AddComponent<UiPress>();
+        var c = new Card { Button = button, Frame = frame };
+
+        Image mask = Paintbox.Rounded(frame.Body, "Frame", Color.white, 18f);
+        Paintbox.Fill(mask.rectTransform);
+        mask.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+        c.Picture = Paintbox.Image(mask.rectTransform, "Picture", picture, Color.white);
+        Paintbox.Fill(c.Picture.rectTransform);
+        c.Picture.gameObject.AddComponent<AspectRatioFitter>().aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+        if (picture != null) c.Picture.GetComponent<AspectRatioFitter>().aspectRatio = picture.rect.width / Mathf.Max(1f, picture.rect.height);
+
+        Image shade = Paintbox.Image(mask.rectTransform, "Shade", null, Color.white);
+        shade.gameObject.AddComponent<UiGradient>().Set(new Color(0f, 0f, 0f, 0f), new Color(0.13f, 0.08f, 0.16f, 0.85f));
+        shade.rectTransform.anchorMin = new Vector2(0f, 0f);
+        shade.rectTransform.anchorMax = new Vector2(1f, 0.55f);
+        shade.rectTransform.offsetMin = shade.rectTransform.offsetMax = Vector2.zero;
+        c.Title = Paintbox.Label(mask.rectTransform, label, 22f, Color.white, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
+        Paintbox.Fit(c.Title, 13);
+        c.Title.rectTransform.anchorMin = new Vector2(0f, 0f);
+        c.Title.rectTransform.anchorMax = new Vector2(1f, 0f);
+        c.Title.rectTransform.pivot = new Vector2(0.5f, 0f);
+        c.Title.rectTransform.offsetMin = new Vector2(6f, 6f);
+        c.Title.rectTransform.offsetMax = new Vector2(-6f, 36f);
+
+        Image veil = Paintbox.Rounded(frame.Root, "Lock", new Color(Paintbox.Ink.r, Paintbox.Ink.g, Paintbox.Ink.b, 0.6f), 18f);
+        Paintbox.Fill(veil.rectTransform);
+        Image padlock = Paintbox.IconImage(veil.rectTransform, "Lock", 30f, Color.white);
+        Paintbox.Pin(padlock.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -14f), new Vector2(30f, 30f));
+        padlock.rectTransform.pivot = new Vector2(0.5f, 1f);
+        c.VeilText = Paintbox.Label(veil.rectTransform, "", 18f, Color.white, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
+        Paintbox.Fit(c.VeilText, 12);
+        Paintbox.Fill(c.VeilText.rectTransform, 6f, 6f, 46f, 40f);
+        Image pill = Paintbox.Rounded(veil.rectTransform, "Price", Paintbox.Hot, 14f);
+        pill.rectTransform.anchorMin = new Vector2(0.08f, 0f);
+        pill.rectTransform.anchorMax = new Vector2(0.92f, 0f);
+        pill.rectTransform.pivot = new Vector2(0.5f, 0f);
+        pill.rectTransform.offsetMin = new Vector2(0f, 40f);
+        pill.rectTransform.offsetMax = new Vector2(0f, 70f);
+        c.PillText = Paintbox.Label(pill.rectTransform, "", 19f, Paintbox.HotInk, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
+        Paintbox.Fit(c.PillText, 11);
+        Paintbox.Fill(c.PillText.rectTransform, 4f, 4f, 0f, 0f);
+        c.Pill = pill.gameObject;
+        c.Pill.SetActive(false);
+        c.Veil = veil.gameObject;
+        c.Veil.SetActive(false);
+
+        // Picked: a yellow ring and a tick on a yellow badge.
+        c.Ring = Paintbox.Image(frame.Root, "Ring", UiArt.RingBold, Paintbox.Yellow);
+        UiArt.Apply(c.Ring, UiArt.RingBold, 22f);
+        Paintbox.Fill(c.Ring.rectTransform, -5f, -5f, -5f, -5f);
+        c.Ring.gameObject.SetActive(false);
+        Image badge = Paintbox.Image(frame.Root, "Badge", UiArt.Circle, Paintbox.Yellow);
+        badge.rectTransform.anchorMin = badge.rectTransform.anchorMax = new Vector2(1f, 1f);
+        badge.rectTransform.anchoredPosition = new Vector2(-14f, -14f);
+        badge.rectTransform.sizeDelta = new Vector2(30f, 30f);
+        Paintbox.IconImage(badge.rectTransform, "Check", 20f, Paintbox.Ink);
+        c.Badge = badge.gameObject;
+        c.Badge.SetActive(false);
+        return c;
+    }
+
+    // The map chosen, large on the right: its picture, its number and name, and whether it is set.
+    private void BuildHero(RectTransform content)
+    {
+        PaintboxFrame hero = Paintbox.Frame(content, "MapHero", Paintbox.Ink, 34f, Paintbox.Border, Paintbox.Shadow);
+        hero.Root.anchorMin = new Vector2(0.655f, 0f);
+        hero.Root.anchorMax = new Vector2(1f, 1f);
+        hero.Root.offsetMin = new Vector2(0f, Paintbox.Shadow);
+        hero.Root.offsetMax = Vector2.zero;
+
+        Image mask = Paintbox.Rounded(hero.Fill.rectTransform, "Frame", Color.white, 30f);
+        Paintbox.Fill(mask.rectTransform);
+        mask.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+        heroPicture = Paintbox.Image(mask.rectTransform, "Picture", null, Color.white);
+        Paintbox.Fill(heroPicture.rectTransform);
+        heroPicture.gameObject.AddComponent<AspectRatioFitter>().aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+
+        Image shade = Paintbox.Image(mask.rectTransform, "Shade", null, Color.white);
+        shade.gameObject.AddComponent<UiGradient>().Set(new Color(0.13f, 0.08f, 0.16f, 0f), new Color(0.13f, 0.08f, 0.16f, 0.9f));
+        shade.rectTransform.anchorMin = new Vector2(0f, 0f);
+        shade.rectTransform.anchorMax = new Vector2(1f, 0.5f);
+        shade.rectTransform.offsetMin = shade.rectTransform.offsetMax = Vector2.zero;
+
+        heroKicker = Paintbox.Label(mask.rectTransform, "", Paintbox.TinySize, new Color(1f, 1f, 1f, 0.85f), Paintbox.Weight.Bold);
+        Paintbox.Pin(heroKicker.rectTransform, new Vector2(0f, 0f), new Vector2(28f, 150f), new Vector2(500f, 30f));
+        heroKicker.rectTransform.pivot = new Vector2(0f, 0f);
+        heroTitle = Paintbox.Label(mask.rectTransform, "", 68f, Color.white, Paintbox.Weight.Title);
+        Paintbox.Fit(heroTitle, 30);
+        heroTitle.rectTransform.anchorMin = new Vector2(0f, 0f);
+        heroTitle.rectTransform.anchorMax = new Vector2(1f, 0f);
+        heroTitle.rectTransform.pivot = new Vector2(0.5f, 0f);
+        heroTitle.rectTransform.offsetMin = new Vector2(28f, 62f);
+        heroTitle.rectTransform.offsetMax = new Vector2(-28f, 148f);
+        heroTitle.alignment = TextAnchor.LowerLeft;
+
+        heroLineIcon = Paintbox.IconImage(mask.rectTransform, "MapPin", 28f, Color.white);
+        Paintbox.Pin(heroLineIcon.rectTransform, new Vector2(0f, 0f), new Vector2(28f, 26f), new Vector2(28f, 28f));
+        heroLineIcon.rectTransform.pivot = new Vector2(0f, 0f);
+        heroLine = Paintbox.Label(mask.rectTransform, "", 25f, Color.white);
+        Paintbox.Pin(heroLine.rectTransform, new Vector2(0f, 0f), new Vector2(66f, 22f), new Vector2(560f, 36f));
+        heroLine.rectTransform.pivot = new Vector2(0f, 0f);
+    }
+
+    // A picture filling its frame without stretching: the longer side runs past the edges.
+    private static void CoverFit(Image image)
+    {
+        AspectRatioFitter fit = image.GetComponent<AspectRatioFitter>();
+        if (fit != null && image.sprite != null) fit.aspectRatio = image.sprite.rect.width / Mathf.Max(1f, image.sprite.rect.height);
+    }
+
+    // Room cards: the room's name and what it is for (free with bots, or its entry and real players).
     private void BuildRoomCards()
     {
         foreach (Card c in roomCards) Destroy(c.Button.gameObject);
         roomCards.Clear();
-        if (rooms == null) return;
+        if (rooms == null || roomRow == null) return;
 
-        int n = rooms.Length;
-        float width = n <= 2 ? (Inner - 16f) / 2f : (Inner - (n - 1) * 12f) / n;
-        for (int i = 0; i < n; i++)
+        for (int i = 0; i < rooms.Length; i++)
         {
             int index = i;
             MetaRoom r = rooms[i];
             bool free = r.EntryCents == 0;
-            Card c = NewCard(roomSection.Row, "Room_" + r.Id, i * (width + (n <= 2 ? 16f : 12f)), width, 84f, () => PickRoom(index));
-            Transform t = c.Button.transform;
-
-            c.Title = OnlineUI.NewLabel(t, RoomTitle(r.Id), 30, Vector2.zero, Vector2.zero, TextAnchor.LowerLeft, true);
-            Band(c.Title.rectTransform, 22f, 0.46f, 1f, -2f);
-            c.Title.rectTransform.offsetMax = new Vector2(-130f, -2f);
-            Shadowed(c.Title, 0.3f);
-            c.Detail = OnlineUI.NewLabel(t, free ? "Bots fill empty seats" : "Real players only", 19, Vector2.zero, Vector2.zero, TextAnchor.UpperLeft);
-            Band(c.Detail.rectTransform, 22f, 0f, 0.46f, 2f);
-            c.Detail.rectTransform.offsetMax = new Vector2(-130f, 2f);
-            c.Detail.color = Paintbox.Muted;
-
-            Image pill = Shape("Price", t, UiArt.Rounded, 14f, free ? Paintbox.GoodWash : Paintbox.Hot);
-            RectTransform prt = pill.rectTransform;
-            prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(1f, 0.5f);
-            prt.anchoredPosition = new Vector2(-18f, 0f);
-            prt.sizeDelta = new Vector2(104f, 34f);
-            Stretch(Shape("Edge", prt, UiArt.RingThin, 14f, Paintbox.Ink).rectTransform, 0f);
-            Text price = OnlineUI.NewLabel(prt, free ? "FREE" : OnlineUI.CoinsText(r.EntryCents), 19, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
-            OnlineUI.Stretch(price.rectTransform);
-            price.color = free ? Paintbox.Good : Paintbox.HotInk;
-            price.resizeTextForBestFit = true;
-            price.resizeTextMinSize = 11;
-            price.resizeTextMaxSize = 19;
-
-            FinishCard(c, false);
+            Card c = ChoiceCard(roomRow, "Room_" + r.Id, RoomTitle(r.Id),
+                                free ? L.T("Free · Bots fill empty seats") : L.F("{0} · Players only", OnlineUI.CoinsText(r.EntryCents)),
+                                free ? "Gamepad2" : "Users", null, () => PickRoom(index));
             roomCards.Add(c);
         }
     }
-
-    // ================= Small helpers =================
-
-    // An Image child: a rounded shape at a corner radius, or a plain rectangle (no sprite).
-    private static Image Shape(string name, Transform parent, Sprite sprite, float radius, Color color)
-    {
-        var go = new GameObject(name, typeof(RectTransform), typeof(Image));
-        go.transform.SetParent(parent, false);
-        Image image = go.GetComponent<Image>();
-        if (sprite != null && radius > 0f) UiArt.Apply(image, sprite, radius);
-        else if (sprite != null) image.sprite = sprite;
-        image.color = color;
-        image.raycastTarget = false;
-        return image;
-    }
-
-    private static void Stretch(RectTransform rt, float inset)
-    {
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = new Vector2(inset, inset);
-        rt.offsetMax = new Vector2(-inset, -inset);
-    }
-
-    // A child of the panel (or a row), its top-left x across and y down from its parent's top-left.
-    private static void Place(RectTransform rt, float x, float yTop, float w, float h)
-    {
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 1f);
-        rt.anchoredPosition = new Vector2(x, -yTop);
-        rt.sizeDelta = new Vector2(w, h);
-    }
-
-    // A text across a card between two heights (fractions of it), inset at the left.
-    private static void Band(RectTransform rt, float left, float bottom01, float top01, float nudge)
-    {
-        rt.anchorMin = new Vector2(0f, bottom01);
-        rt.anchorMax = new Vector2(1f, top01);
-        rt.offsetMin = new Vector2(left, nudge);
-        rt.offsetMax = new Vector2(-14f, nudge);
-    }
-
-    private static void Shadowed(Text text, float alpha)
-    {
-        if (text.color.r < 0.7f) return;   // ink on paper (design B) wants no shadow; white on a picture does
-        Shadow s = text.gameObject.AddComponent<Shadow>();
-        s.effectColor = new Color(0f, 0f, 0f, alpha);
-        s.effectDistance = new Vector2(0f, -2f);
-    }
-
-    private static Color Hex(int rgb, float alpha = 1f) =>
-        new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, alpha);
 
     // ================= Pictures from the old screens =================
 
@@ -1097,15 +870,6 @@ public class PlaySetupUI : MonoBehaviour
         Transform button = canvas != null ? FindUnder(canvas.transform, name) : null;
         Image picture = button != null ? button.Find("Map")?.GetComponent<Image>() : null;
         return picture != null ? picture.sprite : null;
-    }
-
-    // The side's icon from the matchmaking screen's columns (FugitiveBox = hiders, HunterBox = seekers).
-    private static Sprite RoleIcon(string box)
-    {
-        GameObject canvas = SceneObject("MatchmakingCanvas");
-        Transform column = canvas != null ? FindUnder(canvas.transform, box) : null;
-        Image icon = column != null ? column.Find("Icon")?.GetComponent<Image>() : null;
-        return icon != null ? icon.sprite : null;
     }
 
     private static string RoomTitle(string id)

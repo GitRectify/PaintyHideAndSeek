@@ -49,8 +49,11 @@ public class OnlineSignIn : MonoBehaviour
     private MetaProfile profile;
 
     // ---- UI ---------------------------------------------------------------------------------
-    private GameObject statusScreen, profileScreen, hostRow;
-    private Text statusTitle, statusMessage, profileError, profileTitle, avatarTitle;
+    private GameObject statusScreen, profileScreen, hostRow, profileTabs;
+    private Text statusTitle, statusMessage, profileError, profileTitle, avatarTitle, artName;
+    private Image artPicture, statusIcon;
+    private PaintboxPage profilePage;
+    private Button saveButton;
     private InputField hostInput, userIdInput, displayNameInput;
     private Button statusRetry;
     private RectTransform avatarRow;
@@ -283,10 +286,12 @@ public class OnlineSignIn : MonoBehaviour
         onEdited = saved;
         onEditClosed = closed;
         ShowProfileScreen();
+        MultiplayerHub.Showing(HubTab.Profile, () => { if (editing) CloseEdit(); });
     }
 
     private void CloseEdit()
     {
+        MultiplayerHub.Closed(HubTab.Profile);
         editing = false;
         step = Step.Idle;
         HideScreens();
@@ -354,8 +359,16 @@ public class OnlineSignIn : MonoBehaviour
         step = Step.Profile;
         HideScreens();
         profileScreen.SetActive(true);
+        profileScreen.transform.SetAsLastSibling();
         profileError.text = "";
-        profileTitle.text = editing ? "Your profile" : "Choose your names";
+        // The account (Multiplayer's Profile tab) or the first run's page of its own.
+        profileTitle.text = editing ? "Multiplayer" : "Choose your names";
+        profileTabs.SetActive(editing);
+        profilePage.Content.offsetMax = new Vector2(-Paintbox.Gutter, -(editing ? PaintboxPage.TabsTop + PaintboxPage.TabsHeight + 14f : PaintboxPage.TabsTop));
+        Paintbox.SetText(saveButton, editing ? "Save changes" : "Continue");
+        artName.text = editing ? profile.UserId ?? "" : "";
+        int body = editing ? profile.AvatarId : characters != null ? characters.CurrentIndex : 0;
+        artPicture.sprite = Paintbox.Art(body == 1 ? "avatar2" : "avatar");
         userIdInput.text = editing ? profile.UserId ?? "" : "";
 
         // A display name of their own; one never chosen is the username, shown empty ("same as").
@@ -386,14 +399,11 @@ public class OnlineSignIn : MonoBehaviour
         avatarButtons.Clear();
         avatarIds.Clear();
 
-        const float width = 240f;
-        float x0 = -(owned.Length - 1) * (width + 20f) * 0.5f;
-
         for (int i = 0; i < owned.Length; i++)
         {
             int id = owned[i];
-            Button b = OnlineUI.NewButton(avatarRow, AvatarName(id), new Vector2(x0 + i * (width + 20f), 0f),
-                                          new Vector2(width, 90f), OnlineUI.Gray, () => PickAvatar(id));
+            Button b = PaintboxPage.Chip(avatarRow, AvatarName(id), "User", false, () => PickAvatar(id));
+            b.gameObject.AddComponent<LayoutElement>().preferredWidth = 260f;
             avatarButtons.Add(b);
             avatarIds.Add(id);
         }
@@ -401,13 +411,19 @@ public class OnlineSignIn : MonoBehaviour
         PickAvatar(chosenAvatar);
     }
 
+    // The avatar chosen: violet with an outline; the others quiet.
     private void PickAvatar(int id)
     {
         chosenAvatar = id;
         for (int i = 0; i < avatarButtons.Count; i++)
         {
-            avatarButtons[i].targetGraphic.color = avatarIds[i] == id ? OnlineUI.Green : OnlineUI.Gray;
+            bool on = avatarIds[i] == id;
+            PaintboxFrame frame = avatarButtons[i].GetComponent<PaintboxFrame>();
+            frame.Fill.color = on ? Paintbox.Violet : Color.clear;
+            if (frame.Edge != null) frame.Edge.enabled = on;
+            foreach (Text t in avatarButtons[i].GetComponentsInChildren<Text>(true)) t.color = on ? Paintbox.WashInk : Paintbox.Muted;
         }
+        if (artPicture != null) artPicture.sprite = Paintbox.Art(id == 1 ? "avatar2" : "avatar");
     }
 
     // Avatar id = CharacterSelect index (Player = 0, Player2 = 1).
@@ -452,50 +468,151 @@ public class OnlineSignIn : MonoBehaviour
         // Above CharacterSelect's buttons (45) and the result screen (40).
         Transform canvas = OnlineUI.CreateCanvas("OnlineSignInCanvas", transform, 50).transform;
 
-        // Connecting / failed.
-        RectTransform p = OnlineUI.Modal(canvas, "StatusScreen", new Vector2(980f, 600f));
-        statusScreen = p.parent.gameObject;
-        statusTitle = OnlineUI.NewLabel(p, "", 52, new Vector2(0f, 220f), new Vector2(900f, 80f), TextAnchor.MiddleCenter, true);
-        statusMessage = OnlineUI.NewLabel(p, "", 34, new Vector2(0f, 80f), new Vector2(880f, 180f));
+        // Connecting / failed: a page with a card in its middle (design B).
+        PaintboxPage status = PaintboxPage.Build(canvas, "StatusScreen", "Multiplayer", Back, PaintboxPage.Top.None);
+        statusScreen = status.Root.gameObject;
+        PaintboxFrame card = Paintbox.Frame(status.Content, "Card", Paintbox.Paper, Paintbox.RadiusLarge, Paintbox.Border, 0f, Paintbox.PanelLine);
+        Paintbox.Pin(card.Root, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(1000f, 560f));
+        RectTransform c = card.Body;
+        Image badge = Paintbox.Rounded(c, "Badge", Paintbox.Wash, 18f);
+        Paintbox.Pin(badge.rectTransform, new Vector2(0f, 1f), new Vector2(44f, -40f), new Vector2(72f, 72f));
+        badge.rectTransform.pivot = new Vector2(0f, 1f);
+        statusIcon = Paintbox.IconImage(badge.rectTransform, "Radio", 42f, Paintbox.WashInk);
+        statusTitle = Paintbox.Label(c, "", 52f, Paintbox.Ink, Paintbox.Weight.Title);
+        Paintbox.TopBand(statusTitle.rectTransform, 126f, 70f, 44f, 44f);
+        statusMessage = Paintbox.Label(c, "", 28f, Paintbox.Muted);
+        statusMessage.verticalOverflow = VerticalWrapMode.Overflow;
+        Paintbox.TopBand(statusMessage.rectTransform, 200f, 110f, 44f, 44f);
+        statusMessage.alignment = TextAnchor.UpperLeft;
         hostRow = new GameObject("HostRow", typeof(RectTransform));
-        hostRow.transform.SetParent(p, false);
-        OnlineUI.Place((RectTransform)hostRow.transform, new Vector2(0f, -70f), new Vector2(880f, 90f));
-        OnlineUI.NewLabel(hostRow.transform, "Server", 32, new Vector2(-330f, 0f), new Vector2(180f, 80f), TextAnchor.MiddleRight);
-        hostInput = OnlineUI.NewInput(hostRow.transform, "IP address or host name", new Vector2(80f, 0f), new Vector2(560f, 84f));
-        statusRetry = OnlineUI.NewButton(p, "RETRY", new Vector2(-180f, -210f), new Vector2(300f, 100f), OnlineUI.Green, Retry);
-        OnlineUI.NewButton(p, "BACK", new Vector2(180f, -210f), new Vector2(300f, 100f), OnlineUI.Gray, Back);
+        hostRow.transform.SetParent(c, false);
+        Paintbox.TopBand((RectTransform)hostRow.transform, 318f, 84f, 44f, 44f);
+        Text serverLabel = Paintbox.Label(hostRow.transform, "Server", 28f, Paintbox.Ink, Paintbox.Weight.Bold);
+        Paintbox.Pin(serverLabel.rectTransform, new Vector2(0f, 0.5f), Vector2.zero, new Vector2(150f, 60f));
+        serverLabel.rectTransform.pivot = new Vector2(0f, 0.5f);
+        hostInput = OnlineUI.NewInput(hostRow.transform, "IP address or host name", Vector2.zero, new Vector2(700f, 80f));
+        ((RectTransform)hostInput.transform).anchorMin = new Vector2(0f, 0.5f);
+        ((RectTransform)hostInput.transform).anchorMax = new Vector2(1f, 0.5f);
+        ((RectTransform)hostInput.transform).offsetMin = new Vector2(160f, -40f);
+        ((RectTransform)hostInput.transform).offsetMax = new Vector2(0f, 40f);
+        hostInput.GetComponent<Image>().color = Paintbox.Tab;
+        RectTransform statusButtons = Paintbox.NewRect(c, "Buttons");
+        statusButtons.anchorMin = new Vector2(0f, 0f);
+        statusButtons.anchorMax = new Vector2(1f, 0f);
+        statusButtons.pivot = new Vector2(0.5f, 0f);
+        statusButtons.offsetMin = new Vector2(44f, 36f);
+        statusButtons.offsetMax = new Vector2(-44f, 118f);
+        HorizontalLayoutGroup sb = statusButtons.gameObject.AddComponent<HorizontalLayoutGroup>();
+        sb.childAlignment = TextAnchor.MiddleRight;
+        sb.spacing = 16f;
+        sb.childControlWidth = sb.childControlHeight = true;
+        sb.childForceExpandWidth = false;
+        sb.childForceExpandHeight = true;
+        Button back = Paintbox.Button(statusButtons, "Back", Paintbox.Tone.Paper, "ArrowLeft", Back, 28f);
+        back.gameObject.AddComponent<LayoutElement>().preferredWidth = 200f;
+        statusRetry = Paintbox.Button(statusButtons, "Retry", Paintbox.Tone.Primary, "RefreshCw", Retry, 28f);
+        statusRetry.gameObject.AddComponent<LayoutElement>().preferredWidth = 220f;
 
-        // First run (and the account screen): username + display name + avatar.
-        p = OnlineUI.Modal(canvas, "ProfileScreen", new Vector2(1060f, 860f));
-        profileScreen = p.parent.gameObject;
-        profileTitle = OnlineUI.NewLabel(p, "Choose your names", 52, new Vector2(0f, 360f), new Vector2(980f, 80f), TextAnchor.MiddleCenter, true);
+        // First run (and the account: Multiplayer's Profile tab): username, display name, avatar.
+        profilePage = PaintboxPage.Build(canvas, "ProfileScreen", "Choose your names", Back,
+                                         PaintboxPage.Top.Balance | PaintboxPage.Top.Shop | PaintboxPage.Top.Settings, HubTab.Profile, foot: true);
+        profileScreen = profilePage.Root.gameObject;
+        profileTitle = profilePage.Title;
+        profileTabs = profilePage.Safe.Find("HubTabs").gameObject;
+        profilePage.FootLeftButton("Back", Paintbox.Tone.Paper, "ArrowLeft", Back, 200f);
+        saveButton = profilePage.FootButton("Save changes", Paintbox.Tone.Primary, "Check", SubmitProfile, 320f);
+        saveButton.name = "SaveProfile";
 
-        Text userIdTitle = OnlineUI.NewLabel(p, "Username", 34, new Vector2(0f, 292f), new Vector2(600f, 50f));
-        userIdTitle.color = OnlineUI.Muted;
-        Text rules = OnlineUI.NewLabel(p, $"Unique, for finding you. {UserIds.MinLength}-{UserIds.MaxLength} letters (English, Russian or Chinese), digits, _ or ., starting with a letter.",
-                                       26, new Vector2(0f, 245f), new Vector2(960f, 60f));
-        rules.color = OnlineUI.Muted;
-        userIdInput = OnlineUI.NewInput(p, "Username", new Vector2(0f, 180f), new Vector2(660f, 84f));
+        // The character, large on the left, with the username under it.
+        PaintboxFrame art = Paintbox.Panel(profilePage.Content, "Character", 34f);
+        art.Root.anchorMin = new Vector2(0f, 0f);
+        art.Root.anchorMax = new Vector2(0.34f, 1f);
+        art.Root.offsetMin = Vector2.zero;
+        art.Root.offsetMax = new Vector2(-12f, 0f);
+        Image well = Paintbox.Rounded(art.Body, "Well", Paintbox.Card, 30f);
+        Paintbox.Fill(well.rectTransform, 4f, 4f, 4f, 4f);
+        artPicture = Paintbox.Image(well.rectTransform, "Picture", Paintbox.Art("avatar"), Color.white);
+        artPicture.preserveAspect = true;
+        Paintbox.Fill(artPicture.rectTransform, 8f, 8f, 8f, 72f);
+        Image nameBar = Paintbox.Rounded(well.rectTransform, "NameBar", Paintbox.Ink, 26f);
+        nameBar.rectTransform.anchorMin = new Vector2(0f, 0f);
+        nameBar.rectTransform.anchorMax = new Vector2(1f, 0f);
+        nameBar.rectTransform.offsetMin = Vector2.zero;
+        nameBar.rectTransform.offsetMax = new Vector2(0f, 64f);
+        Image userIcon = Paintbox.IconImage(nameBar.rectTransform, "User", 28f, Color.white);
+        Paintbox.Pin(userIcon.rectTransform, new Vector2(0f, 0.5f), new Vector2(22f, 0f), new Vector2(28f, 28f));
+        userIcon.rectTransform.pivot = new Vector2(0f, 0.5f);
+        artName = Paintbox.Label(nameBar.rectTransform, "", 26f, Color.white, Paintbox.Weight.Bold);
+        Paintbox.Fill(artName.rectTransform, 62f, 16f, 0f, 0f);
+
+        // The form on the right.
+        PaintboxFrame form = Paintbox.Panel(profilePage.Content, "Form", 34f);
+        form.Root.anchorMin = new Vector2(0.34f, 0f);
+        form.Root.anchorMax = new Vector2(1f, 1f);
+        form.Root.offsetMin = new Vector2(12f, 0f);
+        form.Root.offsetMax = Vector2.zero;
+        RectTransform f = Paintbox.NewRect(form.Body, "Fields");
+        f.anchorMin = new Vector2(0f, 0.5f);
+        f.anchorMax = new Vector2(1f, 0.5f);
+        f.offsetMin = new Vector2(40f, -300f);
+        f.offsetMax = new Vector2(-40f, 300f);
+        VerticalLayoutGroup v = f.gameObject.AddComponent<VerticalLayoutGroup>();
+        v.childAlignment = TextAnchor.MiddleLeft;
+        v.childControlWidth = v.childControlHeight = true;
+        v.childForceExpandWidth = true;
+        v.childForceExpandHeight = false;
+        v.spacing = 10f;
+
+        FieldLabel(f, "Username", null);
+        userIdInput = Field(f, "Username");
         userIdInput.characterLimit = UserIds.MaxLength;
-
-        Text nameTitle = OnlineUI.NewLabel(p, "Display name", 34, new Vector2(0f, 105f), new Vector2(600f, 50f));
-        nameTitle.color = OnlineUI.Muted;
-        Text nameRules = OnlineUI.NewLabel(p, $"What other players see. {DisplayNames.MinLength}-{DisplayNames.MaxLength} characters: letters, digits, spaces, _ . - '. Leave it empty to use your username.",
-                                           26, new Vector2(0f, 58f), new Vector2(960f, 60f));
-        nameRules.color = OnlineUI.Muted;
-        displayNameInput = OnlineUI.NewInput(p, "Display name (optional)", new Vector2(0f, -7f), new Vector2(660f, 84f));
+        Rules(f, $"{UserIds.MinLength}-{UserIds.MaxLength} characters. Start with a letter. Use English, Russian or Chinese letters, digits, underscores or periods.");
+        Gap(f, 10f);
+        FieldLabel(f, "Display name", "Optional");
+        displayNameInput = Field(f, "Use my username");
         displayNameInput.characterLimit = DisplayNames.MaxLength;
-
-        avatarTitle = OnlineUI.NewLabel(p, "Avatar", 34, new Vector2(0f, -85f), new Vector2(600f, 50f));
-        avatarTitle.color = OnlineUI.Muted;
-        avatarRow = (RectTransform)new GameObject("AvatarRow", typeof(RectTransform)).transform;
-        avatarRow.SetParent(p, false);
-        OnlineUI.Place(avatarRow, new Vector2(0f, -160f), new Vector2(1000f, 90f));
-        profileError = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -248f), new Vector2(960f, 60f));
-        profileError.color = OnlineUI.Warning;
-        OnlineUI.NewButton(p, "CONFIRM", new Vector2(-180f, -340f), new Vector2(300f, 100f), OnlineUI.Green, SubmitProfile);
-        OnlineUI.NewButton(p, "BACK", new Vector2(180f, -340f), new Vector2(300f, 100f), OnlineUI.Gray, Back);
+        Rules(f, $"{DisplayNames.MinLength}-{DisplayNames.MaxLength} characters. What other players see. Leave it empty to use your username.");
+        Gap(f, 10f);
+        avatarTitle = FieldLabel(f, "Avatar", null);
+        avatarRow = Paintbox.NewRect(f, "AvatarRow");
+        avatarRow.gameObject.AddComponent<LayoutElement>().preferredHeight = 76f;
+        HorizontalLayoutGroup ar = avatarRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+        ar.spacing = 14f;
+        ar.childAlignment = TextAnchor.MiddleLeft;
+        ar.childControlWidth = ar.childControlHeight = true;
+        ar.childForceExpandWidth = false;
+        ar.childForceExpandHeight = true;
+        profileError = Paintbox.Label(f, "", 26f, Paintbox.Bad, Paintbox.Weight.Bold);
+        profileError.verticalOverflow = VerticalWrapMode.Overflow;
+        profileError.gameObject.AddComponent<LayoutElement>().preferredHeight = 40f;
     }
+
+    private static Text FieldLabel(RectTransform form, string text, string note)
+    {
+        string words = note == null ? L.T(text) : L.T(text) + " <size=21><color=#674E65>\u00b7 " + L.T(note) + "</color></size>";
+        Text t = Paintbox.Label(form, words, 30f, Paintbox.Ink, Paintbox.Weight.Bold);
+        t.supportRichText = true;
+        t.gameObject.AddComponent<LayoutElement>().preferredHeight = 42f;
+        return t;
+    }
+
+    private static InputField Field(RectTransform form, string placeholder)
+    {
+        InputField field = OnlineUI.NewInput(form, placeholder, Vector2.zero, new Vector2(800f, 84f));
+        field.GetComponent<Image>().color = Paintbox.Tab;
+        field.gameObject.AddComponent<LayoutElement>().preferredHeight = 84f;
+        return field;
+    }
+
+    private static void Rules(RectTransform form, string text)
+    {
+        Text t = Paintbox.Label(form, text, 21f, Paintbox.Muted);
+        t.verticalOverflow = VerticalWrapMode.Overflow;
+        t.gameObject.AddComponent<LayoutElement>().preferredHeight = 30f;
+    }
+
+    private static void Gap(RectTransform form, float height) =>
+        Paintbox.NewRect(form, "Gap").gameObject.AddComponent<LayoutElement>().preferredHeight = height;
 
     private void HideScreens()
     {
@@ -511,6 +628,7 @@ public class OnlineSignIn : MonoBehaviour
         statusMessage.text = message;
         hostRow.SetActive(failed);
         statusRetry.gameObject.SetActive(failed);
+        statusIcon.sprite = Paintbox.Icon(failed ? "WifiOff" : "Radio");
         if (failed && Net != null) hostInput.text = Net.Host;
     }
 

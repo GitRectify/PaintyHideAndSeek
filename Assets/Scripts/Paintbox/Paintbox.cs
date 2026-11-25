@@ -155,6 +155,53 @@ public static class Paintbox
         }
     }
 
+    private static Sprite starSprite;
+
+    /// <summary>A filled five-pointed star (white), the inside of Lucide's star outline.</summary>
+    public static Sprite StarSprite
+    {
+        get
+        {
+            if (starSprite != null) return starSprite;
+            const int size = 128;
+            var points = new Vector2[10];
+            for (int i = 0; i < 10; i++)
+            {
+                float angle = Mathf.PI / 2f + i * Mathf.PI / 5f;
+                float r = i % 2 == 0 ? 0.5f : 0.21f;
+                points[i] = new Vector2(0.5f + r * Mathf.Cos(angle), 0.47f + r * Mathf.Sin(angle));
+            }
+            var px = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    int hits = 0;
+                    for (int sy = 0; sy < 3; sy++)
+                        for (int sx = 0; sx < 3; sx++)
+                            if (InPolygon(points, new Vector2((x + (sx + 0.5f) / 3f) / size, (y + (sy + 0.5f) / 3f) / size))) hits++;
+                    px[y * size + x] = new Color(1f, 1f, 1f, hits / 9f);
+                }
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.DontSave };
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            starSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+            starSprite.hideFlags = HideFlags.DontSave;
+            return starSprite;
+        }
+    }
+
+    private static bool InPolygon(Vector2[] poly, Vector2 p)
+    {
+        bool inside = false;
+        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+        {
+            if ((poly[i].y > p.y) != (poly[j].y > p.y) &&
+                p.x < (poly[j].x - poly[i].x) * (p.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x)
+                inside = !inside;
+        }
+        return inside;
+    }
+
     private static Sprite glowSprite;
 
     /// <summary>A soft white disc fading to nothing, for the page's warm corner.</summary>
@@ -182,6 +229,29 @@ public static class Paintbox
     }
 
     // ================= Layout =================
+
+    /// <summary>
+    /// Makes a scene canvas 1080 units tall (as OnlineUI's): design B's pages on it are then not
+    /// scaled up, which would blur their words (text is drawn at the canvas's own scale). Returns
+    /// how much smaller the canvas's old units now are (old height over 1080), or 1 when unchanged.
+    /// </summary>
+    public static float Canvas1080(GameObject canvas)
+    {
+        CanvasScaler scaler = canvas != null ? canvas.GetComponent<CanvasScaler>() : null;
+        if (scaler == null || scaler.uiScaleMode != CanvasScaler.ScaleMode.ScaleWithScreenSize) return 1f;
+        if (scaler.referenceResolution == new Vector2(1920f, 1080f) && scaler.matchWidthOrHeight >= 1f) return 1f;
+        float oldHeight = scaler.matchWidthOrHeight >= 1f ? scaler.referenceResolution.y : 0f;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 1f;
+        return oldHeight > 0f ? oldHeight / 1080f : 1f;
+    }
+
+    /// <summary>The component on <paramref name="go"/>, added when it has none (not ??: Unity's missing component is not C# null).</summary>
+    public static T Ensure<T>(GameObject go) where T : Component
+    {
+        T c = go.GetComponent<T>();
+        return c != null ? c : go.AddComponent<T>();
+    }
 
     public static RectTransform NewRect(Transform parent, string name)
     {

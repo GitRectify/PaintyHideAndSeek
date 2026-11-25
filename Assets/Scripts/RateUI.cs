@@ -80,6 +80,15 @@ public class RateUI : MonoBehaviour
         RatingSync.Changed -= ShowSummary;
     }
 
+    // Design B (2026-11-24): rating the game is RateScreen's page. Whatever opens this popup (the
+    // side screen's star, a round's end) gets the page instead, before the popup is ever drawn.
+    private void LateUpdate()
+    {
+        if (_canvas == null || !_canvas.activeInHierarchy) return;
+        Hide();
+        RateScreen.Open(OnlineLobby.InMultiplayer && PlaySetupUI.IsOpen);
+    }
+
     // Under the stars: the player's rating and everyone's average, as far as they are known.
     private void ShowSummary()
     {

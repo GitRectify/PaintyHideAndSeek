@@ -177,6 +177,12 @@ public static class OnlinePlayTest
         ExecuteEvents.ExecuteHierarchy(top, pointer, ExecuteEvents.pointerClickHandler);
         return top;
     }
+    // The round menu (design B): the HUD's menu button, top right.
+    private static Button MenuButton() => FindByName("Btn_Setting")?.GetComponent<Button>();
+    private static GameObject OpenRoundMenu() => TapAt(MenuButton());
+    private static Button MenuItem(string name) => FindByName("RoundMenu") is { activeInHierarchy: true } menu
+        ? menu.GetComponentsInChildren<Button>(false).FirstOrDefault(b => b.name == name) : null;
+
     private static int remoteViews, remoteAnimators, matchEnds;
     private static int ammoBeforeRound = -1;
 
@@ -287,6 +293,7 @@ public static class OnlinePlayTest
                 {
                     submittedName = true;
                     Get<InputField>(signIn, "userIdInput").text = "PlayTest" + UnityEngine.Random.Range(1000, 9999);
+                    Shot("profile_first");
                     Call(signIn, "SubmitProfile");
                     Check(true, "first-run profile screen shown and submitted");
                 }
@@ -387,11 +394,11 @@ public static class OnlinePlayTest
                     GameObject roleCanvas = FindByName("RoleSelectCanvas");
                     Check(roleCanvas != null && roleCanvas.activeInHierarchy && FindByName("PlaySetup") is { activeInHierarchy: true },
                           "Multiplayer opens the play setup, over Single Play's side screen");
-                    Check(FindByName("RoleShopBtn") is { activeInHierarchy: true } && roleCanvas.transform.Find("AdBtn") == null,
-                          "its Ad button is a Shop button in Multiplayer");
-                    Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } rolePill && rolePill.GetComponentInChildren<CoinLabel>(true) != null
-                          && roleCanvas.transform.Find("CoinPanel") is not { gameObject: { activeSelf: true } },
-                          "and the coin balance is design B's pill (the side screen's own coin panel is hidden)");
+                    Check(FindByName("PageShop") is { activeInHierarchy: true } && roleCanvas.transform.Find("AdBtn") == null,
+                          "the setup's top bar has the Shop in Multiplayer (the side screen's Ad button is gone)");
+                    Check(FindByName("PageBalance") is { activeInHierarchy: true } rolePill && rolePill.GetComponentInChildren<CoinLabel>(true) != null
+                          && FindByName("GlobalCoinPill") is not { activeInHierarchy: true },
+                          "and the coin balance is in the top bar (design B), the shared pill not over it");
                     Check(FindByName("PlayNowBtn") is not { activeInHierarchy: true } && FindByName("SeekerBtn") is not { activeInHierarchy: true },
                           "the side screen's old Hider / Seeker buttons give way to the setup's");
                     Shot("role_online");
@@ -406,7 +413,7 @@ public static class OnlinePlayTest
                 if (InStep < 0.5f) return;
                 GameModeManager modes = Object.FindAnyObjectByType<GameModeManager>();
                 Text setupTitle = FindByName("SetupTitle")?.GetComponent<Text>();
-                Check(modes != null && !modes.RoundActive && OnlineLobby.InSetup != null && FindByName("PlaySetupExtras") is { activeInHierarchy: true }
+                Check(modes != null && !modes.RoundActive && OnlineLobby.InSetup != null && FindByName("HubTabs") is { activeInHierarchy: true }
                       && setupTitle != null && setupTitle.text == L.T("Multiplayer") && SetupButton("SinglePlayTab") == null && SetupButton("MultiplayerTab") == null,
                       $"the setup keeps the mode chosen on Home: Multiplayer, with no mode buttons of its own ('{setupTitle?.text}')");
                 Check(FindByName("LoadingCanvas") is not { activeInHierarchy: true }, "and picking the side started no Single Play round");
@@ -600,7 +607,7 @@ public static class OnlinePlayTest
                 {
                     // Next is the room list now, not the same room again.
                     matchesAtNext = matchesFound;
-                    Button next = FindButton("MatchResultsScreen", "NEXT");
+                    Button next = FindByName("ResultsNext") is { activeInHierarchy: true } nextGo ? nextGo.GetComponent<Button>() : null;
                     Check(next != null, "the results screen offers Next");
                     if (next != null) next.onClick.Invoke();
                     else Object.FindAnyObjectByType<OnlineLobby>().PlayAgainFromRound();
@@ -680,7 +687,8 @@ public static class OnlinePlayTest
                 // The coin ledger: what this account bought, with the balance after each.
                 string ledger = historyScreen != null ? string.Join(" | ", historyScreen.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "";
                 bool lines = historyScreen?.GetComponentsInChildren<Transform>(false).Any(t => t.name == "Line") == true;
-                Check(lines ? ledger.Contains("balance ") : ledger.Contains("Nothing has moved your coins yet."),
+                Check(lines ? ledger.Contains("BALANCE") && (ledger.Contains("Shop spend") || ledger.Contains("Purchased coins") || ledger.Contains("Match reward"))
+                            : ledger.Contains("Nothing has moved your coins yet."),
                       $"WALLET HISTORY lists the coin ledger ({(ledger.Length > 200 ? ledger.Substring(0, 200) + "..." : ledger)})");
                 Check(historyScreen?.GetComponentsInChildren<Transform>(false).Any(t => t.name == "Record") != true, "and only the ledger while that tab is picked");
                 Shot("history_wallet");
@@ -1094,7 +1102,7 @@ public static class OnlinePlayTest
         ui.SetOnlineRoster(Enumerable.Range(0, Seats).Select(i => new MatchmakingUI.OnlineSeat { Name = "Seat" + i, Hunter = i < seekers }).ToList());
 
         int shown = 0, outside = 0, overlaps = 0;
-        foreach (string boxName in new[] { "FugitiveBox", "HunterBox" })
+        foreach (string boxName in new[] { "HidersCard", "SeekersCard" })   // design B's team cards
         {
             var box = (RectTransform)FindByName(boxName).transform;
             Rect Bounds(RectTransform rt)
@@ -1528,6 +1536,10 @@ public static class OnlinePlayTest
 
     // The coin balance over Multiple Play's screens (OnlineMatches' copy of Home's pill).
     // Design B's balance pill (2026-11-24): its label is the one bound to the server's balance.
+    // The balance in the play setup's own top bar (design B: the shared pill is not over the setup).
+    private static Text SetupCoinLabel() =>
+        FindByName("PlaySetup") is GameObject setup ? setup.GetComponentsInChildren<Text>(true).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null) : null;
+
     private static Text GlobalCoinLabel() =>
         FindByName("GlobalCoinPill") is GameObject pill ? pill.GetComponentsInChildren<Text>(true).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null) : null;
 
@@ -1718,7 +1730,8 @@ public static class OnlinePlayTest
 
     private static void CheckExit()
     {
-        if (!ExitTest || exitStage >= 9 || Net.Phase != MatchPhase.Hide) return;
+        if (!ExitTest || exitStage >= 9) return;
+        if (exitStage == 0 && Net.Phase != MatchPhase.Hide) return;   // begun in the hide; then to the end whatever the phase
         float now = Time.realtimeSinceStartup;
         if (exitStage == 0) { exitAt = now + 3f; exitStage = 1; return; }
         if (now < exitAt) return;
@@ -1728,15 +1741,30 @@ public static class OnlinePlayTest
         switch (exitStage)
         {
             case 1:
-                Check(exit != null && exit.gameObject.activeInHierarchy, "the round has an EXIT button");
+                Check(MenuButton() is { } menuButton && menuButton.gameObject.activeInHierarchy && exit is not { gameObject: { activeInHierarchy: true } },
+                      "the round has its menu button (top right), and no Leave button of its own while it is played");
                 Shot("exit_button");
-                Check(TapAt(exit) != null, "a tap reaches it");
+                Check(OpenRoundMenu() != null, "a tap reaches it");
+                exitAt = now + 0.5f;
+                exitStage = 6;
+                return;
+            case 6:
+            {
+                GameObject menu = FindByName("RoundMenu");
+                string items = menu != null ? string.Join(" | ", menu.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "none";
+                Text balance = FindByName("MenuBalance")?.GetComponentsInChildren<Text>(true).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null);
+                Check(menu != null && menu.activeInHierarchy && items.Contains("Resume") && items.Contains("Settings") && items.Contains("Shop") && items.Contains("Leave match"),
+                      $"it opens the round menu ({items})");
+                Check(balance != null && balance.text == CoinBalance.Text, $"with the coin balance beside the Shop ({(balance != null ? balance.text : "none")})");
+                Shot("round_menu");
+                MenuItem("MenuLeave")?.onClick.Invoke();
                 exitAt = now + 0.5f;
                 exitStage = 2;
                 return;
+            }
             case 2:
                 string text = confirm != null ? string.Join(" | ", confirm.GetComponentsInChildren<Text>(true).Select(t => t.text)) : "none";
-                Check(confirm != null && confirm.activeInHierarchy && text.Contains("Leave this match?") && text.Contains("room list"),
+                Check(confirm != null && confirm.activeInHierarchy && text.Contains("Leave this match?") && (text.Contains("room list") || text.Contains("rejoin it")),
                       $"it asks first, saying what leaving costs ({text})");
                 Shot("exit_confirm");
                 FindButton("ExitMatchConfirm", "STAY")?.onClick.Invoke();
@@ -1745,7 +1773,12 @@ public static class OnlinePlayTest
                 return;
             case 3:
                 Check(confirm != null && !confirm.activeInHierarchy && OnlineRound.Active, "STAY keeps playing");
-                TapAt(exit);
+                OpenRoundMenu();
+                exitAt = now + 0.5f;
+                exitStage = 7;
+                return;
+            case 7:
+                MenuItem("MenuLeave")?.onClick.Invoke();
                 exitAt = now + 0.5f;
                 exitStage = 4;
                 return;
@@ -1779,17 +1812,27 @@ public static class OnlinePlayTest
                 if (awayAt == 0f) { awayAt = now + 3f; return; }
                 if (now < awayAt) return;
                 awayMatch = (int)typeof(OnlineRound).GetField("matchId", Any).GetValue(round);
-                Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } pill && pill.transform.Find("CoinIcon") != null
-                      && pill.transform.Find("CoinText")?.GetComponent<Text>().text == CoinBalance.Text,
-                      "the coin balance shows in the round (top right)");
-                Button shop = FindByName("Btn_Shop")?.GetComponent<Button>();
-                Check(shop != null && shop.GetComponentsInChildren<Text>(true).Any(t => t.text == "SHOP"), "the HUD's Ad button is now SHOP");
+                Check(FindByName("GlobalCoinPill") is not { activeInHierarchy: true }, "in the round the coin pill is not over the HUD (the balance is in the round menu)");
                 Shot("hud_shop");
                 if (!Seeker) Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include)?.OpenDrawing();   // painting when the shop opens
-                if (shop != null) TapAt(shop);
+                Check(OpenRoundMenu() != null, "the menu button takes a tap (painting or not)");
+                awayAt = now + 0.6f;
+                awayStage = 5;
+                return;
+
+            case 5:
+            {
+                if (now < awayAt) return;
+                Button shop = MenuItem("MenuShop");
+                Text balance = FindByName("MenuBalance")?.GetComponentsInChildren<Text>(true).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null);
+                Check(shop != null && balance != null && balance.text == CoinBalance.Text,
+                      $"the round menu has the Shop and the balance ({(balance != null ? balance.text : "none")})");
+                Shot("round_menu");
+                if (shop != null) shop.onClick.Invoke();
                 awayAt = now + 1.5f;
                 awayStage = 1;
                 return;
+            }
 
             case 1:
                 if (now < awayAt) return;
@@ -1834,7 +1877,14 @@ public static class OnlinePlayTest
                 // Hider bots already placed need no host, so they are not this game's to run after it
                 // comes back: they are looked at before it leaves.
                 if (!hiderBotsMeasured && Object.FindAnyObjectByType<BotHideController>() is { OnlineHidingDone: true }) MeasureHiderBots();
-                TapAt(FindByName("ExitMatch")?.GetComponent<Button>());
+                OpenRoundMenu();
+                awayAt = now + 0.5f;
+                awayStage = 6;
+                return;
+
+            case 6:
+                if (now < awayAt) return;
+                MenuItem("MenuLeave")?.onClick.Invoke();
                 awayAt = now + 0.5f;
                 awayStage = 3;
                 return;
@@ -1857,15 +1907,16 @@ public static class OnlinePlayTest
         {
             case 4:
                 if (now < awayAt) return;
+                if (OnlineMatches.AwayCount == 0 && now < awayAt + 8f) return;   // the list of matches comes from the server a moment later
                 MyMatchEntry kept = Net.MyMatches.FirstOrDefault(m => m.MatchId == (uint)awayMatch);
                 Check(!OnlineRound.Active && FindByName("PlaySetup") is { activeInHierarchy: true } && kept.State == MyMatchState.Away && kept.SecondsLeft > 0,
                       $"after Exit the match goes on and is listed as in progress ({kept.State}, {kept.Phase}, {kept.SecondsLeft} s left)");
                 Check(FindByName("LoadingCanvas") is not { activeInHierarchy: true }, "no loading screen on the way out");
-                Check(FindByName("MatchesChip") is { activeInHierarchy: true } chip && chip.GetComponentInChildren<Text>().text.Contains("in progress"),
-                      "a chip says a match is in progress");
+                Check(Object.FindObjectsByType<MatchesBadge>(FindObjectsInactive.Exclude).Any(b => b.Count != null && b.Count.enabled && b.Count.text == "1"),
+                      "the Matches tab's badge says a match is in progress");
                 {
                     // Notices sit top right, under the coin balance: never the middle of the screen.
-                    var notices = Object.FindObjectsByType<Button>(FindObjectsInactive.Exclude).Where(b => b.name == "Toast").ToList();
+                    var notices = Object.FindObjectsByType<Button>(FindObjectsInactive.Exclude).Where(b => b.name == "Notice").ToList();
                     bool placed = notices.Count > 0 && notices.All(b =>
                     {
                         // In the canvas's own space (in batch mode Screen is not the picture's size).
@@ -1952,7 +2003,14 @@ public static class OnlinePlayTest
                     return;
                 }
                 DriveJoystick(false);
-                TapAt(FindByName("ExitMatch")?.GetComponent<Button>());
+                OpenRoundMenu();
+                awayAt = now + 0.6f;
+                awayStage = 39;
+                return;
+
+            case 39:
+                if (now < awayAt) return;
+                MenuItem("MenuLeave")?.onClick.Invoke();
                 awayAt = now + 0.6f;
                 awayStage = 34;
                 return;
@@ -2067,7 +2125,7 @@ public static class OnlinePlayTest
 
             case 20:    // away until the match ends: a notification, then its results
                 GameObject toast = Object.FindObjectsByType<Button>().Select(b => b.gameObject)
-                    .FirstOrDefault(g => g.name == "Toast" && g.GetComponentInChildren<Text>().text.Contains("ended"));
+                    .FirstOrDefault(g => g.name == "Notice" && g.GetComponentsInChildren<Text>().Any(t => t.text.Contains("ended")));
                 if (toast == null)
                 {
                     if (now < awayAt) return;
@@ -2109,7 +2167,7 @@ public static class OnlinePlayTest
         // One ranking for everyone (no Seekers / Hiders groups), best first; a hider's score is
         // seconds survived of the seek, a seeker's the hiders caught.
         bool grouped = texts.Any(t => t.text == "Seekers" || t.text == "Hiders");
-        int hiderScores = texts.Count(t => System.Text.RegularExpressions.Regex.IsMatch(t.text, @"^\d+s / \d+s$"));
+        int hiderScores = texts.Count(t => System.Text.RegularExpressions.Regex.IsMatch(t.text, @"^\d+s / \d+s( \| .+)?$"));   // "| name": who caught them
         int seekerScores = texts.Count(t => System.Text.RegularExpressions.Regex.IsMatch(t.text, @"^\d+ Hiders? Caught$"));
         Check(!grouped && ranks.SequenceEqual(ranks.OrderBy(r => r)) && ranks[0] == 1 && hiderScores == GameTuning.FugitiveSlots && seekerScores == GameTuning.HunterSlots,
               $"one ranking, best first ({string.Join(",", ranks)}); scores as seconds of the seek ({hiderScores}) and hiders caught ({seekerScores})");
@@ -2143,15 +2201,22 @@ public static class OnlinePlayTest
         var humanHiders = roster.Where(e => e.Role == Role.Fugitive && !e.IsBot).Select(e => e.Slot).OrderBy(s => s).ToList();
         byte other = humanHiders.FirstOrDefault(s => s != Net.LocalSlot);
         bool first = humanHiders.Count > 0 && humanHiders[0] == Net.LocalSlot;
-        Text panel = FindByName("HidersReady")?.GetComponent<Text>();
+        Button chipButton = FindByName("HidersReady")?.GetComponent<Button>();
+        Text chip = chipButton != null ? chipButton.GetComponentInChildren<Text>(true) : null;
+        GameObject seats = FindByName("HiderReadiness");
+        string list = seats != null ? string.Join(" / ", seats.GetComponentsInChildren<Transform>(true).Where(t => t.name.StartsWith("Seat_"))
+            .Select(t => string.Join(": ", t.GetComponentsInChildren<Text>(true).Select(x => x.text)))) : "";
         Text banner = Get<Text>(round, "banner");
 
         switch (readyStage)
         {
             case 0:
-                if (humanHiders.Count < 2 || panel == null || !panel.gameObject.activeInHierarchy) return;
-                Check(panel.text.Contains($"Ready to start: ") && panel.text.Contains("/5") && panel.text.Contains("(you)") && panel.text.Contains("hiding..."),
-                      $"in the hide phase every hider sees who is ready: '{panel.text.Replace("\n", " / ")}'");
+                if (humanHiders.Count < 2 || chip == null || !chip.gameObject.activeInHierarchy) return;
+                if (seats == null || !seats.activeInHierarchy) { TapAt(chipButton); return; }   // the chip opens the roster
+                Check(chip.text.EndsWith("/5 ready") && list.Contains("(you)") && list.Contains("Hiding"),
+                      $"in the hide phase every hider sees who is ready: chip '{chip.text}', roster '{list}'");
+                Shot("ready_roster");
+                FindButton("HiderReadiness", "Done")?.onClick.Invoke();
                 // The first presses Start after 2 s, the other after 6 s.
                 readyAt = now + (first ? 2f : 6f);
                 readyStage = 1;
@@ -2162,8 +2227,8 @@ public static class OnlinePlayTest
                 {
                     readyOtherBanner = banner.gameObject.activeInHierarchy ? banner.text : "(no banner)";
                     Shot("ready_other");
-                    Check(readyOtherBanner.Contains("is ready") && panel != null && panel.text.Contains(": ready"),
-                          $"another hider pressing Start shows here at once: banner '{readyOtherBanner}', list '{(panel != null ? panel.text.Replace("\n", " / ") : "none")}'");
+                    Check(readyOtherBanner.Contains("is ready") && list.Contains(": Ready") && chip != null && !chip.text.StartsWith("0/"),
+                          $"another hider pressing Start shows here at once: banner '{readyOtherBanner}', chip '{(chip != null ? chip.text : "none")}', roster '{list}'");
                 }
                 if (now >= readyAt && !pressedReadyStart)
                 {
@@ -2206,6 +2271,8 @@ public static class OnlinePlayTest
         RenderTexture before = cam.targetTexture;
         cam.targetTexture = rt;
         Canvas.ForceUpdateCanvases();   // laid out for the picture's own size (16:9), not the batch screen's
+        PaintboxHud.Relayout();         // the match HUD in design units at that size
+        Canvas.ForceUpdateCanvases();
         cam.Render();
         RenderTexture.active = rt;
         var tex = new Texture2D(1280, 720, TextureFormat.RGB24, false);
@@ -2218,6 +2285,8 @@ public static class OnlinePlayTest
         rt.Release();
         foreach (Canvas c in overlays) { c.renderMode = RenderMode.ScreenSpaceOverlay; c.worldCamera = null; }
         Canvas.ForceUpdateCanvases();   // back in place before anything is tapped this frame
+        PaintboxHud.Relayout();
+        Canvas.ForceUpdateCanvases();
     }
     private static int nextStage;
     private static float nextAt;
@@ -2304,6 +2373,7 @@ public static class OnlinePlayTest
 
     private static void PlayRound()
     {
+        if (ExitTest && exitStage == 5) { CheckExit(); return; }   // left: nothing of the round to look at any more
         CheckPlayerPrefab();
         CheckSpawnsApart();
         CheckPlayArea();
@@ -4270,7 +4340,7 @@ public static class OnlinePlayTest
             case 1:
             {
                 // No WALLET button in the setup (2026-11-24): the coin balance over it opens the wallet.
-                Text pill = GlobalCoinLabel();
+                Text pill = SetupCoinLabel();
                 if (!Awaited(FindByName("Extra_HISTORY") != null, 8f, "the play setup is up")) return;
                 Check(FindByName("Extra_WALLET") == null, "the play setup has no WALLET button");
                 Check(pill != null && pill.gameObject.activeInHierarchy && pill.text == "0", $"the coin balance over the setup shows the same balance ('{pill?.text}')");
@@ -4297,6 +4367,7 @@ public static class OnlinePlayTest
                 Button pack = FindButton("WalletScreen", "550 coins");
                 if (!Awaited(pack != null, 10f, "DEPOSIT lists the server's coin packs")) return;
                 Check(WalletShown().Contains("4.99 XTS"), "priced in test currency");
+                Shot("wallet");
                 if (pack != null) pack.onClick.Invoke();
                 walletStage = pack != null ? 4 : 99;
                 return;
@@ -4346,7 +4417,7 @@ public static class OnlinePlayTest
             case 8:
             {
                 if (!Awaited(HistoryShown().Contains("Deposit (coins-550)"), 10f, "it opens WALLET HISTORY, which lists the deposit")) return;
-                Check(HistoryShown().Contains("+550") && HistoryShown().Contains("balance 550"), "with its amount and the balance after it");
+                Check(HistoryShown().Contains("+550 | 550"), $"with its amount and the balance after it ({HistoryShown()})");
                 Check(FindByName("HistoryScreen")?.GetComponentsInChildren<Transform>(false).Any(t => t.name == "Record") != true,
                       "and no match records under it");
                 walletStage = 11;
@@ -4388,7 +4459,7 @@ public static class OnlinePlayTest
             {
                 GameObject rooms = FindByName("PlaySetup");
                 if (!Awaited(rooms != null && rooms.activeInHierarchy, 5f, "closing the wallet leaves the play setup there")) return;
-                Text pill = GlobalCoinLabel();
+                Text pill = SetupCoinLabel();
                 Check(pill != null && pill.text == WalletAfterText, $"and the balance over it is the new one ('{pill?.text}')");
 
                 Call(lobby, "GoHome");

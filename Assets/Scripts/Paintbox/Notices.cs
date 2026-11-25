@@ -277,8 +277,16 @@ public sealed class Notices : MonoBehaviour
         if (snapNewest && cards.Count > 0) cards[0].Rt.anchoredPosition = new Vector2(0f, cards[0].Y);
     }
 
+    /// <summary>
+    /// How far from the right edge the notices keep (design units), clear of a tray or sheet open
+    /// there in a round (PaintboxHud); 0 puts them back in their place.
+    /// </summary>
+    public static float RightClear;
+
     private void Update()
     {
+        float x = RightClear > 0f ? Mathf.Min(OnlineUI.NoticeRight, -RightClear) : OnlineUI.NoticeRight;
+        if (Mathf.Abs(slot.anchoredPosition.x - x) > 0.5f) slot.anchoredPosition = new Vector2(x, slot.anchoredPosition.y);
         if (cards.Count == 0) return;
         float now = Time.unscaledTime;
 

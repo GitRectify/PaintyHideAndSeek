@@ -24,7 +24,6 @@ public class OnlineMatches : MonoBehaviour
 {
     private const float PollSeconds = 5f;
     private const float ToastSeconds = 6f;
-    private const int RowsPerPage = 5;
     private const string SeenKey = "Matches.SeenEnded.";     // + the profile id
     private const long SameEndSeconds = 60;
 
@@ -48,11 +47,11 @@ public class OnlineMatches : MonoBehaviour
     // UI
     private Canvas overlayCanvas, screenCanvas;
     private GameObject coinPill, chip, listScreen, resultsScreen;
-    private Text chipText, listTitle, listPage, resultsTitle, resultsHeading, resultsExtraHint;
+    private Text chipText, listTitle, listActive, resultsTitle, resultsHeading, resultsExtraHint, resultsFootTitle;
+    private GameObject listEmpty, listHead;
     private RectTransform listRows, resultsRows;
     private Button resultsNext, resultsHome, resultsClose, resultsExtra;
     private Action onResultsNext, onResultsHome, onResultsClose, onResultsExtra;
-    private int page;
 
     /// <summary>Matches this player left that are still running (rejoinable).</summary>
     public static int AwayCount
@@ -355,8 +354,8 @@ public class OnlineMatches : MonoBehaviour
 
     private void UpdateCoinPill()
     {
-        // Home and the shop show the balance themselves.
-        bool other = HomeShowing || ShopScreen.IsOpen;
+        // Home and the shop show the balance themselves; in a round it is in the round menu.
+        bool other = HomeShowing || ShopScreen.IsOpen || PlaySetupUI.IsOpen || MatchmakingUI.PageOpen || PaintboxHud.InRound;
         GameObject loading = GameObject.Find("LoadingCanvas");
         bool show = OnlineLobby.InMultiplayer && !other && (loading == null || !loading.activeInHierarchy);
         if (coinPill.activeSelf != show) coinPill.SetActive(show);
@@ -368,7 +367,7 @@ public class OnlineMatches : MonoBehaviour
     {
         int away = AwayCount;
         GameObject loading = GameObject.Find("LoadingCanvas");
-        bool show = away > 0 && !OnlineRound.Active && !InSinglePlay && !listScreen.activeSelf && !resultsScreen.activeSelf &&
+        bool show = away > 0 && !OnlineRound.Active && !InSinglePlay && !listScreen.activeSelf && !resultsScreen.activeSelf && !PlaySetupUI.IsOpen &&
                     (loading == null || !loading.activeInHierarchy);
         if (chip.activeSelf != show) chip.SetActive(show);
         if (show) chipText.text = away == 1 ? "1 match in progress: VIEW" : $"{away} matches in progress: VIEW";
@@ -391,58 +390,100 @@ public class OnlineMatches : MonoBehaviour
     private void OpenList()
     {
         AudioManager.ButtonTap();
-        page = 0;
         listScreen.SetActive(true);
         listScreen.transform.SetAsLastSibling();
+        MultiplayerHub.Showing(HubTab.Matches, CloseList);
         if (Net != null && Net.IsConnected) Net.RequestMyMatches();
         RefreshList();
     }
 
+    private void CloseList()
+    {
+        listScreen.SetActive(false);
+        MultiplayerHub.Closed(HubTab.Matches);
+    }
+
+    // Design B's rows (2026-11-24): the map's picture, its name with the side and room, how the
+    // match stands (a chip, the time left) and Rejoin, or Result once it has ended. None: an empty
+    // state that leads back to a new match or to the history.
     private void RefreshList()
     {
-        for (int i = listRows.childCount - 1; i >= 0; i--) Destroy(listRows.GetChild(i).gameObject);
+        for (int i = listRows.childCount - 1; i >= 0; i--)
+        {
+            listRows.GetChild(i).gameObject.SetActive(false);
+            Destroy(listRows.GetChild(i).gameObject);
+        }
 
         var shown = new List<MyMatchEntry>();
         foreach (MyMatchEntry m in matches) if (m.State != MyMatchState.Playing) shown.Add(m);
+        int active = 0;
+        foreach (MyMatchEntry m in shown) if (m.State == MyMatchState.Away) active++;
+        listActive.text = L.F(active == 1 ? "{0} active" : "{0} active", active);
+        listActive.transform.parent.gameObject.SetActive(active > 0);
+        listEmpty.SetActive(shown.Count == 0);
+        listHead.SetActive(shown.Count > 0);
+        listTitle.text = shown.Count == 0 ? "No active matches" : "Your matches";
 
-        int pages = Mathf.Max(1, (shown.Count + RowsPerPage - 1) / RowsPerPage);
-        page = Mathf.Clamp(page, 0, pages - 1);
-        listPage.text = pages > 1 ? $"{page + 1}/{pages}" : "";
-        listTitle.text = shown.Count == 0 ? "No matches in progress" : "Your matches";
-
-        for (int i = 0; i < RowsPerPage && page * RowsPerPage + i < shown.Count; i++)
+        foreach (MyMatchEntry m in shown)
         {
-            MyMatchEntry m = shown[page * RowsPerPage + i];
-            float y = 190f - i * 116f;
+            PaintboxFrame row = Paintbox.Frame(listRows, "Match_" + m.MatchId, Paintbox.Paper, 24f, Paintbox.Border, 0f, Paintbox.PanelLine);
+            row.Root.gameObject.AddComponent<LayoutElement>().preferredHeight = 112f;
+            Transform b = row.Body;
 
-            Image row = OnlineUI.NewImage("Match_" + m.MatchId, listRows, new Color(1f, 1f, 1f, 0.07f));
-            OnlineUI.Place(row.rectTransform, new Vector2(0f, y), new Vector2(1240f, 104f));
+            Image thumb = Paintbox.Rounded(b, "Thumb", Paintbox.Card, 16f);
+            Paintbox.Pin(thumb.rectTransform, new Vector2(0f, 0.5f), new Vector2(18f, 0f), new Vector2(116f, 76f));
+            thumb.rectTransform.pivot = new Vector2(0f, 0.5f);
+            Image mask = Paintbox.Rounded(thumb.rectTransform, "Frame", Color.white, 16f);
+            Paintbox.Fill(mask.rectTransform);
+            mask.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+            Sprite picture = MapPicture(m.Map);
+            Image pic = Paintbox.Image(mask.rectTransform, "Picture", picture, Color.white);
+            Paintbox.Fill(pic.rectTransform);
+            AspectRatioFitter fit = pic.gameObject.AddComponent<AspectRatioFitter>();
+            fit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+            if (picture != null) fit.aspectRatio = picture.rect.width / Mathf.Max(1f, picture.rect.height);
 
-            Text label = OnlineUI.NewLabel(row.transform, "", 30, new Vector2(-170f, 0f), new Vector2(860f, 100f), TextAnchor.MiddleLeft);
-            label.name = "Info";
-            label.text = Describe(m);
+            string side = m.Role == Role.Hunter ? "Seeker" : "Hider";
+            Text name = Paintbox.Label(b, MapTitle(m.Map), 32f, Paintbox.Ink, Paintbox.Weight.Bold);
+            name.rectTransform.anchorMin = new Vector2(0f, 0.5f);
+            name.rectTransform.anchorMax = new Vector2(0.5f, 1f);
+            name.rectTransform.offsetMin = new Vector2(156f, -4f);
+            name.rectTransform.offsetMax = new Vector2(0f, -10f);
+            name.alignment = TextAnchor.LowerLeft;
+            Text where = Paintbox.Label(b, L.T(side) + " \u00b7 " + L.T(RoomTitle(m.RoomId)), 23f, Paintbox.Muted);
+            where.name = "Info";
+            where.rectTransform.anchorMin = new Vector2(0f, 0f);
+            where.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            where.rectTransform.offsetMin = new Vector2(156f, 10f);
+            where.rectTransform.offsetMax = new Vector2(0f, -2f);
+            where.alignment = TextAnchor.UpperLeft;
 
-            if (m.State == MyMatchState.Away)
-            {
-                uint id = m.MatchId;
-                Button rejoin = OnlineUI.NewButton(row.transform, "REJOIN", new Vector2(480f, 0f), new Vector2(240f, 80f), OnlineUI.Green, () =>
+            bool ended = m.State == MyMatchState.Ended;
+            string phase = ended ? (m.Won ? "Won" : "Finished") : m.Phase == MatchPhase.Hide ? "Hiding" : m.Phase == MatchPhase.Seek ? "Seeking" : "Starting";
+            RectTransform chip = Paintbox.Tag(b, phase, ended ? Paintbox.Card : Paintbox.Wash, ended ? Paintbox.Muted : Paintbox.WashInk, ended ? "Flag" : "Radio", 22f);
+            chip.anchorMin = chip.anchorMax = chip.pivot = new Vector2(1f, 0.5f);
+            chip.anchoredPosition = new Vector2(-440f, 0f);
+
+            Text time = Paintbox.Label(b, ended ? EndedLine(m) : "", 26f, Paintbox.Muted, Paintbox.Weight.Regular, TextAnchor.MiddleRight);
+            time.name = "Timer";
+            time.horizontalOverflow = HorizontalWrapMode.Overflow;
+            Paintbox.Pin(time.rectTransform, new Vector2(1f, 0.5f), new Vector2(-270f, 0f), new Vector2(160f, 40f));
+            time.rectTransform.pivot = new Vector2(1f, 0.5f);
+
+            uint id = m.MatchId;
+            Button action = ended
+                ? Paintbox.Button(b, "Result", Paintbox.Tone.Paper, "Trophy", () => { AudioManager.ButtonTap(); AskResults(id); }, 28f)
+                : Paintbox.Button(b, "Rejoin", Paintbox.Tone.Primary, "LogIn", () =>
                 {
                     AudioManager.ButtonTap();
-                    listScreen.SetActive(false);
+                    CloseList();
                     OnlineLobby.RejoinMatch(id);
-                });
-                rejoin.name = "Rejoin";
-            }
-            else
-            {
-                uint id = m.MatchId;
-                OnlineUI.NewButton(row.transform, "RESULTS", new Vector2(480f, 0f), new Vector2(240f, 80f), OnlineUI.Blue, () =>
-                {
-                    AudioManager.ButtonTap();
-                    AskResults(id);
-                }).name = "Results";
-            }
+                }, 28f);
+            action.name = ended ? "Results" : "Rejoin";
+            Paintbox.Pin((RectTransform)action.transform, new Vector2(1f, 0.5f), new Vector2(-20f, 2f), new Vector2(210f, 76f));
+            ((RectTransform)action.transform).pivot = new Vector2(1f, 0.5f);
         }
+        RefreshListTimes();
     }
 
     // Time left in an away match, counted on from when the server said it.
@@ -456,26 +497,26 @@ public class OnlineMatches : MonoBehaviour
             foreach (MyMatchEntry m in matches)
             {
                 if (m.MatchId != id || m.State != MyMatchState.Away) continue;
-                Text info = row.Find("Info")?.GetComponent<Text>();
-                if (info != null) info.text = Describe(m);
+                Text timer = row.Find("Body/Timer")?.GetComponent<Text>();
+                int left = Mathf.Max(0, m.SecondsLeft - Mathf.FloorToInt(Time.unscaledTime - matchesAt));
+                if (timer != null) timer.text = $"{left / 60:00}:{left % 60:00}";
             }
         }
     }
 
-    private string Describe(MyMatchEntry m)
-    {
-        string side = m.Role == Role.Hunter ? "Seeker" : "Hider";
-        string where = $"<b>{RoomTitle(m.RoomId)}</b>  {MapTitle(m.Map)}  ·  {side}";
-        if (m.State == MyMatchState.Ended)
-        {
-            string coins = m.CoinCents > 0 ? $"  <color=#2C684C>+{OnlineUI.CoinsText(m.CoinCents)}</color>" : "";
-            return $"{where}\n<size=26>{(m.Won ? "Ended: you won" : "Ended: you lost")}  ·  #{m.Rank}  ·  " +
-                   $"{ScoreText(m.Role, m.SurvivedSeconds, m.SeekSeconds, m.Catches, m.PointsHundredths)}</size>{coins}";
-        }
+    // An ended match in a few words: its place and coins.
+    private static string EndedLine(MyMatchEntry m) =>
+        "#" + m.Rank + (m.CoinCents > 0 ? "  +" + CoinBalance.Format(m.CoinCents) : "");
 
-        int left = Mathf.Max(0, m.SecondsLeft - Mathf.FloorToInt(Time.unscaledTime - matchesAt));
-        string phase = m.Phase == MatchPhase.Hide ? "Hiding" : m.Phase == MatchPhase.Seek ? "Seeking" : "Starting";
-        return $"{where}\n<size=26>In progress: {phase}, {left / 60}:{left % 60:00} left</size>";
+    // The map's picture (the game's own thumbnail), by its room name.
+    private static Sprite MapPicture(string map)
+    {
+        LevelManager levels = LevelManager.Instance;
+        MapSelectPopup picker = MapSelectPopup.Instance;
+        if (levels != null && picker != null)
+            for (int i = 0; i < levels.Count; i++)
+                if (levels.RoomNameAt(i) == map) return picker.ThumbnailAt(i);
+        return Paintbox.Art("studio");
     }
 
     // ================= Results =================
@@ -496,10 +537,12 @@ public class OnlineMatches : MonoBehaviour
         resultsHeading.text = string.IsNullOrEmpty(buttons.Heading) ? "Match results" : buttons.Heading;
         resultsHeading.color = string.IsNullOrEmpty(buttons.Heading) ? Paintbox.Ink
                              : buttons.Won ? Paintbox.Good : Paintbox.Bad;
+        resultsClose.gameObject.SetActive(true);
 
         string outcome = table.Outcome == MatchOutcome.HidersWin ? "Hiders win"
                        : table.Outcome == MatchOutcome.SeekersWin ? "Seekers win" : "No winner";
-        resultsTitle.text = $"{RoomTitle(table.RoomId)}  ·  {MapTitle(table.Map)}  ·  {outcome}";
+        resultsTitle.text = $"{RoomTitle(table.RoomId)}  \u00b7  {MapTitle(table.Map)}";
+        resultsFootTitle.text = outcome;
 
         // One ranking for everyone, whichever side (most coins first; the server orders the rows),
         // this player's row in green. A hider's score is seconds survived of the seek, a seeker's the
@@ -512,16 +555,11 @@ public class OnlineMatches : MonoBehaviour
         // By rank; equal ranks keep the server's order (OrderBy is stable, List.Sort is not).
         List<MatchResultEntry> ordered = players.OrderBy(a => a.Rank == 0 ? int.MaxValue : a.Rank).ToList();
 
-        float y = 300f;
-        float step = Mathf.Min(56f, 620f / Mathf.Max(1, ordered.Count));
-        ResultRow(y, "Rank", "Player", "Side", "Score", "Coins", OnlineUI.Muted, false);
-        y -= 12f;
         foreach (MatchResultEntry p in ordered)
         {
-            y -= step;
             bool mine = (me != 0xFE && p.Slot == me) || (!p.IsBot && !string.IsNullOrEmpty(myName) && p.Name == myName);
             string name = SafeName(p.Name) + (p.IsBot ? " (bot)" : "") + (p.Away ? " (away)" : "") + (p.Slot == 0xFF ? " (left)" : "");
-            ResultRow(y, p.Rank > 0 ? "#" + p.Rank : "-", Clip(name, 22), p.Role == Role.Hunter ? "Seeker" : "Hider",
+            ResultRow(p.Rank > 0 ? "#" + p.Rank : "-", Clip(name, 22), p.Role == Role.Hunter ? "Seeker" : "Hider",
                       ScoreText(p.Role, p.SurvivedSeconds, table.SeekSeconds, p.Catches, p.PointsHundredths, p.CaughtBy),
                       p.CoinCents > 0 ? "+" + CoinBalance.Format(p.CoinCents) : "0",
                       mine ? Paintbox.Good : Paintbox.Ink, mine);
@@ -529,23 +567,25 @@ public class OnlineMatches : MonoBehaviour
 
         resultsScreen.SetActive(true);
         resultsScreen.transform.SetAsLastSibling();
+        if (listScreen.activeSelf) CloseList();
     }
 
-    private void ResultRow(float y, string rank, string player, string side, string score, string coins, Color color, bool bold)
+    // A row of the results table: rank, player, side, score and coins, this player's in green.
+    private void ResultRow(string rank, string player, string side, string score, string coins, Color color, bool bold)
     {
-        void Cell(string text, float x, float width, TextAnchor anchor)
-        {
-            Text t = OnlineUI.NewLabel(resultsRows, text, 30, new Vector2(x, y), new Vector2(width, 46f), anchor, bold);
-            t.color = color;
-            t.horizontalOverflow = HorizontalWrapMode.Overflow;
-        }
-
-        // The score is wide enough for a hider's "120s / 150s | seeker's name" (2026-11-19).
-        Cell(rank, -650f, 90f, TextAnchor.MiddleLeft);
-        Cell(player, -390f, 420f, TextAnchor.MiddleLeft);
-        Cell(side, -90f, 160f, TextAnchor.MiddleLeft);
-        Cell(score, 290f, 560f, TextAnchor.MiddleRight);
-        Cell(coins, 600f, 170f, TextAnchor.MiddleRight);
+        Image row = Paintbox.Image(resultsRows, "Row", null, bold ? Paintbox.GoodWash : Color.clear);
+        row.gameObject.AddComponent<LayoutElement>().preferredHeight = 60f;
+        Paintbox.Weight w = bold ? Paintbox.Weight.Bold : Paintbox.Weight.Regular;
+        PaintboxPage.Cell(row.transform, rank, 0f, 0.09f, 28f, color, Paintbox.Weight.Bold, TextAnchor.MiddleLeft);
+        PaintboxPage.Cell(row.transform, player, 0.09f, 0.42f, 28f, color, Paintbox.Weight.Bold, TextAnchor.MiddleLeft);
+        PaintboxPage.Cell(row.transform, side, 0.42f, 0.55f, 26f, Paintbox.Muted, w, TextAnchor.MiddleLeft);
+        PaintboxPage.Cell(row.transform, score, 0.55f, 0.86f, 26f, color, w, TextAnchor.MiddleRight);
+        PaintboxPage.Cell(row.transform, coins, 0.86f, 1f, 28f, coins.StartsWith("+") ? Paintbox.Good : Paintbox.Muted, Paintbox.Weight.Bold, TextAnchor.MiddleRight);
+        Image rule = Paintbox.Image(row.transform, "Rule", null, Paintbox.Line);
+        rule.rectTransform.anchorMin = new Vector2(0f, 0f);
+        rule.rectTransform.anchorMax = new Vector2(1f, 0f);
+        rule.rectTransform.offsetMin = Vector2.zero;
+        rule.rectTransform.offsetMax = new Vector2(0f, 2f);
     }
 
     // ================= UI =================
@@ -581,68 +621,144 @@ public class OnlineMatches : MonoBehaviour
         chip.SetActive(false);
 
 
-        // The list.
-        RectTransform p = OnlineUI.Modal(screenCanvas.transform, "MyMatchesScreen", new Vector2(1320f, 860f));
-        Opaque(p);
-        listScreen = p.parent.gameObject;
-        listTitle = OnlineUI.NewLabel(p, "Your matches", 50, new Vector2(0f, 350f), new Vector2(1200f, 80f), TextAnchor.MiddleCenter, true);
-        Text hint = OnlineUI.NewLabel(p, "A match you left goes on without you: rejoin it while it runs.", 28, new Vector2(0f, 290f), new Vector2(1200f, 50f));
-        hint.color = OnlineUI.Muted;
-        listRows = (RectTransform)new GameObject("Rows", typeof(RectTransform)).transform;
-        listRows.SetParent(p, false);
-        OnlineUI.Place(listRows, Vector2.zero, new Vector2(1280f, 620f));
-        OnlineUI.NewButton(p, "<", new Vector2(-330f, -360f), new Vector2(110f, 76f), OnlineUI.Gray, () => { page--; RefreshList(); });
-        listPage = OnlineUI.NewLabel(p, "", 30, new Vector2(-200f, -360f), new Vector2(120f, 70f));
-        OnlineUI.NewButton(p, ">", new Vector2(-70f, -360f), new Vector2(110f, 76f), OnlineUI.Gray, () => { page++; RefreshList(); });
-        OnlineUI.NewButton(p, "CLOSE", new Vector2(330f, -360f), new Vector2(300f, 80f), OnlineUI.Gray, () =>
-        {
-            AudioManager.ButtonTap();
-            listScreen.SetActive(false);
-        });
+        // The list: Multiplayer's Matches tab (design B).
+        PaintboxPage listPage = PaintboxPage.Build(screenCanvas.transform, "MyMatchesScreen", "Multiplayer", () => { AudioManager.ButtonTap(); CloseList(); },
+                                                   PaintboxPage.Top.Balance | PaintboxPage.Top.Shop | PaintboxPage.Top.Settings, HubTab.Matches);
+        listScreen = listPage.Root.gameObject;
+        listTitle = listPage.Title;
+        listTitle.text = "Multiplayer";
+        listTitle = Paintbox.Label(listPage.Content, "", 1f, Color.clear);   // the old heading, kept for its state
+        RectTransform head = Paintbox.TopBand(Paintbox.NewRect(listPage.Content, "Head"), 0f, 44f);
+        listHead = head.gameObject;
+        Text kicker = PaintboxPage.Kicker(head, "JOINED MATCHES");
+        Paintbox.Fill(kicker.rectTransform);
+        RectTransform activeChip = Paintbox.Tag(head, "", Paintbox.Wash, Paintbox.WashInk, "Radio", 22f);
+        activeChip.anchorMin = activeChip.anchorMax = activeChip.pivot = new Vector2(1f, 0.5f);
+        activeChip.anchoredPosition = Vector2.zero;
+        listActive = activeChip.GetComponentInChildren<Text>();
+
+        RectTransform view = Paintbox.Fill(Paintbox.NewRect(listPage.Content, "List"), 0f, 0f, 56f, 0f);
+        ScrollRect scroll = view.gameObject.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.scrollSensitivity = 40f;
+        view.gameObject.AddComponent<RectMask2D>();
+        view.gameObject.AddComponent<Image>().color = Color.clear;
+        listRows = Paintbox.NewRect(view, "Rows");
+        listRows.anchorMin = new Vector2(0f, 1f);
+        listRows.anchorMax = new Vector2(1f, 1f);
+        listRows.pivot = new Vector2(0.5f, 1f);
+        listRows.offsetMin = listRows.offsetMax = Vector2.zero;
+        VerticalLayoutGroup rows = listRows.gameObject.AddComponent<VerticalLayoutGroup>();
+        rows.spacing = 14f;
+        rows.padding = new RectOffset(0, 0, 0, 20);
+        rows.childControlWidth = rows.childControlHeight = true;
+        rows.childForceExpandWidth = true;
+        rows.childForceExpandHeight = false;
+        listRows.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        scroll.content = listRows;
+        scroll.viewport = view;
+
+        // Nothing running: the way to a new match, or to the history.
+        RectTransform empty = Paintbox.NewRect(listPage.Content, "Empty");
+        Paintbox.Pin(empty, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(1000f, 300f));
+        listEmpty = empty.gameObject;
+        Image art = Paintbox.Rounded(empty, "Art", Color.white, 30f);
+        Paintbox.Pin(art.rectTransform, new Vector2(0f, 0.5f), Vector2.zero, new Vector2(420f, 280f));
+        art.rectTransform.pivot = new Vector2(0f, 0.5f);
+        Image artMask = Paintbox.Rounded(art.rectTransform, "Frame", Color.white, 30f);
+        Paintbox.Fill(artMask.rectTransform);
+        artMask.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+        Image artPic = Paintbox.Image(artMask.rectTransform, "Picture", Paintbox.Art("aerial"), Color.white);
+        Paintbox.Fill(artPic.rectTransform);
+        AspectRatioFitter artFit = artPic.gameObject.AddComponent<AspectRatioFitter>();
+        artFit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+        artFit.aspectRatio = 832f / 466f;
+        Text emptyTitle = Paintbox.Label(empty, "No active matches", 54f, Paintbox.Ink, Paintbox.Weight.Title);
+        Paintbox.Pin(emptyTitle.rectTransform, new Vector2(0f, 1f), new Vector2(456f, -40f), new Vector2(560f, 70f));
+        emptyTitle.rectTransform.pivot = new Vector2(0f, 1f);
+        Text emptyText = Paintbox.Label(empty, "Join a room to play. While a match is running, you can return to it here.", 26f, Paintbox.Muted);
+        emptyText.verticalOverflow = VerticalWrapMode.Overflow;
+        Paintbox.Pin(emptyText.rectTransform, new Vector2(0f, 1f), new Vector2(456f, -114f), new Vector2(540f, 70f));
+        emptyText.rectTransform.pivot = new Vector2(0f, 1f);
+        Button find = Paintbox.Button(empty, "Find match", Paintbox.Tone.Primary, "Search", () => { AudioManager.ButtonTap(); MultiplayerHub.Go(HubTab.NewMatch); }, 28f);
+        find.name = "EmptyFindMatch";
+        Paintbox.Pin((RectTransform)find.transform, new Vector2(0f, 1f), new Vector2(456f, -200f), new Vector2(250f, 80f));
+        ((RectTransform)find.transform).pivot = new Vector2(0f, 1f);
+        Button history = Paintbox.Button(empty, "Open history", Paintbox.Tone.Paper, null, () => { AudioManager.ButtonTap(); MultiplayerHub.Go(HubTab.History); }, 28f);
+        history.name = "EmptyHistory";
+        Paintbox.Pin((RectTransform)history.transform, new Vector2(0f, 1f), new Vector2(722f, -200f), new Vector2(240f, 80f));
+        ((RectTransform)history.transform).pivot = new Vector2(0f, 1f);
+        listEmpty.SetActive(false);
         listScreen.SetActive(false);
 
-        // The results.
-        p = OnlineUI.Modal(screenCanvas.transform, "MatchResultsScreen", new Vector2(1480f, 960f));
-        Opaque(p);
-        resultsScreen = p.parent.gameObject;
-        resultsHeading = OnlineUI.NewLabel(p, "Match results", 50, new Vector2(0f, 410f), new Vector2(1400f, 70f), TextAnchor.MiddleCenter, true);
-        resultsTitle = OnlineUI.NewLabel(p, "", 32, new Vector2(0f, 350f), new Vector2(1400f, 50f));
-        resultsTitle.color = OnlineUI.Muted;
-        resultsRows = (RectTransform)new GameObject("Rows", typeof(RectTransform)).transform;
-        resultsRows.SetParent(p, false);
-        OnlineUI.Place(resultsRows, Vector2.zero, new Vector2(1400f, 700f));
-        resultsNext = OnlineUI.NewButton(p, "NEXT", Vector2.zero, new Vector2(300f, 84f), OnlineUI.Green, () =>
+        // The results: a page of its own, the table and the ways on in the foot.
+        PaintboxPage results = PaintboxPage.Build(screenCanvas.transform, "MatchResultsScreen", "Match results", null,
+                                                  PaintboxPage.Top.Balance, null, foot: true);
+        resultsScreen = results.Root.gameObject;
+        resultsHeading = results.Title;
+        resultsTitle = results.FootDetail;
+        results.FootTitle.text = "";
+        resultsFootTitle = results.FootTitle;
+
+        PaintboxFrame table = Paintbox.Panel(results.Content, "Table", 30f);
+        Paintbox.Fill(table.Root);
+        RectTransform tableHead = PaintboxPage.TableHead(table.Body, new[]
         {
-            Action next = onResultsNext;
-            CloseResults();
-            next?.Invoke();
+            ("RANK", 0f, 0.09f, TextAnchor.MiddleLeft), ("PLAYER", 0.09f, 0.42f, TextAnchor.MiddleLeft), ("SIDE", 0.42f, 0.55f, TextAnchor.MiddleLeft),
+            ("SCORE", 0.55f, 0.86f, TextAnchor.MiddleRight), ("COINS", 0.86f, 1f, TextAnchor.MiddleRight),
         });
-        resultsHome = OnlineUI.NewButton(p, "HOME", Vector2.zero, new Vector2(300f, 84f), OnlineUI.Blue, () =>
-        {
-            Action home = onResultsHome;
-            CloseResults();
-            home?.Invoke();
-        });
-        // Close puts the results away for good: nothing else of them is under this screen.
-        resultsClose = OnlineUI.NewButton(p, "CLOSE", Vector2.zero, new Vector2(300f, 84f), OnlineUI.Gray, () =>
+        Paintbox.TopBand(tableHead, 4f, 52f, 4f, 4f);
+        RectTransform tableView = Paintbox.Fill(Paintbox.NewRect(table.Body, "View"), 8f, 8f, 60f, 8f);
+        ScrollRect tableScroll = tableView.gameObject.AddComponent<ScrollRect>();
+        tableScroll.horizontal = false;
+        tableView.gameObject.AddComponent<RectMask2D>();
+        tableView.gameObject.AddComponent<Image>().color = Color.clear;
+        resultsRows = Paintbox.NewRect(tableView, "Rows");
+        resultsRows.anchorMin = new Vector2(0f, 1f);
+        resultsRows.anchorMax = new Vector2(1f, 1f);
+        resultsRows.pivot = new Vector2(0.5f, 1f);
+        resultsRows.offsetMin = resultsRows.offsetMax = Vector2.zero;
+        VerticalLayoutGroup resultRows = resultsRows.gameObject.AddComponent<VerticalLayoutGroup>();
+        resultRows.childControlWidth = resultRows.childControlHeight = true;
+        resultRows.childForceExpandWidth = true;
+        resultRows.childForceExpandHeight = false;
+        resultsRows.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        tableScroll.content = resultsRows;
+        tableScroll.viewport = tableView;
+
+        resultsClose = results.FootButton("Close", Paintbox.Tone.Paper, "X", () =>
         {
             AudioManager.ButtonTap();
             Action close = onResultsClose;
             CloseResults();
             close?.Invoke();
-        });
+        }, 200f);
+        resultsHome = results.FootButton("Home", Paintbox.Tone.Paper, "House", () =>
+        {
+            Action home = onResultsHome;
+            CloseResults();
+            home?.Invoke();
+        }, 200f);
         // A seeker's Next Player when the hiders won: where each of them hid (OnlineRound.Reveal).
-        resultsExtra = OnlineUI.NewButton(p, "NEXT PLAYER", Vector2.zero, new Vector2(320f, 84f), new Color(0.85f, 0.52f, 0.12f, 0.97f), () =>
+        resultsExtra = results.FootButton("Next Player", Paintbox.Tone.Secondary, "Eye", () =>
         {
             AudioManager.ButtonTap();
             onResultsExtra?.Invoke();
-        });
+        }, 330f);
         resultsExtra.name = "ResultsNextPlayer";
-        Text extraText = resultsExtra.GetComponentInChildren<Text>();
-        extraText.fontSize = 30;
-        extraText.lineSpacing = 0.9f;
-        resultsExtraHint = OnlineUI.NewLabel(p, "See where each hider hid with Next Player.", 28, new Vector2(0f, -352f), new Vector2(1400f, 40f));
-        resultsExtraHint.color = OnlineUI.Warning;
+        resultsNext = results.FootButton("Next", Paintbox.Tone.Primary, "ArrowRight", () =>
+        {
+            Action next = onResultsNext;
+            CloseResults();
+            next?.Invoke();
+        }, 220f);
+        resultsNext.name = "ResultsNext";
+        resultsExtraHint = Paintbox.Label(results.Foot, "See where each hider hid with Next Player.", 22f, OnlineUI.Warning);
+        resultsExtraHint.rectTransform.anchorMin = new Vector2(0f, 1f);
+        resultsExtraHint.rectTransform.anchorMax = new Vector2(1f, 1f);
+        resultsExtraHint.rectTransform.offsetMin = new Vector2(0f, 4f);
+        resultsExtraHint.rectTransform.offsetMax = new Vector2(0f, 40f);
+        resultsExtraHint.alignment = TextAnchor.LowerRight;
         LayoutResultButtons(false);
         resultsScreen.SetActive(false);
     }
@@ -653,24 +769,11 @@ public class OnlineMatches : MonoBehaviour
         onResultsNext = onResultsHome = onResultsClose = onResultsExtra = null;
     }
 
-    // Next, Home, Close along the bottom; with Next Player first when it is offered.
+    // Next, Next Player, Home, Close in the foot; Next Player only when it is offered.
     private void LayoutResultButtons(bool extra)
     {
         resultsExtra.gameObject.SetActive(extra);
         resultsExtraHint.gameObject.SetActive(extra);
-        var row = new List<Button>();
-        if (extra) row.Add(resultsExtra);
-        if (resultsNext.gameObject.activeSelf) row.Add(resultsNext);
-        if (resultsHome.gameObject.activeSelf) row.Add(resultsHome);
-        row.Add(resultsClose);
-
-        float step = extra ? 350f : 360f;
-        float x = -step * (row.Count - 1) / 2f;
-        foreach (Button b in row)
-        {
-            ((RectTransform)b.transform).anchoredPosition = new Vector2(x, -410f);
-            x += step;
-        }
     }
 
     // ================= Text =================

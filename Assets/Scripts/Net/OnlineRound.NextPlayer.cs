@@ -65,25 +65,24 @@ public partial class OnlineRound
 
         CloseNextPlayerOffer();
         RaiseForOffer(true);   // over the results screen when it is offered there
-        nextOffer = OnlineUI.Modal(roundCanvas, "NextPlayerOffer", new Vector2(900f, 560f));
+        // Design B's dialog: what Next Player does, the balance, Not now and Unlock.
+        PaintboxDialog offer = PaintboxDialog.Build(roundCanvas, "NextPlayerOffer", "Eye", "Next Player", new Vector2(960f, 540f));
+        nextOffer = (RectTransform)offer.Root.transform.GetChild(0);   // the card: its parent is the dim, closed with it
         string price = OnlineUI.CoinsText(ShopInventory.PriceCents(item));
-
-        OnlineUI.NewLabel(nextOffer, "Next Player", 52, new Vector2(0f, 200f), new Vector2(820f, 80f), TextAnchor.MiddleCenter, true);
-        OnlineUI.NewLabel(nextOffer, hunter
-                              ? "See where the hiders hid when they win. Hiders: switch between the players still in after you are out. Yours for good, in every match."
-                              : "Switch between the players still in after you are out, and as a seeker see where the hiders hid when they win. Yours for good, in every match.",
-                          30, new Vector2(0f, 85f), new Vector2(800f, 130f), TextAnchor.MiddleCenter, false);
-        nextOfferStatus = OnlineUI.NewLabel(nextOffer, $"You have {OnlineUI.CoinsText(ShopInventory.CoinCents)}.", 30,
-                                            new Vector2(0f, -15f), new Vector2(800f, 60f), TextAnchor.MiddleCenter, false);
-        nextOfferStatus.color = OnlineUI.Muted;
-
-        nextOfferBuy = OnlineUI.NewButton(nextOffer, $"Unlock for {price}", new Vector2(-200f, -170f), new Vector2(360f, 110f),
-                                          OnlineUI.Green, () => BuyNextPlayer(item));
-        OnlineUI.NewButton(nextOffer, "Not now", new Vector2(200f, -170f), new Vector2(360f, 110f), OnlineUI.Gray, () =>
+        offer.Body.text = hunter
+            ? "See where the hiders hid when they win. Hiders: switch between the players still in after you are out. Yours for good, in every match."
+            : "Switch between the players still in after you are out, and as a seeker see where the hiders hid when they win. Yours for good, in every match.";
+        nextOfferStatus = Paintbox.Label(offer.Card, $"You have {OnlineUI.CoinsText(ShopInventory.CoinCents)}.", 26f, Paintbox.Ink, Paintbox.Weight.Bold);
+        nextOfferStatus.rectTransform.anchorMin = new Vector2(0f, 0f);
+        nextOfferStatus.rectTransform.anchorMax = new Vector2(1f, 0f);
+        nextOfferStatus.rectTransform.offsetMin = new Vector2(40f, 124f);
+        nextOfferStatus.rectTransform.offsetMax = new Vector2(-40f, 166f);
+        offer.Button("Not now", Paintbox.Tone.Paper, null, () =>
         {
             AudioManager.ButtonTap();
             CloseNextPlayerOffer();
-        });
+        }, 200f);
+        nextOfferBuy = offer.Button($"Unlock for {price}", Paintbox.Tone.Primary, "Eye", () => BuyNextPlayer(item), 380f);
     }
 
     private void BuyNextPlayer(ShopItem item)

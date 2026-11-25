@@ -201,6 +201,7 @@ public class ChameleonPaint : MonoBehaviour
     private GameObject panelGO;
     private RectTransform panelRect;
     private Vector2 panelOpenPosition;
+    private Vector2 panelAway = Vector2.left;   // which way the picker slides away when closed
     private Coroutine panelSlideCoroutine;
     private readonly HashSet<GameObject> _reusedUi = new HashSet<GameObject>();
     private bool drawingOn;
@@ -1262,7 +1263,7 @@ public class ChameleonPaint : MonoBehaviour
             StopPickerPanelSlide();
             if (panelRect != null)
             {
-                panelRect.anchoredPosition = panelOpenPosition + Vector2.left * panelSlideDistance;
+                panelRect.anchoredPosition = panelOpenPosition + panelAway * panelSlideDistance;
             }
             if (panelGO != null)
             {
@@ -1289,6 +1290,22 @@ public class ChameleonPaint : MonoBehaviour
         HideLoupe();
     }
 
+    /// <summary>
+    /// Where the picker sits open, which way and how far it slides away, and its scale (design B's
+    /// sheet: on the right edge, sliding out to the right, laid out in design units).
+    /// </summary>
+    public void DockPanel(Vector2 openPosition, Vector2 away, float distance, float scale)
+    {
+        panelOpenPosition = openPosition;
+        panelAway = away.normalized;
+        panelSlideDistance = distance;
+        if (panelRect == null) return;
+        panelRect.localScale = new Vector3(scale, scale, 1f);
+        if (panelSlideCoroutine != null) return;   // the slide ends where the new place is
+        bool open = drawingOn && panelGO != null && panelGO.activeSelf;
+        panelRect.anchoredPosition = open ? openPosition : openPosition + panelAway * distance;
+    }
+
     private void StopPickerPanelSlide()
     {
         if (panelSlideCoroutine != null)
@@ -1305,12 +1322,12 @@ public class ChameleonPaint : MonoBehaviour
         if (panelGO == null || panelRect == null) return;
 
         StopPickerPanelSlide();
-        Vector2 target = panelOpenPosition + Vector2.left * (open ? 0f : panelSlideDistance);
+        Vector2 target = panelOpenPosition + panelAway * (open ? 0f : panelSlideDistance);
 
         if (open && !panelGO.activeSelf)
         {
             // If the panel was fully hidden, start from the left.
-            panelRect.anchoredPosition = panelOpenPosition + Vector2.left * panelSlideDistance;
+            panelRect.anchoredPosition = panelOpenPosition + panelAway * panelSlideDistance;
             panelGO.SetActive(true);
         }
         if (panelSlideDuration <= 0f || !isActiveAndEnabled)

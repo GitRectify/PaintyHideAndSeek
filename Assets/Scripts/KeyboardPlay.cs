@@ -74,7 +74,7 @@ public sealed class KeyboardPlay : MonoBehaviour
         {
             if (KeyBindingsUI.IsOpen) KeyBindingsUI.Close();
             else if (settings.IsShown) settings.Hide();
-            else settings.Show();
+            else if (!PaintboxHud.ToggleMenu()) settings.Show();   // in a round: the round menu
         }
 
         bool playing = gmm != null && gmm.RoundActive && !gmm.PlayerFrozen && !gmm.SeekerHideCountdown;

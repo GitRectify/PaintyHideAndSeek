@@ -902,25 +902,45 @@ public class OnlineLobby : MonoBehaviour
         Transform canvas = OnlineUI.CreateCanvas("OnlineLobbyCanvas", transform, 50).transform;
 
         // The choices before a match are the play setup's (PlaySetupUI).
-        RectTransform p;
 
-        // Lobby: a bar under MatchmakingUI's panel (this canvas sorts above it).
-        Image bar = OnlineUI.NewImage("LobbyBar", canvas, OnlineUI.PanelColor);
-        OnlineUI.Place(bar.rectTransform, new Vector2(0f, -462f), new Vector2(1331f, 110f));
-        lobbyBar = bar.gameObject;
-        lobbyMessage = OnlineUI.NewLabel(bar.transform, "", 30, new Vector2(-170f, 0f), new Vector2(940f, 100f), TextAnchor.MiddleLeft);
-        OnlineUI.NewButton(bar.transform, "CANCEL", new Vector2(500f, 0f), new Vector2(260f, 84f), OnlineUI.Red, CancelSearch);
+        // Lobby: the waiting page's foot (MatchmakingUI, design B), this canvas over it: the lobby's
+        // message where the foot's second line goes, and Cancel at its right.
+        RectTransform bar = Paintbox.SafeArea(Paintbox.NewRect(canvas, "LobbyBarSafe"));
+        RectTransform barRect = Paintbox.NewRect(bar, "LobbyBar");
+        barRect.anchorMin = new Vector2(0f, 0f);
+        barRect.anchorMax = new Vector2(1f, 0f);
+        barRect.pivot = new Vector2(0.5f, 0f);
+        barRect.offsetMin = new Vector2(Paintbox.Gutter, 0f);
+        barRect.offsetMax = new Vector2(-Paintbox.Gutter, PaintboxPage.FootHeight);
+        lobbyBar = barRect.gameObject;
+        lobbyMessage = Paintbox.Label(barRect, "", 24f, Paintbox.Muted);
+        Paintbox.Fit(lobbyMessage, 15);
+        lobbyMessage.rectTransform.anchorMin = new Vector2(0f, 0f);
+        lobbyMessage.rectTransform.anchorMax = new Vector2(0.62f, 0.5f);
+        lobbyMessage.rectTransform.offsetMin = new Vector2(0f, 14f);
+        lobbyMessage.rectTransform.offsetMax = new Vector2(0f, -4f);
+        lobbyMessage.alignment = TextAnchor.UpperLeft;
+        Button cancel = Paintbox.Button(barRect, "Cancel", Paintbox.Tone.Paper, "X", CancelSearch, 30f);
+        cancel.name = "CancelSearch";
+        RectTransform crt = (RectTransform)cancel.transform;
+        crt.anchorMin = new Vector2(1f, 0f);
+        crt.anchorMax = new Vector2(1f, 1f);
+        crt.pivot = new Vector2(1f, 0.5f);
+        crt.offsetMin = new Vector2(-230f, 14f);
+        crt.offsetMax = new Vector2(0f, -16f);
 
-        // A paid room's entry, confirmed before each search (ConfirmEntry).
-        p = OnlineUI.Modal(canvas, "PayScreen", new Vector2(980f, 600f));
-        payScreen = p.parent.gameObject;
-        payTitle = OnlineUI.NewLabel(p, "", 52, new Vector2(0f, 220f), new Vector2(900f, 80f), TextAnchor.MiddleCenter, true);
-        payBody = OnlineUI.NewLabel(p, "", 32, new Vector2(0f, 60f), new Vector2(880f, 220f));
-        payStatus = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -85f), new Vector2(880f, 50f));
-        payStatus.color = OnlineUI.Muted;
+        // A paid room's entry, confirmed before each search (ConfirmEntry): design B's dialog.
+        PaintboxDialog pay = PaintboxDialog.Build(canvas, "PayScreen", "Ticket", "", new Vector2(980f, 560f));
+        payScreen = pay.Root;
+        payTitle = pay.Title;
+        payBody = pay.Body;
+        payStatus = Paintbox.Label(pay.Card, "", 26f, Paintbox.Ink, Paintbox.Weight.Bold);
+        payStatus.rectTransform.anchorMin = new Vector2(0f, 0f);
+        payStatus.rectTransform.anchorMax = new Vector2(1f, 0f);
+        payStatus.rectTransform.offsetMin = new Vector2(40f, 124f);
+        payStatus.rectTransform.offsetMax = new Vector2(-40f, 166f);
         CoinBalance.Bind(payStatus, "Your coins: {0}");
-        payButton = OnlineUI.NewButton(p, "PAY", new Vector2(-210f, -200f), new Vector2(380f, 100f), OnlineUI.Green, Pay);
-        OnlineUI.NewButton(p, "BACK", new Vector2(210f, -200f), new Vector2(380f, 100f), OnlineUI.Gray, () =>
+        pay.Button("Back", Paintbox.Tone.Paper, null, () =>
         {
             AudioManager.ButtonTap();
             afterPay = null;
@@ -928,25 +948,28 @@ public class OnlineLobby : MonoBehaviour
             payBack = null;
             if (back != null) back();
             else ShowSetup(null);
-        });
+        }, 180f);
+        payButton = pay.Button("Pay", Paintbox.Tone.Primary, "Check", Pay, 340f);
 
         // A notice after a round ended on its own (seat ran out, another device).
-        p = OnlineUI.Modal(canvas, "NoticeScreen", new Vector2(900f, 440f));
-        noticeScreen = p.parent.gameObject;
-        noticeText = OnlineUI.NewLabel(p, "", 36, new Vector2(0f, 60f), new Vector2(820f, 220f));
-        OnlineUI.NewButton(p, "OK", new Vector2(0f, -140f), new Vector2(280f, 90f), OnlineUI.Green, () =>
+        PaintboxDialog notice = PaintboxDialog.Build(canvas, "NoticeScreen", "Info", "Match update", new Vector2(900f, 440f));
+        noticeScreen = notice.Root;
+        noticeText = notice.Body;
+        notice.Button("OK", Paintbox.Tone.Primary, "Check", () =>
         {
             AudioManager.ButtonTap();
             noticeScreen.SetActive(false);
-        });
+        }, 180f);
 
         // Rejoin after a restart.
-        p = OnlineUI.Modal(canvas, "RejoinScreen", new Vector2(900f, 480f));
-        rejoinScreen = p.parent.gameObject;
-        OnlineUI.NewLabel(p, "Rejoin your match?", 50, new Vector2(0f, 150f), new Vector2(820f, 80f), TextAnchor.MiddleCenter, true);
-        OnlineUI.NewLabel(p, "Your online round is still going.", 34, new Vector2(0f, 50f), new Vector2(820f, 90f));
-        OnlineUI.NewButton(p, "REJOIN", new Vector2(-170f, -130f), new Vector2(280f, 90f), OnlineUI.Green, StartRejoin);
-        OnlineUI.NewButton(p, "NO", new Vector2(170f, -130f), new Vector2(280f, 90f), OnlineUI.Gray, DeclineRejoin);
+        PaintboxDialog rejoin = PaintboxDialog.Build(canvas, "RejoinScreen", "LogIn", "Rejoin your match?", new Vector2(900f, 420f));
+        rejoinScreen = rejoin.Root;
+        rejoin.Body.text = "Your online round is still going. Your place is kept while it runs.";
+        rejoin.Button("No", Paintbox.Tone.Paper, null, DeclineRejoin, 160f);
+        rejoin.Button("Rejoin", Paintbox.Tone.Primary, "LogIn", StartRejoin, 220f);
+        payScreen.SetActive(false);
+        noticeScreen.SetActive(false);
+        rejoinScreen.SetActive(false);
     }
 
     private void HideScreens()

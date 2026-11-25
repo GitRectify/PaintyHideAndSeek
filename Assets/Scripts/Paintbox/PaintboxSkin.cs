@@ -339,44 +339,43 @@ public static class PaintboxSkin
 
     private static void Hud()
     {
+        // The layout first (PaintboxHud): each button's look is made for the size it is given.
         GameObject paintUi = Find("PaintUICanvas");
         if (Mark(paintUi))
         {
             Transform p = paintUi.transform;
+            PaintboxHud.Attach(p);
+            PaintboxHud.StylePoseTray(Under(p, "PosePanel"));
             Hud(Under(p, "Btn_Setting"), "Menu", null, false, Paintbox.Tone.Glass);
             Hud(Under(p, "Btn_Shop"), "ShoppingBag", "Shop", false, Paintbox.Tone.Glass, "Icon", "Label");
-            Hud(Under(p, "PaintGateButton"), "Paintbrush", "Paint", false, Paintbox.Tone.Glass, "Icon", "Label");
+            Hud(Under(p, "PaintGateButton"), "Paintbrush", "Paint", true, Paintbox.Tone.Hot, "Icon", "Label");
             Hud(Under(p, "Btn_DoiDang"), "PersonStanding", "Pose", false, Paintbox.Tone.Glass, "Icon_DoiDang");
-            Hud(Under(p, "Btn_XoayNhanVat"), "RotateCw", "Turn", false, Paintbox.Tone.Glass, "Icon_DoiDang");
+            Hud(Under(p, "Btn_XoayNhanVat"), "RotateCw", "Rotate", false, Paintbox.Tone.Glass, "Icon_DoiDang");
             Hud(Under(p, "ButtonCamera"), "Camera", "Camera", false, Paintbox.Tone.Glass);
-            Hud(Under(p, "ButtonStart"), "Play", "Start", false, Paintbox.Tone.Hot, "Text");
-            Hud(Under(p, "ButtonRotationLeft"), "RotateCcw", null, true, Paintbox.Tone.Glass);
-            Hud(Under(p, "ButtonRotationRight"), "RotateCw", null, true, Paintbox.Tone.Glass);
-
-            Image posePanel = Under(p, "PosePanel")?.GetComponent<Image>();
-            if (posePanel != null)
-            {
-                posePanel.color = Paintbox.Glass;
-                UiArt.Apply(posePanel, UiArt.Rounded, 28f);
-                Image close = Under(posePanel.transform, "CloseBtn")?.GetComponent<Image>();
-                if (close != null) Hud(close.transform, "X", null, false, Paintbox.Tone.Paper);
-            }
-
+            Transform start = Under(p, "ButtonStart");
+            if (start != null && start.Find("PbSkin") == null)
+                PaintboxHudButton.ApplyWide(start.gameObject, "Flag", "Start", "· End hiding", false, Paintbox.Tone.Glass, "Text");
+            Hud(Under(p, "ButtonRotationLeft"), "RotateCcw", null, true, Paintbox.Tone.Paper);
+            Hud(Under(p, "ButtonRotationRight"), "RotateCw", null, true, Paintbox.Tone.Paper);
         }
+
+        GameObject paintSheet = Find("ChameleonPaintCanvas");
+        if (Mark(paintSheet))
+            PaintboxHud.StylePaintSheet(paintSheet.transform, paintSheet.GetComponentInChildren<ChameleonPaint>(true) ?? Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include));
 
         GameObject fire = Find("FireButtonCanvas");
         if (Mark(fire))
         {
             Transform f = fire.transform;
-            Hud(Under(f, "Jump"), "ArrowUp", "Jump", false, Paintbox.Tone.Glass);
-            Hud(Under(f, "btnnam"), "ChevronsDown", "Lie down", false, Paintbox.Tone.Glass);
+            Hud(Under(f, "Jump"), "ArrowBigUp", "Jump", false, Paintbox.Tone.Glass);
+            Hud(Under(f, "btnnam"), "PersonStanding", "Lie down", false, Paintbox.Tone.Glass);
             Hud(Under(f, "FireBtn"), "Crosshair", "Fire", true, Paintbox.Tone.Hot, "GunIcon", "L");
         }
 
         GameObject climb = Find("ClimbButtonsCanvas");
         if (Mark(climb))
         {
-            Hud(Under(climb.transform, "ClimbUp"), "ChevronsUp", "Climb", false, Paintbox.Tone.Glass, "Arrow");
+            Hud(Under(climb.transform, "ClimbUp"), "ChevronsUp", "Climb", false, Paintbox.Tone.Hot, "Arrow");
             Hud(Under(climb.transform, "ClimbDown"), "ChevronsDown", "Down", false, Paintbox.Tone.Glass, "Arrow");
         }
 
@@ -393,33 +392,22 @@ public static class PaintboxSkin
                 Outline o = handle.gameObject.AddComponent<Outline>();
                 o.effectColor = Paintbox.Ink;
                 o.effectDistance = new Vector2(3f, -3f);
-                Paintbox.IconImage(handle.rectTransform, "Move", 56f, Paintbox.Ink);
+                Image move = Paintbox.IconImage(handle.rectTransform, "Move", 56f, Paintbox.Ink);
+                Paintbox.Fill(move.rectTransform, 26f, 26f, 26f, 26f);   // grows and shrinks with the handle
             }
         }
 
+        // The timer and the two teams: the prototype's pill.
         GameObject matchHud = Find("MatchHudCanvas");
-        if (Mark(matchHud))
-        {
-            // The timer and the two teams sit on a strip of dark glass, as the prototype's top pill.
-            Image strip = Paintbox.Rounded(matchHud.transform, "PbStrip", Paintbox.Glass, 46f);
-            strip.transform.SetAsFirstSibling();
-            RectTransform s = strip.rectTransform;
-            s.anchorMin = s.anchorMax = s.pivot = new Vector2(0.5f, 1f);
-            s.anchoredPosition = new Vector2(0f, -22f);
-            s.sizeDelta = new Vector2(560f, 104f);
-            Outline o = strip.gameObject.AddComponent<Outline>();
-            o.effectColor = Paintbox.GlassEdge;
-            o.effectDistance = new Vector2(3f, -3f);
-            matchHud.AddComponent<PaintboxHudStrip>().Strip = s;
-
-            Text timer = Under(matchHud.transform, "RingTrack/TimerText")?.GetComponent<Text>();
-            if (timer != null) UiTranslator.Restyle(timer, Paintbox.Bold);
-        }
+        if (Mark(matchHud)) PaintboxHud.StyleRoundPill(matchHud.transform);
 
         foreach (string status in new[] { "HideStatus", "SeekStatus", "SeekResult" })
         {
-            Text t = Find(status)?.GetComponent<Text>();
-            if (t != null) UiTranslator.Restyle(t, Paintbox.Bold);
+            GameObject go = Find(status);
+            Text t = go != null ? go.GetComponent<Text>() : null;
+            if (t == null) continue;
+            UiTranslator.Restyle(t, Paintbox.Bold);
+            PaintboxTextPill.Attach(t);
         }
     }
 
@@ -627,7 +615,7 @@ public static class PaintboxSkin
             w.pivot = new Vector2(0f, 0f);
             w.anchoredPosition = new Vector2(0f, 14f);
             w.sizeDelta = new Vector2(0f, 90f);
-            Outline o = words.GetComponent<Outline>() ?? words.gameObject.AddComponent<Outline>();
+            Outline o = Paintbox.Ensure<Outline>(words.gameObject);
             o.enabled = true;
             o.effectColor = Paintbox.Ink;
             o.effectDistance = new Vector2(3f, -3f);
@@ -774,25 +762,5 @@ public sealed class PaintboxUnits : MonoBehaviour
         rt.anchoredPosition = Vector2.zero;
         rt.localScale = new Vector3(scale, scale, 1f);
         rt.sizeDelta = size / scale;
-    }
-}
-
-/// <summary>Keeps the HUD's glass strip as wide as the timer and the team icons beside it.</summary>
-public sealed class PaintboxHudStrip : MonoBehaviour
-{
-    public RectTransform Strip;
-
-    private void LateUpdate()
-    {
-        if (Strip == null) return;
-        float reach = 120f;
-        foreach (Transform child in transform)
-        {
-            if (child == Strip || !child.gameObject.activeSelf) continue;
-            if (!(child is RectTransform rt) || rt.anchorMin.y < 0.99f) continue;
-            if (Mathf.Abs(rt.anchoredPosition.y) > 160f) continue;
-            reach = Mathf.Max(reach, Mathf.Abs(rt.anchoredPosition.x) + rt.sizeDelta.x * 0.5f + 26f);
-        }
-        Strip.sizeDelta = new Vector2(reach * 2f, Strip.sizeDelta.y);
     }
 }

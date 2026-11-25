@@ -21,44 +21,62 @@ public partial class OnlineRound
     private Button exitButton;
     private GameObject exitConfirm;
     private Text exitConfirmText;
-    private Text readyPanel;
+    private Button readyChip;           // "4/5 ready", under the role chip (hiders, hide phase)
+    private Text readyChipText;
+    private GameObject readyRoster;     // the chip's dialog: every hider, ready or still hiding
+    private RectTransform readyRows;
     private ushort readyShown;
     private bool readyKnown;
 
     private void BuildMatchControls(Transform canvas)
     {
-        // Exit, top left: nothing else of the round's HUD is there.
-        exitButton = OnlineUI.NewButton(canvas, "EXIT", Vector2.zero, new Vector2(180f, 76f), OnlineUI.Red, AskExit);
+        // Leave, top left once the match is decided (UpdateAfterMatch): while it is played, Leave
+        // is in the round menu (PaintboxHud), which asks the same question.
+        exitButton = Paintbox.Button(canvas, "Leave", Paintbox.Tone.Glass, "DoorOpen", AskExit, 28f);
         exitButton.name = "ExitMatch";
-        RectTransform ert = (RectTransform)exitButton.transform;
-        ert.anchorMin = ert.anchorMax = ert.pivot = new Vector2(0f, 1f);
-        ert.anchoredPosition = new Vector2(24f, -24f);
+        Paintbox.Pin((RectTransform)exitButton.transform, new Vector2(0f, 1f), new Vector2(PaintboxHud.EdgeX, -PaintboxHud.EdgeY), new Vector2(196f, 76f));
         exitButton.gameObject.SetActive(false);
 
-        RectTransform panel = OnlineUI.Modal(canvas, "ExitMatchConfirm", new Vector2(900f, 460f));
-        exitConfirm = panel.parent.gameObject;
-        OnlineUI.NewLabel(panel, "Leave this match?", 50, new Vector2(0f, 150f), new Vector2(820f, 80f), TextAnchor.MiddleCenter, true);
-        exitConfirmText = OnlineUI.NewLabel(panel, "", 32, new Vector2(0f, 30f), new Vector2(820f, 150f));
-        Button leave = OnlineUI.NewButton(panel, "LEAVE", new Vector2(-180f, -140f), new Vector2(300f, 96f), OnlineUI.Red, ConfirmExit);
+        // Design B's Leave match dialog: Leave (red words) and Stay (yellow).
+        PaintboxDialog dialog = PaintboxDialog.Build(canvas, "ExitMatchConfirm", "DoorOpen", "Leave this match?", new Vector2(900f, 440f));
+        exitConfirm = dialog.Root;
+        exitConfirmText = dialog.Body;
+        Button leave = dialog.DangerButton("Leave", "LogOut", ConfirmExit, 200f);
         leave.name = "ConfirmExit";
-        OnlineUI.NewButton(panel, "STAY", new Vector2(180f, -140f), new Vector2(300f, 96f), OnlineUI.Gray, () =>
+        dialog.Button("Stay", Paintbox.Tone.Primary, "Play", () =>
         {
             AudioManager.ButtonTap();
             exitConfirm.SetActive(false);
-        });
+        }, 190f);
         exitConfirm.SetActive(false);
 
-        // Who is ready, under Exit.
-        readyPanel = OnlineUI.NewLabel(canvas, "", 30, Vector2.zero, new Vector2(520f, 400f), TextAnchor.UpperLeft, false);
-        readyPanel.name = "HidersReady";
-        readyPanel.color = Color.white;   // over the game
-        RectTransform rrt = readyPanel.rectTransform;
-        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(0f, 1f);
-        rrt.anchoredPosition = new Vector2(28f, -120f);
-        Outline outline = readyPanel.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
-        outline.effectDistance = new Vector2(2f, -2f);
-        readyPanel.gameObject.SetActive(false);
+        // Who is ready: a glass chip under the role chip; a tap lists every hider.
+        readyChip = Paintbox.Button(canvas, "", Paintbox.Tone.Glass, "UsersRound", OpenReadyRoster, 24f, 30f);
+        readyChip.name = "HidersReady";
+        Paintbox.Pin((RectTransform)readyChip.transform, new Vector2(0f, 1f), new Vector2(PaintboxHud.EdgeX, -(PaintboxHud.EdgeY + 80f)), new Vector2(200f, 56f));
+        readyChipText = readyChip.GetComponentInChildren<Text>(true);
+        readyChipText.gameObject.SetActive(true);   // made without words: they come with the roster
+        readyChip.gameObject.SetActive(false);
+
+        PaintboxDialog roster = PaintboxDialog.Build(canvas, "HiderReadiness", "Users", "Hider readiness", new Vector2(720f, 640f));
+        readyRoster = roster.Root;
+        roster.Body.gameObject.SetActive(false);
+        readyRows = Paintbox.NewRect(roster.Card, "Seats");
+        readyRows.anchorMin = Vector2.zero;
+        readyRows.anchorMax = Vector2.one;
+        readyRows.offsetMin = new Vector2(40f, 130f);
+        readyRows.offsetMax = new Vector2(-40f, -190f);
+        VerticalLayoutGroup v = readyRows.gameObject.AddComponent<VerticalLayoutGroup>();
+        v.spacing = 10f;
+        v.childControlWidth = v.childControlHeight = true;
+        v.childForceExpandWidth = true;
+        v.childForceExpandHeight = false;
+        roster.Button("Done", Paintbox.Tone.Primary, "Check", () =>
+        {
+            AudioManager.ButtonTap();
+            readyRoster.SetActive(false);
+        }, 180f);
+        readyRoster.SetActive(false);
     }
 
     // Exit while the round is played (after it, Exit and Results: UpdateAfterMatch); the ready list
@@ -68,18 +86,19 @@ public partial class OnlineRound
         if (exitButton != null)
         {
             bool playing = !resultShown;
-            if (playing && !exitButton.gameObject.activeSelf) exitButton.gameObject.SetActive(true);
+            if (playing && exitButton.gameObject.activeSelf) exitButton.gameObject.SetActive(false);
             if (!playing && exitConfirm.activeSelf) exitConfirm.SetActive(false);
         }
 
-        if (readyPanel != null)
+        if (readyChip != null)
         {
-            bool show = !hunter && !resultShown && Net != null && Net.Phase == MatchPhase.Hide;
-            if (readyPanel.gameObject.activeSelf != show)
+            bool show = !hunter && !resultShown && Net != null && Net.Phase == MatchPhase.Hide && PaintboxHud.InRound;
+            if (readyChip.gameObject.activeSelf != show)
             {
-                readyPanel.gameObject.SetActive(show);
+                readyChip.gameObject.SetActive(show);
                 if (show) RefreshReadyPanel();   // then again at each change the server sends
             }
+            if (!show && readyRoster.activeSelf) readyRoster.SetActive(false);
         }
     }
 
@@ -87,7 +106,8 @@ public partial class OnlineRound
     {
         if (exitButton != null) exitButton.gameObject.SetActive(false);
         if (exitConfirm != null) exitConfirm.SetActive(false);
-        if (readyPanel != null) readyPanel.gameObject.SetActive(false);
+        if (readyChip != null) readyChip.gameObject.SetActive(false);
+        if (readyRoster != null) readyRoster.SetActive(false);
         readyShown = 0;
         readyKnown = false;
     }
@@ -183,16 +203,20 @@ public partial class OnlineRound
         }
     }
 
-    // "Ready to start: 2/5" and one line per hider: ready, or still hiding.
+    // The chip: "2/5 ready"; the roster: one row per hider, ready or still hiding.
     private void RefreshReadyPanel()
     {
-        if (readyPanel == null || roster == null || Net == null) return;
+        if (readyChip == null || roster == null || Net == null) return;
 
         ushort mask = Net.HidersReadyMask;
         CountReady(mask, out int ready, out int total);
+        readyChipText.text = $"{ready}/{total} ready";
 
-        var text = new StringBuilder();
-        text.Append($"<b>Ready to start: {ready}/{total}</b>");
+        for (int i = readyRows.childCount - 1; i >= 0; i--)
+        {
+            readyRows.GetChild(i).gameObject.SetActive(false);
+            Destroy(readyRows.GetChild(i).gameObject);
+        }
         var lines = new List<MecchaNetClient.RosterEntry>(roster);
         lines.Sort((a, b) => a.Slot.CompareTo(b.Slot));
         foreach (MecchaNetClient.RosterEntry e in lines)
@@ -200,8 +224,26 @@ public partial class OnlineRound
             if (e.Role != Role.Fugitive) continue;
             bool isReady = (mask & (1 << e.Slot)) != 0;
             string who = e.Slot == Net.LocalSlot ? $"{NameOf(e.Slot)} (you)" : NameOf(e.Slot);
-            text.Append('\n').Append(isReady ? $"<color=#7CF29A>{who}: ready</color>" : $"<color=#FFFFFFB0>{who}: hiding...</color>");
+
+            Image row = Paintbox.Rounded(readyRows, "Seat_" + e.Slot, Paintbox.Card, 18f);
+            row.gameObject.AddComponent<LayoutElement>().preferredHeight = 58f;
+            Text name = Paintbox.Label(row.rectTransform, who, 26f, Paintbox.Ink, Paintbox.Weight.Bold);
+            Paintbox.Fit(name, 16);
+            Paintbox.Fill(name.rectTransform, 22f, 200f, 0f, 0f);
+            RectTransform state = Paintbox.Tag(row.rectTransform, isReady ? "Ready" : "Hiding",
+                                               isReady ? Paintbox.GoodWash : Paintbox.Tab, isReady ? Paintbox.Good : Paintbox.Muted,
+                                               isReady ? "Check" : "Clock", 22f);
+            state.name = isReady ? "Ready" : "Hiding";
+            state.anchorMin = state.anchorMax = state.pivot = new Vector2(1f, 0.5f);
+            state.anchoredPosition = new Vector2(-12f, 0f);
         }
-        readyPanel.text = text.ToString();
+    }
+
+    private void OpenReadyRoster()
+    {
+        AudioManager.ButtonTap();
+        RefreshReadyPanel();
+        readyRoster.SetActive(true);
+        readyRoster.transform.SetAsLastSibling();
     }
 }

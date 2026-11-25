@@ -167,8 +167,190 @@ public class SettingsUI : MonoBehaviour
         UiTranslator.Track(exitLabel);
 
         WireControls();
-        PaintboxSkin.Settings(canvasGO.transform);   // design B (2026-11-24)
+        BuildPage();   // design B's page over the scene's popup (2026-11-24)
         canvasGO.SetActive(false);
+    }
+
+    // ================= Design B: the Settings page (2026-11-24) =================
+    //
+    // A full page: Audio (music, sound effects: switches that say On or Off) and Preferences
+    // (graphics quality, language: a tap moves to the next) side by side, a row to the Controls,
+    // and Exit game and Home in the foot. The scene's popup stays (its switches and arrows are
+    // what this page moves) but is not drawn.
+
+    private PaintboxPage page;
+    private readonly Dictionary<Tog, (Image track, RectTransform knob, Text word)> switches = new Dictionary<Tog, (Image, RectTransform, Text)>();
+    private Text pageQuality, pageLanguage;
+    private GameObject exitDialog;
+
+    private void BuildPage()
+    {
+        if (page != null) return;
+        Transform canvasT = canvasGO.transform;
+        foreach (string old in new[] { "Dim", "Popup" })
+        {
+            Transform t = canvasT.Find(old);
+            if (t == null) continue;
+            if (t.GetComponent<CanvasGroup>() == null) t.gameObject.AddComponent<CanvasGroup>();
+            CanvasGroup g = t.GetComponent<CanvasGroup>();
+            g.alpha = 0f;
+            g.blocksRaycasts = false;
+            g.interactable = false;
+        }
+
+        Paintbox.Canvas1080(canvasGO);   // the page's words drawn at the screen's own size, not scaled up
+        RectTransform units = PaintboxUnits.Create(canvasT, "SettingsDesign");
+        page = PaintboxPage.Build(units, "SettingsPage", "Settings", () => { AudioManager.ButtonTap(); Hide(); }, PaintboxPage.Top.None, null, foot: true);
+
+        // Audio and Preferences, side by side.
+        RectTransform audio = Card(page.Content, "Audio", "AUDIO", "Headphones", 0f, 0.5f);
+        RectTransform prefs = Card(page.Content, "Preferences", "PREFERENCES", "SlidersHorizontal", 0.5f, 1f);
+        for (int i = 0; i < toggles.Count; i++)
+        {
+            Tog t = toggles[i];
+            RectTransform row = Row(audio, i, t.key == "set_music" ? "Music" : "Sound effects", i == 0 ? "LblMusic" : "LblSound");
+            AddSwitch(row, t);
+        }
+        RectTransform gfx = Row(prefs, 0, "Graphics", "LblGfx");
+        pageQuality = Chooser(gfx, "GfxChoice", () => StepQuality(1));
+        RectTransform lang = Row(prefs, 1, "Language", "LblLang");
+        pageLanguage = Chooser(lang, "LangChoice", () => StepLanguage(1));
+
+        // Controls: a row of its own.
+        PaintboxFrame controls = Paintbox.Frame(page.Content, "ControlsRow", Paintbox.Paper, 26f, Paintbox.Border, 0f, Paintbox.PanelLine);
+        Paintbox.TopBand(controls.Root, 330f, 112f);
+        Button open = controls.Root.gameObject.AddComponent<Button>();
+        open.targetGraphic = controls.Fill;
+        open.transition = Selectable.Transition.None;
+        open.onClick.AddListener(() => { AudioManager.ButtonTap(); KeyBindingsUI.Open(font, null); });
+        controls.Root.gameObject.AddComponent<UiPress>();
+        controls.Root.name = "ControlsBtn";
+        Image badge = Paintbox.Rounded(controls.Body, "Badge", Paintbox.Wash, 16f);
+        Paintbox.Pin(badge.rectTransform, new Vector2(0f, 0.5f), new Vector2(22f, 0f), new Vector2(64f, 64f));
+        badge.rectTransform.pivot = new Vector2(0f, 0.5f);
+        Paintbox.IconImage(badge.rectTransform, "Keyboard", 36f, Paintbox.WashInk);
+        Text ct = Paintbox.Label(controls.Body, "Controls", 32f, Paintbox.Ink, Paintbox.Weight.Bold);
+        ct.rectTransform.anchorMin = new Vector2(0f, 0.5f);
+        ct.rectTransform.anchorMax = new Vector2(1f, 1f);
+        ct.rectTransform.offsetMin = new Vector2(108f, 0f);
+        ct.rectTransform.offsetMax = new Vector2(-80f, -14f);
+        ct.alignment = TextAnchor.LowerLeft;
+        Text cd = Paintbox.Label(controls.Body, "View and change keyboard bindings", 23f, Paintbox.Muted);
+        cd.rectTransform.anchorMin = new Vector2(0f, 0f);
+        cd.rectTransform.anchorMax = new Vector2(1f, 0.5f);
+        cd.rectTransform.offsetMin = new Vector2(108f, 14f);
+        cd.rectTransform.offsetMax = new Vector2(-80f, 0f);
+        cd.alignment = TextAnchor.UpperLeft;
+        Image chevron = Paintbox.IconImage(controls.Body, "ChevronRight", 38f, Paintbox.Ink);
+        Paintbox.Pin(chevron.rectTransform, new Vector2(1f, 0.5f), new Vector2(-24f, 0f), new Vector2(38f, 38f));
+        chevron.rectTransform.pivot = new Vector2(1f, 0.5f);
+
+        // The foot: Exit game on the left, Home on the right.
+        Button exit = page.FootLeftButton("Exit game", Paintbox.Tone.Paper, "LogOut", () => { AudioManager.ButtonTap(); ShowExitConfirm(true); }, 250f);
+        exit.name = "ExitBtn";
+        foreach (Text t in exit.GetComponentsInChildren<Text>(true)) t.color = Paintbox.Bad;
+        foreach (Image i in exit.GetComponentsInChildren<Image>(true)) if (i.name == "Icon") i.color = Paintbox.Bad;
+        Button home = page.FootButton("Home", Paintbox.Tone.Primary, "House", () => { AudioManager.ButtonTap(); OnHome(); }, 220f);
+        home.name = "HomeBtn";
+
+        foreach (Tog t in toggles) PaintSwitch(t);
+        RefreshPage();
+    }
+
+    private static RectTransform Card(RectTransform content, string name, string title, string icon, float from, float to)
+    {
+        PaintboxFrame card = Paintbox.Panel(content, name, 30f);
+        card.Root.anchorMin = new Vector2(from, 1f);
+        card.Root.anchorMax = new Vector2(to, 1f);
+        card.Root.pivot = new Vector2(0.5f, 1f);
+        card.Root.offsetMin = new Vector2(from > 0f ? 12f : 0f, -312f);
+        card.Root.offsetMax = new Vector2(to < 1f ? -12f : 0f, 0f);
+        Image glyph = Paintbox.IconImage(card.Body, icon, 30f, Paintbox.Muted);
+        Paintbox.Pin(glyph.rectTransform, new Vector2(0f, 1f), new Vector2(30f, -28f), new Vector2(30f, 30f));
+        glyph.rectTransform.pivot = new Vector2(0f, 1f);
+        Text kicker = PaintboxPage.Kicker(card.Body, title);
+        Paintbox.TopBand(kicker.rectTransform, 26f, 34f, 74f, 30f);
+        return card.Body;
+    }
+
+    // A row of a card: its name on the left; the control goes on the right.
+    private static RectTransform Row(RectTransform card, int index, string label, string name)
+    {
+        RectTransform row = Paintbox.TopBand(Paintbox.NewRect(card, "Row_" + name), 78f + index * 112f, 104f, 30f, 30f);
+        Text t = Paintbox.Label(row, label, 32f, Paintbox.Ink, Paintbox.Weight.Bold);
+        t.name = name;
+        Paintbox.Fill(t.rectTransform, 0f, 320f, 0f, 0f);
+        if (index == 0)
+        {
+            Image rule = Paintbox.Divider(row);
+            rule.rectTransform.anchorMin = new Vector2(0f, 0f);
+            rule.rectTransform.anchorMax = new Vector2(1f, 0f);
+            rule.rectTransform.offsetMin = new Vector2(0f, -4f);
+            rule.rectTransform.offsetMax = new Vector2(0f, -1f);
+        }
+        return row;
+    }
+
+    // A switch: "On" or "Off" in words, and a yellow track with the knob to the right when on.
+    private void AddSwitch(RectTransform row, Tog t)
+    {
+        Image hit = Paintbox.Image(row, "Switch", null, Color.clear, true);
+        Paintbox.Pin(hit.rectTransform, new Vector2(1f, 0.5f), Vector2.zero, new Vector2(230f, 80f));
+        hit.rectTransform.pivot = new Vector2(1f, 0.5f);
+        Button b = hit.gameObject.AddComponent<Button>();
+        b.targetGraphic = hit;
+        b.onClick.AddListener(() => { AudioManager.ButtonTap(); FlipToggle(t); });
+        Image track = Paintbox.Rounded(hit.rectTransform, "Track", Paintbox.Yellow, 26f);
+        Paintbox.Pin(track.rectTransform, new Vector2(1f, 0.5f), Vector2.zero, new Vector2(104f, 56f));
+        track.rectTransform.pivot = new Vector2(1f, 0.5f);
+        Outline edge = track.gameObject.AddComponent<Outline>();
+        edge.effectColor = Paintbox.Ink;
+        edge.effectDistance = new Vector2(3f, -3f);
+        Image knob = Paintbox.Image(track.rectTransform, "Knob", UiArt.Circle, Paintbox.Ink);
+        knob.rectTransform.anchorMin = knob.rectTransform.anchorMax = knob.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+        knob.rectTransform.sizeDelta = new Vector2(40f, 40f);
+        Text word = Paintbox.Label(hit.rectTransform, "On", 26f, Paintbox.Ink, Paintbox.Weight.Bold, TextAnchor.MiddleRight);
+        Paintbox.Fill(word.rectTransform, 0f, 118f, 0f, 0f);
+        switches[t] = (track, knob.rectTransform, word);
+    }
+
+    private void PaintSwitch(Tog t)
+    {
+        if (!switches.TryGetValue(t, out var s)) return;
+        s.track.color = t.on ? Paintbox.Yellow : Paintbox.Tab;
+        s.knob.anchoredPosition = new Vector2(t.on ? 24f : -24f, 0f);
+        s.knob.GetComponent<Image>().color = t.on ? Paintbox.Ink : Paintbox.Paper;
+        Outline o = Paintbox.Ensure<Outline>(s.knob.gameObject);
+        o.effectColor = Paintbox.Ink;
+        o.effectDistance = new Vector2(2f, -2f);
+        o.enabled = !t.on;
+        s.word.text = t.on ? "On" : "Off";
+        s.word.color = t.on ? Paintbox.Ink : Paintbox.Muted;
+    }
+
+    // A choice that moves to the next one on a tap (a dropdown's look: the value and a chevron).
+    private static Text Chooser(RectTransform row, string name, UnityEngine.Events.UnityAction next)
+    {
+        Button b = Paintbox.Button(row, "", Paintbox.Tone.Quiet, null, () => { AudioManager.ButtonTap(); next(); }, 28f, 20f);
+        b.name = name;
+        Paintbox.Pin((RectTransform)b.transform, new Vector2(1f, 0.5f), Vector2.zero, new Vector2(230f, 76f));
+        ((RectTransform)b.transform).pivot = new Vector2(1f, 0.5f);
+        PaintboxFrame f = b.GetComponent<PaintboxFrame>();
+        f.Edge.color = Paintbox.PanelLine;
+        Text value = Paintbox.Label(f.Body, "", 28f, Paintbox.Ink, Paintbox.Weight.Bold);
+        value.name = name == "LangChoice" ? "LangValue" : "GfxValue";
+        Paintbox.Fill(value.rectTransform, 22f, 52f, 0f, 0f);
+        Paintbox.Fit(value, 16);
+        Image down = Paintbox.IconImage(f.Body, "ChevronDown", 28f, Paintbox.Ink);
+        Paintbox.Pin(down.rectTransform, new Vector2(1f, 0.5f), new Vector2(-16f, 0f), new Vector2(28f, 28f));
+        down.rectTransform.pivot = new Vector2(1f, 0.5f);
+        return value;
+    }
+
+    private void RefreshPage()
+    {
+        if (pageQuality != null) pageQuality.text = QualityNames[Mathf.Clamp(qualityIndex, 0, QualityNames.Length - 1)];
+        if (pageLanguage != null) pageLanguage.text = L.NameOf(L.Current);
     }
 
     private void LoadState()
@@ -205,53 +387,53 @@ public class SettingsUI : MonoBehaviour
     {
         if (!show)
         {
-            if (exitConfirm != null) exitConfirm.SetActive(false);
+            if (exitDialog != null) exitDialog.SetActive(false);
             return;
         }
 
-        if (exitConfirm == null && canvasGO != null)
+        if (exitDialog == null && page != null)
         {
-            // Inside the popup, so it is drawn at the popup's own size (the scene scales the popup).
-            Transform host = canvasGO.transform.Find("Popup");
-            if (host == null) host = canvasGO.transform;
-            exitConfirm = new GameObject("ExitConfirm", typeof(RectTransform));
-            exitConfirm.transform.SetParent(host, false);
-            RectTransform cover = (RectTransform)exitConfirm.transform;
-            cover.anchorMin = Vector2.zero;
-            cover.anchorMax = Vector2.one;
-            cover.offsetMin = cover.offsetMax = Vector2.zero;
-            Image dim = exitConfirm.AddComponent<Image>();
-            dim.color = new Color(0f, 0f, 0f, 0.55f);
-
-            dim.color = Paintbox.Dim;
-            Image box = NewImage("ExitBox", exitConfirm.transform, null, Paintbox.Paper, true, false);
-            Place(box, CenterAnchor, CenterAnchor, Vector2.zero, new Vector2(600f, 300f));
-            PaintboxSkin.Panel(box);
-
-            Text question = NewText("Question", box.transform, "Exit the game?", 44, Paintbox.Ink, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
-            UiTranslator.Restyle(question, Paintbox.Title);
-            Place(question, CenterAnchor, CenterAnchor, new Vector2(0f, 70f), new Vector2(560f, 60f));
-            UiTranslator.Track(question);
-
-            Button yes = ConfirmButton(box.transform, "ExitYes", "Exit", new Vector2(-150f, -60f), new Color(0.75f, 0.28f, 0.24f, 1f));
-            yes.onClick.AddListener(() =>
-            {
-                AudioManager.ButtonTap();
-                GameExit.Quit();
-            });
-
-            Button no = ConfirmButton(box.transform, "ExitNo", "Cancel", new Vector2(150f, -60f), new Color(0.25f, 0.3f, 0.42f, 1f));
-            no.onClick.AddListener(() =>
-            {
-                AudioManager.ButtonTap();
-                ShowExitConfirm(false);
-            });
+            Image dim = Paintbox.Image(page.Root, "ExitConfirm", null, Paintbox.Dim, true);
+            Paintbox.Fill(dim.rectTransform);
+            exitDialog = dim.gameObject;
+            PaintboxFrame card = Paintbox.Frame(dim.rectTransform, "ExitBox", Paintbox.Paper, Paintbox.RadiusLarge, Paintbox.Border, 0f, Paintbox.PanelLine);
+            Paintbox.Pin(card.Root, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(860f, 380f));
+            Image badge = Paintbox.Rounded(card.Body, "Badge", Paintbox.BadWash, 16f);
+            Paintbox.Pin(badge.rectTransform, new Vector2(0f, 1f), new Vector2(40f, -36f), new Vector2(64f, 64f));
+            badge.rectTransform.pivot = new Vector2(0f, 1f);
+            Paintbox.IconImage(badge.rectTransform, "LogOut", 34f, Paintbox.Bad);
+            Text question = Paintbox.Label(card.Body, "Exit the game?", 50f, Paintbox.Ink, Paintbox.Weight.Title);
+            question.name = "Question";
+            Paintbox.TopBand(question.rectTransform, 114f, 66f, 40f, 40f);
+            Text why = Paintbox.Label(card.Body, "The game closes. An online match goes on without you; rejoin it from Matches.", 25f, Paintbox.Muted);
+            why.verticalOverflow = VerticalWrapMode.Overflow;
+            Paintbox.TopBand(why.rectTransform, 182f, 70f, 40f, 40f);
+            RectTransform row = Paintbox.NewRect(card.Body, "Buttons");
+            row.anchorMin = new Vector2(0f, 0f);
+            row.anchorMax = new Vector2(1f, 0f);
+            row.pivot = new Vector2(0.5f, 0f);
+            row.offsetMin = new Vector2(40f, 30f);
+            row.offsetMax = new Vector2(-40f, 110f);
+            HorizontalLayoutGroup h = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+            h.childAlignment = TextAnchor.MiddleRight;
+            h.spacing = 16f;
+            h.childControlWidth = h.childControlHeight = true;
+            h.childForceExpandWidth = false;
+            h.childForceExpandHeight = true;
+            Button yes = Paintbox.Button(row, "Exit", Paintbox.Tone.Paper, "LogOut", () => { AudioManager.ButtonTap(); GameExit.Quit(); }, 28f);
+            yes.name = "ExitYes";
+            foreach (Text t in yes.GetComponentsInChildren<Text>(true)) t.color = Paintbox.Bad;
+            foreach (Image i in yes.GetComponentsInChildren<Image>(true)) if (i.name == "Icon") i.color = Paintbox.Bad;
+            yes.gameObject.AddComponent<LayoutElement>().preferredWidth = 190f;
+            Button no = Paintbox.Button(row, "Stay", Paintbox.Tone.Primary, "Play", () => { AudioManager.ButtonTap(); ShowExitConfirm(false); }, 28f);
+            no.name = "ExitNo";
+            no.gameObject.AddComponent<LayoutElement>().preferredWidth = 190f;
         }
 
-        if (exitConfirm != null)
+        if (exitDialog != null)
         {
-            exitConfirm.transform.SetAsLastSibling();
-            exitConfirm.SetActive(true);
+            exitDialog.transform.SetAsLastSibling();
+            exitDialog.SetActive(true);
         }
     }
 
@@ -315,6 +497,7 @@ public class SettingsUI : MonoBehaviour
 
         // Design B's switch: violet when on, a paper knob (2026-11-24).
         PaintboxSkin.Toggle(t.track, t.knob, t.onLabel, t.offLabel, t.on);
+        PaintSwitch(t);
     }
 
     private void ApplyAudioSetting(Tog t)
@@ -342,6 +525,7 @@ public class SettingsUI : MonoBehaviour
             int idx = Mathf.Clamp(qualityIndex, 0, QualityNames.Length - 1);
             qualityLabel.text = QualityNames[idx];
         }
+        RefreshPage();
 
         if (apply)
         {
@@ -578,6 +762,7 @@ public class SettingsUI : MonoBehaviour
     private void RefreshLanguage()
     {
         if (languageLabel != null) languageLabel.text = L.NameOf(L.Current);
+        RefreshPage();
     }
 
     private Button NewButton(string n, Transform parent, Sprite spr, Vector2 pos, Vector2 size)

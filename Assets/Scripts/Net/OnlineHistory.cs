@@ -14,8 +14,9 @@ using UnityEngine.UI;
 //   MATCH HISTORY   the player's own match records (MetaClient.MatchHistory, reward rule §13): when,
 //                   which room, which side, how it went, the points, what the entry cost and what
 //                   came back, and the server's one-line explanation.
-// Every number is the server's; this only lays them out, in the same modal style as the rest of the
-// online screens (OnlineUI). Opened from the play setup's HISTORY and from the wallet screen.
+// Every number is the server's; this only lays them out. Design B (2026-11-24): Multiplayer's History
+// tab, a page with the two kinds as sub-tabs over one table each (scrolling); opened from the hub's
+// tab and from the wallet screen.
 public class OnlineHistory : MonoBehaviour
 {
     public enum Tab { Wallet, Matches }
@@ -40,14 +41,12 @@ public class OnlineHistory : MonoBehaviour
     private MetaTransaction[] lines = new MetaTransaction[0];
     private bool recordsLoaded, linesLoaded;
     private string recordsProblem, linesProblem;
-    private int matchPage, walletPage;
     private int recordsRetries, linesRetries;
     private float retryRecordsAt, retryLinesAt, refreshLinesAt;
 
     private GameObject screen;
-    private RectTransform walletList, matchList;
-    private Text status, pageLabel;
-    private Button prevPage, nextPage;
+    private RectTransform walletList, matchList, walletTable, matchTable, tabsRow;
+    private Text status;
     private readonly Button[] tabButtons = new Button[2];
 
     private void Awake()
@@ -79,13 +78,14 @@ public class OnlineHistory : MonoBehaviour
         onClose = closed;
         if (startTab.HasValue) tab = startTab.Value;
         screen.SetActive(true);
+        screen.transform.SetAsLastSibling();
+        MultiplayerHub.Showing(HubTab.History, Hide);
         version++;
 
         records = new MetaMatchRecord[0];
         lines = new MetaTransaction[0];
         recordsLoaded = linesLoaded = false;
         recordsProblem = linesProblem = null;
-        matchPage = walletPage = 0;
         recordsRetries = linesRetries = 0;
         retryRecordsAt = retryLinesAt = refreshLinesAt = 0f;
 
@@ -97,11 +97,18 @@ public class OnlineHistory : MonoBehaviour
     private void Close()
     {
         AudioManager.ButtonTap();
-        screen.SetActive(false);
-        version++;
+        Hide();
         Action closed = onClose;
         onClose = null;
         closed?.Invoke();
+    }
+
+    // Put away for another of Multiplayer's tabs (or by Close).
+    private void Hide()
+    {
+        screen.SetActive(false);
+        version++;
+        MultiplayerHub.Closed(HubTab.History);
     }
 
     // ================= What the server says =================
@@ -202,11 +209,9 @@ public class OnlineHistory : MonoBehaviour
     private void SelectTab(Tab selected)
     {
         tab = selected;
-        for (int i = 0; i < tabButtons.Length; i++)
-            tabButtons[i].targetGraphic.color = i == (int)selected ? OnlineUI.Blue : OnlineUI.Gray;
-
-        walletList.gameObject.SetActive(selected == Tab.Wallet);
-        matchList.gameObject.SetActive(selected == Tab.Matches);
+        DrawSubTabs();
+        walletTable.gameObject.SetActive(selected == Tab.Wallet);
+        matchTable.gameObject.SetActive(selected == Tab.Matches);
         BuildTab();
     }
 
@@ -216,56 +221,64 @@ public class OnlineHistory : MonoBehaviour
         else BuildMatches();
     }
 
-    private void TurnPage(int delta)
-    {
-        AudioManager.ButtonTap();
-        if (tab == Tab.Wallet) walletPage += delta;
-        else matchPage += delta;
-        BuildTab();
-    }
-
-    // The arrows and "2/3" under the list; one page needs none. Returns the page clamped to the pages.
-    private int Pager(int count, int perPage, int page)
-    {
-        int pages = Mathf.Max(1, (count + perPage - 1) / perPage);
-        page = Mathf.Clamp(page, 0, pages - 1);
-        prevPage.interactable = page > 0;
-        nextPage.interactable = page < pages - 1;
-        prevPage.gameObject.SetActive(pages > 1);
-        nextPage.gameObject.SetActive(pages > 1);
-        pageLabel.text = pages > 1 ? $"{page + 1}/{pages}" : "";
-        return page;
-    }
-
     private static void Clear(RectTransform parent)
     {
-        for (int i = parent.childCount - 1; i >= 0; i--) Destroy(parent.GetChild(i).gameObject);
+        for (int i = parent.childCount - 1; i >= 0; i--)
+        {
+            parent.GetChild(i).gameObject.SetActive(false);
+            Destroy(parent.GetChild(i).gameObject);
+        }
+    }
+
+    // The two sub-tabs: the one shown violet with an outline, the other quiet.
+    private void DrawSubTabs()
+    {
+        Clear(tabsRow);
+        tabButtons[(int)Tab.Matches] = PaintboxPage.Chip(tabsRow, "Match History", "Trophy", tab == Tab.Matches, () => { AudioManager.ButtonTap(); SelectTab(Tab.Matches); });
+        tabButtons[(int)Tab.Matches].name = "MatchHistoryTab";
+        tabButtons[(int)Tab.Wallet] = PaintboxPage.Chip(tabsRow, "Wallet History", "Wallet", tab == Tab.Wallet, () => { AudioManager.ButtonTap(); SelectTab(Tab.Wallet); });
+        tabButtons[(int)Tab.Wallet].name = "WalletHistoryTab";
+        foreach (Button b in tabButtons) b.gameObject.AddComponent<LayoutElement>().preferredWidth = 330f;
     }
 
     // ================= Wallet history =================
 
+    // A row: an arrow in a soft square (coins in, coins out), the reason and when, the kind, the
+    // signed change and the balance after it.
     private void BuildWallet()
     {
         Clear(walletList);
-        walletPage = Pager(lines.Length, WalletRowsPerPage, walletPage);
         status.text = linesProblem ?? (!linesLoaded ? "Loading..." : lines.Length == 0 ? "Nothing has moved your coins yet." : "");
+        status.gameObject.SetActive(status.text.Length > 0);
 
-        for (int i = walletPage * WalletRowsPerPage; i < Mathf.Min(lines.Length, (walletPage + 1) * WalletRowsPerPage); i++)
+        foreach (MetaTransaction t in lines)
         {
-            int row = i - walletPage * WalletRowsPerPage;
-            MetaTransaction t = lines[i];
-
-            Image bg = OnlineUI.NewImage("Line", walletList, new Color(1f, 1f, 1f, 0.06f));
-            OnlineUI.Place(bg.rectTransform, new Vector2(0f, 200f - row * 100f), new Vector2(1000f, 88f));
-
-            string when = DateTimeOffset.FromUnixTimeSeconds(t.UnixSeconds).ToLocalTime().ToString("MMM d, HH:mm", CultureInfo.InvariantCulture);
-            Text what = OnlineUI.NewLabel(bg.transform, $"<b>{KindText(t)}</b>\n<size=24><color=#674E65>{when}  -  balance {CoinBalance.Format(t.BalanceAfterCents)}</color></size>",
-                                          30, new Vector2(-140f, 0f), new Vector2(680f, 84f), TextAnchor.MiddleLeft);
-            what.horizontalOverflow = HorizontalWrapMode.Overflow;
-
             bool plus = t.AmountCents >= 0;
-            OnlineUI.NewLabel(bg.transform, $"<color={(plus ? Good : Bad)}>{(plus ? "+" : "-")}{CoinBalance.Format(Math.Abs(t.AmountCents))}</color>",
-                              34, new Vector2(350f, 0f), new Vector2(260f, 84f), TextAnchor.MiddleRight, true);
+            RectTransform row = Row(walletList, "Line");
+            Badge(row, t.Kind == "topup" ? "Coins" : plus ? "ArrowDown" : "ArrowUp");
+            string when = DateTimeOffset.FromUnixTimeSeconds(t.UnixSeconds).ToLocalTime().ToString("MMM d \u00b7 HH:mm", CultureInfo.InvariantCulture);
+            TwoLines(row, KindText(t), when, 0f, 0.46f);
+            PaintboxPage.Cell(row, TypeText(t), 0.46f, 0.68f, 25f, Paintbox.Ink, Paintbox.Weight.Regular, TextAnchor.MiddleLeft);
+            PaintboxPage.Cell(row, (plus ? "+" : "\u2212") + CoinBalance.Format(Math.Abs(t.AmountCents)), 0.68f, 0.84f, 28f,
+                              plus ? Paintbox.Good : Paintbox.Bad, Paintbox.Weight.Bold, TextAnchor.MiddleRight);
+            PaintboxPage.Cell(row, CoinBalance.Format(t.BalanceAfterCents), 0.84f, 1f, 26f, Paintbox.Muted, Paintbox.Weight.Regular, TextAnchor.MiddleRight);
+        }
+    }
+
+    private static string TypeText(MetaTransaction t)
+    {
+        switch (t.Kind)
+        {
+            case "topup": return "Purchased coins";
+            case "purchase": return "Shop spend";
+            case "entry": return "Entry fee";
+            case "payout": return "Match reward";
+            case "refund":
+            case "withdrawal-refund": return "Refund";
+            case "forfeit": return "Forfeit";
+            case "withdrawal": return "Withdrawal";
+            case "admin": return "Support";
+            default: return "Coins";
         }
     }
 
@@ -290,35 +303,76 @@ public class OnlineHistory : MonoBehaviour
 
     // ================= Match history =================
 
+    // A row: the side's icon in a soft square, the room and when, how it went (a chip), the points
+    // and the coins it brought (the entry taken off).
     private void BuildMatches()
     {
         Clear(matchList);
-        matchPage = Pager(records.Length, MatchRowsPerPage, matchPage);
         status.text = recordsProblem ?? (!recordsLoaded ? "Loading..." : records.Length == 0 ? "No matches yet. Matches in rooms with an entry fee are recorded here." : "");
+        status.gameObject.SetActive(status.text.Length > 0);
 
-        for (int i = matchPage * MatchRowsPerPage; i < Mathf.Min(records.Length, (matchPage + 1) * MatchRowsPerPage); i++)
+        foreach (MetaMatchRecord r in records)
         {
-            int row = i - matchPage * MatchRowsPerPage;
-            MetaMatchRecord r = records[i];
+            RectTransform row = Row(matchList, "Record");
+            Badge(row, r.Role == Role.Hunter ? "ScanEye" : "PaintRoller");
+            string when = DateTimeOffset.FromUnixTimeSeconds(r.UnixSeconds).ToLocalTime().ToString("MMM d \u00b7 HH:mm", CultureInfo.InvariantCulture);
+            TwoLines(row, RoomTitle(r.RoomId), $"{when} \u00b7 {L.T(r.Role == Role.Hunter ? "Seeker" : "Hider")}", 0f, 0.4f);
 
-            Image bg = OnlineUI.NewImage("Record", matchList, new Color(1f, 1f, 1f, 0.06f));
-            OnlineUI.Place(bg.rectTransform, new Vector2(0f, 195f - row * 128f), new Vector2(1000f, 118f));
+            bool won = r.TeamResult == TeamResult.Won;
+            bool lost = r.TeamResult == TeamResult.Lost;
+            RectTransform chip = Paintbox.Tag(row, won ? "Won" : lost ? "Lost" : StatusText(r.Status),
+                                              won ? Paintbox.Wash : Paintbox.Card, won ? Paintbox.WashInk : Paintbox.Muted, won ? "Trophy" : "Flag", 22f);
+            chip.anchorMin = chip.anchorMax = chip.pivot = new Vector2(0.4f, 0.5f);
+            chip.pivot = new Vector2(0f, 0.5f);
+            chip.anchoredPosition = new Vector2(20f, 0f);
 
+            string detail = string.IsNullOrEmpty(r.Explanation) ? "" : r.Explanation;
+            PaintboxPage.Cell(row, detail, 0.56f, 0.74f, 21f, Paintbox.Muted, Paintbox.Weight.Regular, TextAnchor.MiddleLeft);
+            PaintboxPage.Cell(row, $"{r.PointsHundredths / 100f:0.00}", 0.74f, 0.86f, 26f, Paintbox.Ink, Paintbox.Weight.Regular, TextAnchor.MiddleRight);
             long net = r.PayoutCents - r.EntryCents;
-            string netText = r.EntryCents == 0 && r.PayoutCents == 0
-                ? "free"
-                : $"<color={(net >= 0 ? Good : Bad)}>{(net >= 0 ? "+" : "-")}{OnlineUI.CoinsText(Math.Abs(net))}</color>";
-
-            string headline = $"<b>{Outcome(r)}</b>  -  {(r.Role == Role.Hunter ? "Seeker" : "Hider")} in {RoomTitle(r.RoomId)}" +
-                              $"  -  {r.PointsHundredths / 100f:0.00} pts  -  {netText}";
-            string when = DateTimeOffset.FromUnixTimeSeconds(r.UnixSeconds).ToLocalTime().ToString("MMM d, HH:mm", CultureInfo.InvariantCulture);
-            string detail = string.IsNullOrEmpty(r.Explanation) ? StatusText(r.Status) : r.Explanation;
-
-            Text top = OnlineUI.NewLabel(bg.transform, headline, 30, new Vector2(0f, 26f), new Vector2(960f, 50f), TextAnchor.MiddleLeft);
-            top.horizontalOverflow = HorizontalWrapMode.Overflow;
-            Text bottom = OnlineUI.NewLabel(bg.transform, $"{when}  -  {detail}", 24, new Vector2(0f, -26f), new Vector2(960f, 56f), TextAnchor.MiddleLeft);
-            bottom.color = OnlineUI.Muted;
+            string coins = r.EntryCents == 0 && r.PayoutCents == 0 ? L.T("free") : (net >= 0 ? "+" : "\u2212") + CoinBalance.Format(Math.Abs(net));
+            PaintboxPage.Cell(row, coins, 0.86f, 1f, 28f, net > 0 ? Paintbox.Good : net < 0 ? Paintbox.Bad : Paintbox.Muted, Paintbox.Weight.Bold, TextAnchor.MiddleRight);
         }
+    }
+
+    // ---- Table pieces ----
+
+    private static RectTransform Row(RectTransform list, string name)
+    {
+        RectTransform row = Paintbox.NewRect(list, name);
+        row.gameObject.AddComponent<LayoutElement>().preferredHeight = 84f;
+        Image rule = Paintbox.Image(row, "Rule", null, Paintbox.Line);
+        rule.rectTransform.anchorMin = new Vector2(0f, 0f);
+        rule.rectTransform.anchorMax = new Vector2(1f, 0f);
+        rule.rectTransform.offsetMin = Vector2.zero;
+        rule.rectTransform.offsetMax = new Vector2(0f, 2f);
+        return row;
+    }
+
+    private static void Badge(RectTransform row, string icon)
+    {
+        Image square = Paintbox.Rounded(row, "Badge", Paintbox.Wash, 14f);
+        Paintbox.Pin(square.rectTransform, new Vector2(0f, 0.5f), new Vector2(20f, 0f), new Vector2(56f, 56f));
+        square.rectTransform.pivot = new Vector2(0f, 0.5f);
+        Paintbox.IconImage(square.rectTransform, icon, 32f, Paintbox.WashInk);
+    }
+
+    private static void TwoLines(RectTransform row, string top, string bottom, float from, float to)
+    {
+        Text a = Paintbox.Label(row, top, 28f, Paintbox.Ink, Paintbox.Weight.Bold);
+        Paintbox.Fit(a, 16);
+        a.rectTransform.anchorMin = new Vector2(from, 0.5f);
+        a.rectTransform.anchorMax = new Vector2(to, 1f);
+        a.rectTransform.offsetMin = new Vector2(92f, -2f);
+        a.rectTransform.offsetMax = new Vector2(-10f, -8f);
+        a.alignment = TextAnchor.LowerLeft;
+        Text b = Paintbox.Label(row, bottom, 21f, Paintbox.Muted);
+        Paintbox.Fit(b, 14);
+        b.rectTransform.anchorMin = new Vector2(from, 0f);
+        b.rectTransform.anchorMax = new Vector2(to, 0.5f);
+        b.rectTransform.offsetMin = new Vector2(92f, 8f);
+        b.rectTransform.offsetMax = new Vector2(-10f, -2f);
+        b.alignment = TextAnchor.UpperLeft;
     }
 
     private static string Outcome(MetaMatchRecord r)
@@ -365,39 +419,63 @@ public class OnlineHistory : MonoBehaviour
         // Over the wallet screen (60), which opens it too.
         Transform canvas = OnlineUI.CreateCanvas("OnlineHistoryCanvas", root.transform, 62).transform;
 
-        RectTransform p = OnlineUI.Modal(canvas, "HistoryScreen", new Vector2(1100f, 960f));
-        screen = p.parent.gameObject;
-        OnlineUI.NewLabel(p, "HISTORY", 56, new Vector2(0f, 420f), new Vector2(1000f, 80f), TextAnchor.MiddleCenter, true);
+        PaintboxPage page = PaintboxPage.Build(canvas, "HistoryScreen", "Multiplayer", Close,
+                                               PaintboxPage.Top.Balance | PaintboxPage.Top.Shop | PaintboxPage.Top.Settings, HubTab.History);
+        screen = page.Root.gameObject;
 
-        string[] tabNames = { "WALLET HISTORY", "MATCH HISTORY" };
-        for (int i = 0; i < tabNames.Length; i++)
+        tabsRow = Paintbox.TopBand(Paintbox.NewRect(page.Content, "SubTabs"), 0f, 84f);
+        HorizontalLayoutGroup h = tabsRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = 14f;
+        h.padding = new RectOffset(0, 0, 4, 10);
+        h.childAlignment = TextAnchor.MiddleLeft;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = true;
+        Image rule = Paintbox.Divider(page.Content);
+        Paintbox.TopBand(rule.rectTransform, 92f, 3f);
+
+        matchTable = Table(page.Content, "MatchTable", new[]
         {
-            var which = (Tab)i;
-            tabButtons[i] = OnlineUI.NewButton(p, tabNames[i], new Vector2(-255f + i * 510f, 330f), new Vector2(490f, 78f), OnlineUI.Gray, () =>
-            {
-                AudioManager.ButtonTap();
-                SelectTab(which);
-            });
-            tabButtons[i].name = i == 0 ? "WalletHistoryTab" : "MatchHistoryTab";
-        }
+            ("MATCH", 0f, 0.4f, TextAnchor.MiddleLeft), ("RESULT", 0.4f, 0.56f, TextAnchor.MiddleLeft), ("NOTE", 0.56f, 0.74f, TextAnchor.MiddleLeft),
+            ("POINTS", 0.74f, 0.86f, TextAnchor.MiddleRight), ("COINS", 0.86f, 1f, TextAnchor.MiddleRight),
+        }, "Records", out matchList);
+        walletTable = Table(page.Content, "WalletTable", new[]
+        {
+            ("TRANSACTION", 0f, 0.46f, TextAnchor.MiddleLeft), ("TYPE", 0.46f, 0.68f, TextAnchor.MiddleLeft),
+            ("CHANGE", 0.68f, 0.84f, TextAnchor.MiddleRight), ("BALANCE", 0.84f, 1f, TextAnchor.MiddleRight),
+        }, "Lines", out walletList);
 
-        walletList = NewList(p, "Lines");
-        matchList = NewList(p, "Records");
-
-        prevPage = OnlineUI.NewButton(p, "<", new Vector2(-120f, -300f), new Vector2(90f, 70f), OnlineUI.Gray, () => TurnPage(-1));
-        nextPage = OnlineUI.NewButton(p, ">", new Vector2(120f, -300f), new Vector2(90f, 70f), OnlineUI.Gray, () => TurnPage(1));
-        pageLabel = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -300f), new Vector2(140f, 60f));
-
-        status = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, 40f), new Vector2(960f, 80f));
-        status.color = OnlineUI.Muted;
-        OnlineUI.NewButton(p, "CLOSE", new Vector2(0f, -405f), new Vector2(300f, 74f), OnlineUI.Gray, Close);
+        status = Paintbox.Label(page.Content, "", 28f, Paintbox.Muted, Paintbox.Weight.Regular, TextAnchor.MiddleCenter);
+        Paintbox.Pin(status.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, -40f), new Vector2(1200f, 120f));
+        DrawSubTabs();
     }
 
-    private static RectTransform NewList(RectTransform parent, string name)
+    // A table: a panel with its head and a scrolling list of rows.
+    private static RectTransform Table(RectTransform content, string name, (string, float, float, TextAnchor)[] columns, string listName, out RectTransform list)
     {
-        var list = (RectTransform)new GameObject(name, typeof(RectTransform)).transform;
-        list.SetParent(parent, false);
-        OnlineUI.Place(list, new Vector2(0f, 20f), new Vector2(1040f, 540f));
-        return list;
+        PaintboxFrame panel = Paintbox.Panel(content, name, 30f);
+        Paintbox.Fill(panel.Root, 0f, 0f, 108f, 0f);
+        RectTransform head = PaintboxPage.TableHead(panel.Body, columns);
+        Paintbox.TopBand(head, 4f, 54f, 4f, 4f);
+
+        RectTransform view = Paintbox.Fill(Paintbox.NewRect(panel.Body, "View"), 8f, 8f, 60f, 8f);
+        ScrollRect scroll = view.gameObject.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.scrollSensitivity = 40f;
+        view.gameObject.AddComponent<RectMask2D>();
+        view.gameObject.AddComponent<Image>().color = Color.clear;
+        list = Paintbox.NewRect(view, listName);
+        list.anchorMin = new Vector2(0f, 1f);
+        list.anchorMax = new Vector2(1f, 1f);
+        list.pivot = new Vector2(0.5f, 1f);
+        list.offsetMin = list.offsetMax = Vector2.zero;
+        VerticalLayoutGroup rows = list.gameObject.AddComponent<VerticalLayoutGroup>();
+        rows.childControlWidth = rows.childControlHeight = true;
+        rows.childForceExpandWidth = true;
+        rows.childForceExpandHeight = false;
+        list.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        scroll.content = list;
+        scroll.viewport = view;
+        return panel.Root;
     }
 }

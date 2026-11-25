@@ -178,18 +178,16 @@ public class OnlineWallet : MonoBehaviour
     private void ShowHeader()
     {
         bool test = haveWallet && wallet.IsTest;
-        banner.gameObject.SetActive(test);
+        banner.transform.parent.gameObject.SetActive(test);
 
         if (walletOff) account.text = "No wallet is connected on this server.";
         else if (!haveWallet) account.text = "";
         else if (!wallet.HasAccount) account.text = "Wallet account: could not be read just now";
         else account.text = $"Wallet account: <b>{ShopInventory.MoneyText(wallet.AccountMinor, wallet.Currency)}</b>";
 
-        // The buttons along the bottom, centred whether the wallet page has a link or not.
+        // The wallet's own page, when the provider has one.
         bool page = haveWallet && !string.IsNullOrEmpty(wallet.AccountUrl);
         openWalletButton.gameObject.SetActive(page);
-        OnlineUI.Place((RectTransform)historyButton.transform, new Vector2(page ? 60f : -160f, -365f), new Vector2(280f, 74f));
-        OnlineUI.Place((RectTransform)closeButton.transform, new Vector2(page ? 370f : 160f, -365f), new Vector2(260f, 74f));
     }
 
     // Back from the wallet's page in the browser: what was paid there shows here.
@@ -215,33 +213,57 @@ public class OnlineWallet : MonoBehaviour
 
     // ================= Deposit =================
 
+    // The coin packs as the shop shows them (design B): the coins' picture, the amount and the price.
     private void BuildDeposit()
     {
-        for (int i = depositList.childCount - 1; i >= 0; i--) Destroy(depositList.GetChild(i).gameObject);
-
-        if (packages.Length == 0)
+        for (int i = depositList.childCount - 1; i >= 0; i--)
         {
-            Text none = OnlineUI.NewLabel(depositList, walletOff || packagesLoaded ? "Deposits are not available on this server." : "Loading the coin packs...",
-                                          32, Vector2.zero, new Vector2(960f, 80f));
-            none.color = OnlineUI.Muted;
-            return;
+            depositList.GetChild(i).gameObject.SetActive(false);
+            Destroy(depositList.GetChild(i).gameObject);
         }
+
+        packsNote.text = packages.Length == 0
+            ? (walletOff || packagesLoaded ? "Deposits are not available on this server." : "Loading the coin packs...")
+            : "Pay on the wallet page that opens. The coins arrive here a few seconds after.";
 
         int shown = Mathf.Min(packages.Length, MaxPackagesShown);
         for (int i = 0; i < shown; i++)
         {
             MetaTopUpPackage package = packages[i];
             bool waiting = PendingTopUp.IsWaiting(package.Id);
-            string second = waiting ? "waiting for payment - tap to reopen" : ShopInventory.MoneyText(package.PriceMinor, package.Currency);
 
-            var pos = new Vector2(i % 2 == 0 ? -255f : 255f, 120f - (i / 2) * 125f);
-            OnlineUI.NewButton(depositList, $"{CoinBalance.Format(package.CoinCents)} coins\n<size=26>{second}</size>",
-                               pos, new Vector2(490f, 110f), waiting ? OnlineUI.Gray : OnlineUI.Green, () => StartDeposit(package));
+            PaintboxFrame card = Paintbox.CardFrame(depositList, "Pack_" + package.Id);
+            Button button = card.Root.gameObject.AddComponent<Button>();
+            button.targetGraphic = card.Fill;
+            button.transition = Selectable.Transition.None;
+            button.onClick.AddListener(() => StartDeposit(package));
+            card.Root.gameObject.AddComponent<PaintboxPress>();
+
+            Image well = Paintbox.Rounded(card.Body, "Picture", Paintbox.Card, 18f);
+            well.rectTransform.anchorMin = new Vector2(0f, 0f);
+            well.rectTransform.anchorMax = new Vector2(0.38f, 1f);
+            well.rectTransform.offsetMin = new Vector2(8f, 8f);
+            well.rectTransform.offsetMax = new Vector2(0f, -8f);
+            Image art = Paintbox.Image(well.rectTransform, "Art", Paintbox.Art("coins"), Color.white);
+            art.preserveAspect = true;
+            Paintbox.Fill(art.rectTransform, 6f, 6f, 6f, 6f);
+
+            Text amount = Paintbox.Label(card.Body, $"{CoinBalance.Format(package.CoinCents)} coins", 32f, Paintbox.Ink, Paintbox.Weight.Bold);
+            Paintbox.Fit(amount, 18);
+            amount.rectTransform.anchorMin = new Vector2(0.38f, 0.5f);
+            amount.rectTransform.anchorMax = new Vector2(1f, 1f);
+            amount.rectTransform.offsetMin = new Vector2(20f, 0f);
+            amount.rectTransform.offsetMax = new Vector2(-14f, -14f);
+            amount.alignment = TextAnchor.LowerLeft;
+            Text price = Paintbox.Label(card.Body, waiting ? "Waiting for payment \u00b7 tap to reopen" : ShopInventory.MoneyText(package.PriceMinor, package.Currency),
+                                        24f, waiting ? Paintbox.Muted : Paintbox.Ink, waiting ? Paintbox.Weight.Regular : Paintbox.Weight.Bold);
+            Paintbox.Fit(price, 14);
+            price.rectTransform.anchorMin = new Vector2(0.38f, 0f);
+            price.rectTransform.anchorMax = new Vector2(1f, 0.5f);
+            price.rectTransform.offsetMin = new Vector2(20f, 14f);
+            price.rectTransform.offsetMax = new Vector2(-14f, -4f);
+            price.alignment = TextAnchor.UpperLeft;
         }
-
-        Text hint = OnlineUI.NewLabel(depositList, "Pay on the wallet page that opens. The coins arrive here a few seconds after.",
-                                      26, new Vector2(0f, -235f), new Vector2(980f, 40f));
-        hint.color = OnlineUI.Muted;
     }
 
     private void StartDeposit(MetaTopUpPackage package)
@@ -268,34 +290,79 @@ public class OnlineWallet : MonoBehaviour
         if (haveWallet && !string.IsNullOrEmpty(wallet.AccountUrl)) PendingTopUp.OpenUrl(wallet.AccountUrl);
     }
 
+    private Text packsNote;
+
+    // Design B (2026-11-24): a page with the coins and the wallet account side by side, the coin
+    // packs as cards, and Wallet history and Close in the foot.
     private void BuildUI()
     {
         var root = new GameObject("OnlineWalletUI");
         root.transform.SetParent(transform, false);
         Transform canvas = OnlineUI.CreateCanvas("OnlineWalletCanvas", root.transform, 60).transform;
 
-        RectTransform p = OnlineUI.Modal(canvas, "WalletScreen", new Vector2(1100f, 880f));
-        screen = p.parent.gameObject;
+        PaintboxPage page = PaintboxPage.Build(canvas, "WalletScreen", "Wallet", Close, PaintboxPage.Top.None, null, foot: true);
+        screen = page.Root.gameObject;
+        RectTransform test = Paintbox.Tag(page.Right, "TEST WALLET - test currency only, no real money", Paintbox.Hot, Paintbox.HotInk, "CircleAlert", 22f);
+        banner = test.GetComponentInChildren<Text>();
 
-        OnlineUI.NewLabel(p, "WALLET", 56, new Vector2(0f, 385f), new Vector2(1000f, 80f), TextAnchor.MiddleCenter, true);
-
-        banner = OnlineUI.NewLabel(p, "TEST WALLET - test currency only, no real money", 28, new Vector2(0f, 333f), new Vector2(1000f, 40f), TextAnchor.MiddleCenter, true);
-        banner.color = OnlineUI.Warning;
-
-        Text coins = OnlineUI.NewLabel(p, "", 40, new Vector2(-260f, 278f), new Vector2(500f, 60f), TextAnchor.MiddleLeft);
+        // The coins, and the wallet's own account beside them.
+        PaintboxFrame coinsCard = Paintbox.Panel(page.Content, "Coins", 30f);
+        coinsCard.Root.anchorMin = new Vector2(0f, 1f);
+        coinsCard.Root.anchorMax = new Vector2(0.5f, 1f);
+        coinsCard.Root.pivot = new Vector2(0.5f, 1f);
+        coinsCard.Root.offsetMin = new Vector2(0f, -150f);
+        coinsCard.Root.offsetMax = new Vector2(-12f, 0f);
+        RectTransform coinGlyph = Paintbox.CoinGlyph(coinsCard.Body, 72f);
+        Paintbox.Pin(coinGlyph, new Vector2(0f, 0.5f), new Vector2(34f, 0f), new Vector2(72f, 72f));
+        coinGlyph.pivot = new Vector2(0f, 0.5f);
+        Text coins = Paintbox.Label(coinsCard.Body, "", 40f, Paintbox.Ink);
+        Paintbox.Fill(coins.rectTransform, 130f, 30f, 0f, 0f);
         CoinBalance.Bind(coins, "Coins: <b>{0}</b>");
-        account = OnlineUI.NewLabel(p, "", 32, new Vector2(250f, 278f), new Vector2(520f, 60f), TextAnchor.MiddleRight);
+
+        PaintboxFrame accountCard = Paintbox.Panel(page.Content, "Account", 30f);
+        accountCard.Root.anchorMin = new Vector2(0.5f, 1f);
+        accountCard.Root.anchorMax = new Vector2(1f, 1f);
+        accountCard.Root.pivot = new Vector2(0.5f, 1f);
+        accountCard.Root.offsetMin = new Vector2(12f, -150f);
+        accountCard.Root.offsetMax = Vector2.zero;
+        Image walletIcon = Paintbox.IconImage(accountCard.Body, "Wallet", 44f, Paintbox.Muted);
+        Paintbox.Pin(walletIcon.rectTransform, new Vector2(0f, 0.5f), new Vector2(34f, 0f), new Vector2(44f, 44f));
+        walletIcon.rectTransform.pivot = new Vector2(0f, 0.5f);
+        account = Paintbox.Label(accountCard.Body, "", 28f, Paintbox.Ink);
+        Paintbox.Fit(account, 16);
+        Paintbox.Fill(account.rectTransform, 100f, 330f, 0f, 0f);
+        openWalletButton = Paintbox.Button(accountCard.Body, "Open wallet page", Paintbox.Tone.Secondary, "ArrowUpRight", OpenWalletPage, 26f);
+        Paintbox.Pin((RectTransform)openWalletButton.transform, new Vector2(1f, 0.5f), new Vector2(-24f, 0f), new Vector2(290f, 76f));
+        ((RectTransform)openWalletButton.transform).pivot = new Vector2(1f, 0.5f);
 
         // The coin packs.
-        depositList = (RectTransform)new GameObject("Packs", typeof(RectTransform)).transform;
-        depositList.SetParent(p, false);
-        OnlineUI.Place(depositList, new Vector2(0f, 30f), new Vector2(1040f, 520f));
+        Text kicker = PaintboxPage.Kicker(page.Content, "COIN PACKS");
+        Paintbox.TopBand(kicker.rectTransform, 176f, 34f);
+        packsNote = Paintbox.Label(page.Content, "", 23f, Paintbox.Muted, Paintbox.Weight.Regular, TextAnchor.MiddleRight);
+        Paintbox.TopBand(packsNote.rectTransform, 176f, 34f, 300f, 0f);
+        RectTransform view = Paintbox.Fill(Paintbox.NewRect(page.Content, "PacksView"), 0f, 0f, 222f, 0f);
+        ScrollRect scroll = view.gameObject.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        view.gameObject.AddComponent<RectMask2D>().padding = new Vector4(-6f, 0f, -6f, 0f);
+        view.gameObject.AddComponent<Image>().color = Color.clear;
+        depositList = Paintbox.NewRect(view, "Packs");
+        depositList.anchorMin = new Vector2(0f, 1f);
+        depositList.anchorMax = new Vector2(1f, 1f);
+        depositList.pivot = new Vector2(0.5f, 1f);
+        depositList.offsetMin = depositList.offsetMax = Vector2.zero;
+        GridLayoutGroup grid = depositList.gameObject.AddComponent<GridLayoutGroup>();
+        grid.cellSize = new Vector2(600f, 200f);
+        grid.spacing = new Vector2(22f, 22f);
+        grid.padding = new RectOffset(4, 4, 4, 20);
+        depositList.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        depositList.gameObject.AddComponent<PaintboxGridFit>().MinWidth = 560f;
+        scroll.content = depositList;
+        scroll.viewport = view;
 
-        status = OnlineUI.NewLabel(p, "", 30, new Vector2(0f, -285f), new Vector2(1040f, 60f));
-        status.color = OnlineUI.Warning;
-
-        openWalletButton = OnlineUI.NewButton(p, "OPEN WALLET PAGE", new Vector2(-300f, -365f), new Vector2(400f, 74f), OnlineUI.Blue, OpenWalletPage);
-        historyButton = OnlineUI.NewButton(p, "HISTORY", new Vector2(60f, -365f), new Vector2(280f, 74f), OnlineUI.Gray, OpenHistory);
-        closeButton = OnlineUI.NewButton(p, "CLOSE", new Vector2(370f, -365f), new Vector2(260f, 74f), OnlineUI.Gray, Close);
+        // The foot: how a deposit went, Wallet history and Close.
+        status = page.FootDetail;
+        page.FootTitle.text = "";
+        historyButton = page.FootButton("Wallet history", Paintbox.Tone.Paper, "History", OpenHistory, 300f);
+        closeButton = page.FootButton("Close", Paintbox.Tone.Primary, "Check", Close, 200f);
     }
 }

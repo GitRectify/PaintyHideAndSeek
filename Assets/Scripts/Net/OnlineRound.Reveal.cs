@@ -90,15 +90,13 @@ public partial class OnlineRound
         PlaceWatchButtons(false);
 
         // Results, beside Exit after the match: the results again.
-        resultsButton = OnlineUI.NewButton(canvas, "RESULTS", Vector2.zero, new Vector2(220f, 76f), OnlineUI.Blue, () =>
+        resultsButton = Paintbox.Button(canvas, "Results", Paintbox.Tone.Glass, "Trophy", () =>
         {
             AudioManager.ButtonTap();
             ShowResultsAgain();
-        });
+        }, 28f);
         resultsButton.name = "MatchResults";
-        RectTransform rrt = (RectTransform)resultsButton.transform;
-        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(0f, 1f);
-        rrt.anchoredPosition = new Vector2(220f, -24f);
+        Paintbox.Pin((RectTransform)resultsButton.transform, new Vector2(0f, 1f), new Vector2(PaintboxHud.EdgeX + 210f, -PaintboxHud.EdgeY), new Vector2(210f, 76f));
         resultsButton.gameObject.SetActive(false);
     }
 

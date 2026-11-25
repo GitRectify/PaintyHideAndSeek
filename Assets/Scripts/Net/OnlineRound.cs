@@ -211,6 +211,15 @@ public partial class OnlineRound : MonoBehaviour
     /// <summary>Whether the hiders' Start button shows: a hider in the hide phase who has not pressed it.</summary>
     public static bool WantsStartButton => Active && _instance.StartButtonWanted();
 
+    /// <summary>The seeker's weapon dock is on screen (bottom centre): Start goes above it.</summary>
+    public static bool WeaponDockShown => Active && _instance.weaponButton != null && _instance.weaponButton.gameObject.activeInHierarchy;
+
+    /// <summary>The round menu's Leave match: asks first (the Leave this match? dialog).</summary>
+    public static void AskExitMatch()
+    {
+        if (Active) _instance.AskExit();
+    }
+
     /// <summary>The hider's Start button (BotSeekController.SkipGrace during an online round).</summary>
     public static void SkipHide()
     {

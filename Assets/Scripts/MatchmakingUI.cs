@@ -77,6 +77,16 @@ public class MatchmakingUI : MonoBehaviour
         "Kai", "Milo", "Nova", "Pixel", "Echo", "Otto", "Suki", "Bolt", "Wolf", "Coco"
     };
 
+    /// <summary>The waiting page is on screen (design B).</summary>
+    public static bool PageOpen
+    {
+        get
+        {
+            MatchmakingUI ui = FindAnyObjectByType<MatchmakingUI>();
+            return ui != null && ui.canvasGO != null && ui.canvasGO.activeInHierarchy;
+        }
+    }
+
     public int FugitiveCount => totalPlayers - hunterSlots;
     public int HunterCount => hunterSlots;
 
@@ -136,6 +146,7 @@ public class MatchmakingUI : MonoBehaviour
         EnsureBuilt();
         playerIsHunter = hunter;
         onReady = ready;
+        ShowRole(false);
 
         canvasGO.SetActive(true);
 
@@ -331,6 +342,7 @@ public class MatchmakingUI : MonoBehaviour
         onReady = null;
         state = 0;
         canvasGO.SetActive(true);
+        ShowRole(true);
         SetOnlineHint(hint);
         SetOnlineRoster(null);
     }
@@ -338,6 +350,7 @@ public class MatchmakingUI : MonoBehaviour
     public void SetOnlineHint(string hint)
     {
         if (hintText != null) hintText.text = hint;
+        if (bannerLine != null) bannerLine.text = hint ?? "";
     }
 
     // Seconds to the match while a full lobby counts down (0 = not counting).
@@ -356,6 +369,11 @@ public class MatchmakingUI : MonoBehaviour
     public void SetMapLabel(string text)
     {
         if (mapLabelText != null) mapLabelText.text = text;
+        if (roomChip != null)
+        {
+            roomChip.text = text ?? "";
+            roomChip.transform.parent.gameObject.SetActive(!string.IsNullOrEmpty(text) && text != "Map game");
+        }
     }
 
     /// <summary>Shows these seats (null or empty = nobody yet) and the joined count.</summary>
@@ -398,7 +416,14 @@ public class MatchmakingUI : MonoBehaviour
     private void SetSlot(Slot s, string name, bool highlight)
     {
         s.label.text = name;
-        PaintboxSkin.Seat(s.bg, s.label, highlight);   // design B (2026-11-24)
+        Text letter = s.go.transform.Find("Initial/Letter")?.GetComponent<Text>();
+        if (letter != null)
+        {
+            letter.text = string.IsNullOrEmpty(name) ? "" : char.ToUpperInvariant(name[0]).ToString();
+            s.bg.color = highlight ? Paintbox.Wash : Paintbox.Paper;
+            s.label.color = Paintbox.Ink;
+        }
+        else PaintboxSkin.Seat(s.bg, s.label, highlight);   // a scene slot (design B's colours)
     }
 
     private void Reveal(int target)
@@ -431,6 +456,7 @@ public class MatchmakingUI : MonoBehaviour
         counterText.text = onlineCountdown > 0
             ? string.Format("Match starts in {0}", $"<color=#2C684C><size=44>{onlineCountdown}</size></color>")
             : $"<color=#2C684C>{joined}</color>/{totalPlayers} Player";
+        RefreshPage();
     }
 
     private void Update()
@@ -497,7 +523,201 @@ public class MatchmakingUI : MonoBehaviour
         List<Text> coinLabels = CoinBalance.BindNamed(canvasT);
         coinLabelText = coinLabels.Count > 0 ? coinLabels[0] : null;
 
+        BuildPage();
         canvasGO.SetActive(false);
+    }
+
+    // ================= Design B: the waiting page (2026-11-24) =================
+    //
+    // "Finding players": a band with how many have joined (a countdown once the lobby is full), a
+    // bar filling as they join, the Hiders and Seekers in two cards (each seat a row, the open ones
+    // dashed), and a foot saying which side the player is on. The scene's own panel is hidden; its
+    // slots are replaced by these rows (the fill, the roster and the countdown drive them as before).
+
+    private PaintboxPage page;
+    private Text bannerTitle, bannerLine, countdownText, roomChip, hiderCount, seekerCount;
+    private Image bannerIcon, pageBarFill;
+    private RectTransform hiderRows, seekerRows;
+    private readonly List<GameObject> openHider = new List<GameObject>();
+    private readonly List<GameObject> openSeeker = new List<GameObject>();
+    private bool onlinePage;
+
+    private void BuildPage()
+    {
+        if (page != null) return;
+        foreach (string old in new[] { "Dim", "Panel", "CoinPanel", "SettingsBtn", "AdBtn", "LobbyShopBtn" })
+        {
+            Transform t = canvasGO.transform.Find(old);
+            if (t != null) t.gameObject.SetActive(false);
+        }
+
+        RectTransform units = PaintboxUnits.Create(canvasGO.transform, "QueueDesign");
+        page = PaintboxPage.Build(units, "QueuePage", "Finding players", null, PaintboxPage.Top.Balance | PaintboxPage.Top.Shop, null, foot: true);
+        page.Right.gameObject.SetActive(false);
+
+        // The band: an icon, the count (or "Lobby ready" and the countdown), a line under it, the room.
+        Image band = Paintbox.Rounded(page.Content, "Band", Paintbox.Wash, 28f);
+        Paintbox.TopBand(band.rectTransform, 0f, 136f);
+        bannerIcon = Paintbox.IconImage(band.rectTransform, "Users", 44f, Paintbox.WashInk);
+        Paintbox.Pin(bannerIcon.rectTransform, new Vector2(0f, 0.5f), new Vector2(34f, 0f), new Vector2(44f, 44f));
+        bannerIcon.rectTransform.pivot = new Vector2(0f, 0.5f);
+        bannerTitle = Paintbox.Label(band.rectTransform, "", 58f, Paintbox.WashInk, Paintbox.Weight.Title);
+        bannerTitle.name = "QueueCount";
+        bannerTitle.horizontalOverflow = HorizontalWrapMode.Overflow;
+        bannerTitle.rectTransform.anchorMin = new Vector2(0f, 0.42f);
+        bannerTitle.rectTransform.anchorMax = new Vector2(0.7f, 1f);
+        bannerTitle.rectTransform.offsetMin = new Vector2(110f, 0f);
+        bannerTitle.rectTransform.offsetMax = new Vector2(0f, -10f);
+        bannerTitle.alignment = TextAnchor.LowerLeft;
+        bannerLine = Paintbox.Label(band.rectTransform, "", 24f, Paintbox.WashInk);
+        Paintbox.Fit(bannerLine, 14);
+        bannerLine.rectTransform.anchorMin = new Vector2(0f, 0f);
+        bannerLine.rectTransform.anchorMax = new Vector2(0.7f, 0.42f);
+        bannerLine.rectTransform.offsetMin = new Vector2(110f, 14f);
+        bannerLine.rectTransform.offsetMax = new Vector2(0f, 0f);
+        bannerLine.alignment = TextAnchor.UpperLeft;
+        countdownText = Paintbox.Label(band.rectTransform, "", 88f, Paintbox.WashInk, Paintbox.Weight.Title, TextAnchor.MiddleRight);
+        countdownText.name = "QueueCountdown";
+        Paintbox.Fill(countdownText.rectTransform, 0f, 36f, 0f, 0f);
+        RectTransform chip = Paintbox.Tag(band.rectTransform, "", Paintbox.Paper, Paintbox.WashInk, "Gamepad2", 24f);
+        chip.anchorMin = chip.anchorMax = chip.pivot = new Vector2(1f, 0.5f);
+        chip.anchoredPosition = new Vector2(-30f, 0f);
+        roomChip = chip.GetComponentInChildren<Text>();
+        chip.gameObject.SetActive(false);
+
+        // The bar: paper with an ink edge, filling with yellow.
+        PaintboxFrame track = Paintbox.Frame(page.Content, "Bar", Paintbox.Paper, 10f, 3f, 0f, Paintbox.PanelLine);
+        Paintbox.TopBand(track.Root, 152f, 20f);
+        pageBarFill = Paintbox.Image(track.Fill.rectTransform, "Fill", Paintbox.WhiteSprite, Paintbox.Yellow);
+        Paintbox.Fill(pageBarFill.rectTransform);
+        pageBarFill.type = Image.Type.Filled;
+        pageBarFill.fillMethod = Image.FillMethod.Horizontal;
+        pageBarFill.fillAmount = 0f;
+
+        // The two sides.
+        hiderRows = TeamCard(page.Content, "Hiders", "PaintRoller", 0f, 0.5f, out hiderCount);
+        seekerRows = TeamCard(page.Content, "Seekers", "ScanEye", 0.5f, 1f, out seekerCount);
+        ReplaceSlots(fugSlots, hiderRows, FugitiveCount);
+        ReplaceSlots(hunSlots, seekerRows, HunterCount);
+    }
+
+    private static RectTransform TeamCard(RectTransform content, string title, string icon, float from, float to, out Text count)
+    {
+        PaintboxFrame card = Paintbox.Panel(content, title + "Card", 30f);
+        card.Root.anchorMin = new Vector2(from, 0f);
+        card.Root.anchorMax = new Vector2(to, 1f);
+        card.Root.offsetMin = new Vector2(from > 0f ? 12f : 0f, 0f);
+        card.Root.offsetMax = new Vector2(to < 1f ? -12f : 0f, -190f);
+
+        Image badge = Paintbox.Rounded(card.Body, "Badge", Paintbox.Wash, 16f);
+        Paintbox.Pin(badge.rectTransform, new Vector2(0f, 1f), new Vector2(26f, -22f), new Vector2(64f, 64f));
+        badge.rectTransform.pivot = new Vector2(0f, 1f);
+        Paintbox.IconImage(badge.rectTransform, icon, 36f, Paintbox.WashInk);
+        Text name = Paintbox.Label(card.Body, title, 44f, Paintbox.Ink, Paintbox.Weight.Title);
+        Paintbox.TopBand(name.rectTransform, 22f, 64f, 108f, 140f);
+        RectTransform pill = Paintbox.Tag(card.Body, "", Paintbox.Wash, Paintbox.WashInk, null, 24f);
+        pill.anchorMin = pill.anchorMax = pill.pivot = new Vector2(1f, 1f);
+        pill.anchoredPosition = new Vector2(-26f, -34f);
+        count = pill.GetComponentInChildren<Text>();
+        Image rule = Paintbox.Divider(card.Body);
+        Paintbox.TopBand(rule.rectTransform, 100f, 3f, 26f, 26f);
+
+        RectTransform rows = Paintbox.Fill(Paintbox.NewRect(card.Body, "Rows"), 26f, 26f, 112f, 16f);
+        VerticalLayoutGroup v = rows.gameObject.AddComponent<VerticalLayoutGroup>();
+        v.spacing = 8f;
+        v.childControlWidth = v.childControlHeight = true;
+        v.childForceExpandWidth = true;
+        v.childForceExpandHeight = false;
+        return rows;
+    }
+
+    // The seats become design B rows: an initial on a violet square, the name, and how they stand.
+    private void ReplaceSlots(List<Slot> list, RectTransform rows, int count)
+    {
+        list.Clear();
+        for (int i = 0; i < Mathf.Max(1, count); i++) list.Add(NewRow(rows, "Slot" + i));
+    }
+
+    private static Slot NewRow(RectTransform rows, string name)
+    {
+        Image bg = Paintbox.Rounded(rows, name, Paintbox.Paper, 14f);
+        bg.gameObject.AddComponent<LayoutElement>().preferredHeight = 62f;
+        Image initial = Paintbox.Rounded(bg.rectTransform, "Initial", Paintbox.Violet, 10f);
+        Paintbox.Pin(initial.rectTransform, new Vector2(0f, 0.5f), new Vector2(12f, 0f), new Vector2(40f, 40f));
+        initial.rectTransform.pivot = new Vector2(0f, 0.5f);
+        Text letter = Paintbox.Label(initial.rectTransform, "", 24f, Paintbox.WashInk, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
+        Paintbox.Fill(letter.rectTransform);
+        letter.name = "Letter";
+        Text label = Paintbox.Label(bg.rectTransform, "", 30f, Paintbox.Ink, Paintbox.Weight.Bold);
+        label.name = "Name";
+        Paintbox.Fit(label, 16);
+        Paintbox.Fill(label.rectTransform, 68f, 200f, 0f, 0f);
+        Image tick = Paintbox.IconImage(bg.rectTransform, "CircleCheck", 26f, Paintbox.Good);
+        Paintbox.Pin(tick.rectTransform, new Vector2(1f, 0.5f), new Vector2(-120f, 0f), new Vector2(26f, 26f));
+        Text state = Paintbox.Label(bg.rectTransform, "Joined", 22f, Paintbox.Good, Paintbox.Weight.Regular, TextAnchor.MiddleRight);
+        state.name = "State";
+        Paintbox.Fill(state.rectTransform, 0f, 14f, 0f, 0f);
+        Image rule = Paintbox.Image(bg.rectTransform, "Rule", null, Paintbox.Line);
+        rule.rectTransform.anchorMin = new Vector2(0f, 0f);
+        rule.rectTransform.anchorMax = new Vector2(1f, 0f);
+        rule.rectTransform.offsetMin = Vector2.zero;
+        rule.rectTransform.offsetMax = new Vector2(0f, 2f);
+        return new Slot { go = bg.gameObject, bg = bg, label = label };
+    }
+
+    // A seat nobody has yet: a dashed (faint) row saying so.
+    private static GameObject OpenRow(RectTransform rows)
+    {
+        PaintboxFrame row = Paintbox.Frame(rows, "OpenSlot", Paintbox.Paper, 14f, 2f, 0f, Paintbox.Line);
+        row.Root.gameObject.AddComponent<LayoutElement>().preferredHeight = 58f;
+        Image icon = Paintbox.IconImage(row.Body, "UserPlus", 26f, Paintbox.Muted);
+        Paintbox.Pin(icon.rectTransform, new Vector2(0f, 0.5f), new Vector2(20f, 0f), new Vector2(26f, 26f));
+        icon.rectTransform.pivot = new Vector2(0f, 0.5f);
+        Text words = Paintbox.Label(row.Body, "Open slot", 24f, Paintbox.Muted);
+        Paintbox.Fill(words.rectTransform, 60f, 10f, 0f, 0f);
+        return row.Root.gameObject;
+    }
+
+    private void ShowRole(bool online)
+    {
+        onlinePage = online;
+        if (page == null) return;
+        page.Right.gameObject.SetActive(online);
+        page.FootTitle.text = playerIsHunter ? "You are a Seeker" : "You are a Hider";
+        page.FootDetail.text = online ? "" : playerIsHunter ? "Find the Hiders before time runs out." : "Paint yourself to blend into the room.";
+    }
+
+    // The band, the bar, the counts and the open seats, as the roster and countdown stand.
+    private void RefreshPage()
+    {
+        if (page == null) return;
+        bool counting = onlineCountdown > 0;
+        page.Title.text = counting ? "Match starting" : "Finding players";
+        bannerTitle.text = counting ? L.T("Lobby ready") : L.F("{0} of {1} joined", joined, totalPlayers);
+        bannerIcon.sprite = Paintbox.Icon(counting ? "Timer" : "Users");
+        countdownText.text = counting ? $"00:{onlineCountdown:00}" : "";
+        if (counting) bannerLine.text = L.T("Everyone is in. The match starts shortly.");
+        roomChip.transform.parent.gameObject.SetActive(!counting && roomChip.text.Length > 0 && roomChip.text != "Map game");
+        pageBarFill.fillAmount = totalPlayers < 1 ? 0f : (float)joined / totalPlayers;
+
+        int hiders = 0, seekers = 0;
+        foreach (Slot s in fugSlots) if (s.go.activeSelf) hiders++;
+        foreach (Slot s in hunSlots) if (s.go.activeSelf) seekers++;
+        hiderCount.text = $"{hiders}/{FugitiveCount}";
+        seekerCount.text = $"{seekers}/{HunterCount}";
+        Open(openHider, hiderRows, FugitiveCount - hiders);
+        Open(openSeeker, seekerRows, HunterCount - seekers);
+    }
+
+    private static void Open(List<GameObject> pool, RectTransform rows, int wanted)
+    {
+        wanted = Mathf.Max(0, wanted);
+        while (pool.Count < wanted) pool.Add(OpenRow(rows));
+        for (int i = 0; i < pool.Count; i++)
+        {
+            pool[i].SetActive(i < wanted);
+            pool[i].transform.SetAsLastSibling();
+        }
     }
 
     private void BindColumn(Transform box, List<Slot> list)

@@ -126,79 +126,116 @@ public sealed class KeyBindingsUI : MonoBehaviour
 
         hint.text = Keyboard.current == null ? "No keyboard found. Connect one to change the keys."
                   : waiting != null ? "Press the new key. Esc cancels."
-                  : "Tap a key to change it.";
+                  : "Tap a keycap, then press the new key.";
     }
 
     // ---- Building ----
+
+    // Design B (2026-11-24): a page with Movement and Actions as tabs, each action a row with its
+    // key on a keycap, Reset defaults and Done in the foot.
+    private static readonly GameAction[] Movement =
+    {
+        GameAction.MoveForward, GameAction.MoveBack, GameAction.MoveLeft, GameAction.MoveRight, GameAction.TurnLeft,
+        GameAction.TurnRight, GameAction.AimUp, GameAction.AimDown, GameAction.Jump,
+    };
+
+    private bool actionsTab;
+    private PaintboxPage page;
+    private RectTransform tabsRow, list;
 
     private void Build()
     {
         if (canvasGO != null) return;
 
-        canvasGO = new GameObject("ControlsCanvas");
-        canvasGO.transform.SetParent(transform, false);
-        Canvas canvas = canvasGO.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 53;                       // over Settings (52)
-        CanvasScaler scaler = canvasGO.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);    // landscape, as the game is played
-        scaler.matchWidthOrHeight = 0.5f;
-        canvasGO.AddComponent<GraphicRaycaster>();
+        Canvas canvas = OnlineUI.CreateCanvas("ControlsCanvas", transform, 53);   // over Settings (52)
+        canvasGO = canvas.gameObject;
+        page = PaintboxPage.Build(canvas.transform, "ControlsPage", "Controls", () => { AudioManager.ButtonTap(); Close(); }, PaintboxPage.Top.None, null, foot: true);
+        Paintbox.Tag(page.Right, "Keyboard", Paintbox.Wash, Paintbox.WashInk, "Keyboard", 24f).name = "KeyboardChip";
 
-        // Design B (2026-11-24): a paper panel with an ink edge, ink words, paper key caps, a yellow Back.
-        Image dim = Box("Dim", canvasGO.transform, Paintbox.Dim, Vector2.zero, Vector2.zero);
-        RectTransform dimRT = dim.rectTransform;
-        dimRT.anchorMin = Vector2.zero;
-        dimRT.anchorMax = Vector2.one;
-        dimRT.offsetMin = dimRT.offsetMax = Vector2.zero;
+        tabsRow = Paintbox.TopBand(Paintbox.NewRect(page.Content, "Tabs"), 0f, 84f);
+        HorizontalLayoutGroup h = tabsRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = 14f;
+        h.padding = new RectOffset(0, 0, 4, 10);
+        h.childAlignment = TextAnchor.MiddleLeft;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = true;
+        Image rule = Paintbox.Divider(page.Content);
+        Paintbox.TopBand(rule.rectTransform, 92f, 3f);
+        hint = Paintbox.Label(page.Content, "", 24f, Paintbox.Muted);
+        Paintbox.TopBand(hint.rectTransform, 102f, 40f);
 
-        // Two columns of actions, each with its key.
-        int count = KeyBindings.All.Length;
-        int rows = (count + Columns - 1) / Columns;
-        float height = 300f + rows * RowHeight;
-        float width = Columns * ColumnWidth + 80f;
-        Image panel = Box("Panel", canvasGO.transform, Paintbox.Paper, Vector2.zero, new Vector2(width, height));
-        PaintboxSkin.Panel(panel);
-        Transform p = panel.transform;
+        PaintboxFrame panel = Paintbox.Panel(page.Content, "Keys", 30f);
+        Paintbox.Fill(panel.Root, 0f, 0f, 150f, 0f);
+        list = Paintbox.Fill(Paintbox.NewRect(panel.Body, "List"), 30f, 30f, 16f, 16f);
 
-        Text title = Label("Title", p, "Controls", 56, new Vector2(0f, height / 2f - 60f), new Vector2(width - 80f, 70f), TextAnchor.MiddleCenter);
-        UiTranslator.Restyle(title, Paintbox.Title);
-        hint = Label("Hint", p, "", 32, new Vector2(0f, height / 2f - 115f), new Vector2(width - 80f, 44f), TextAnchor.MiddleCenter);
-        hint.color = Paintbox.Muted;
-
-        float top = height / 2f - 175f;
-        for (int i = 0; i < count; i++)
-        {
-            GameAction action = KeyBindings.All[i];
-            int column = i / rows;
-            float x = (column - (Columns - 1) / 2f) * ColumnWidth;
-            float y = top - (i % rows) * RowHeight;
-            Label("Name_" + action, p, KeyBindings.NameOf(action), 34, new Vector2(x - 110f, y), new Vector2(420f, RowHeight), TextAnchor.MiddleLeft);
-
-            Button key = MakeButton("Key_" + action, p, new Vector2(x + 220f, y), new Vector2(230f, RowHeight - 10f), Paintbox.Paper);
-            keyLabels[action] = Label("Label", key.transform, "", 32, Vector2.zero, new Vector2(220f, RowHeight - 10f), TextAnchor.MiddleCenter);
-            key.onClick.AddListener(() => Listen(action));
-        }
-
-        Button reset = MakeButton("ResetKeys", p, new Vector2(-200f, -height / 2f + 70f), new Vector2(360f, 84f), Paintbox.Paper);
-        Label("Label", reset.transform, "Reset to defaults", 34, Vector2.zero, new Vector2(350f, 84f), TextAnchor.MiddleCenter);
-        reset.onClick.AddListener(() =>
+        Button reset = page.FootLeftButton("Reset defaults", Paintbox.Tone.Paper, "RotateCcw", () =>
         {
             AudioManager.ButtonTap();
             StopWaiting();
             KeyBindings.ResetAll();
-        });
-
-        Button back = MakeButton("BackKeys", p, new Vector2(200f, -height / 2f + 70f), new Vector2(360f, 84f), Paintbox.Yellow);
-        Label("Label", back.transform, "Back", 34, Vector2.zero, new Vector2(350f, 84f), TextAnchor.MiddleCenter);
-        back.onClick.AddListener(() =>
+        }, 300f);
+        reset.name = "ResetKeys";
+        Button done = page.FootButton("Done", Paintbox.Tone.Primary, "Check", () =>
         {
             AudioManager.ButtonTap();
             Close();
-        });
+        }, 220f);
+        done.name = "BackKeys";
 
+        BuildTab();
         canvasGO.SetActive(false);
+    }
+
+    // The tab's actions in two columns, each with its keycap.
+    private void BuildTab()
+    {
+        for (int i = tabsRow.childCount - 1; i >= 0; i--) { tabsRow.GetChild(i).gameObject.SetActive(false); Destroy(tabsRow.GetChild(i).gameObject); }
+        Button move = PaintboxPage.Chip(tabsRow, "Movement", "Footprints", !actionsTab, () => { AudioManager.ButtonTap(); actionsTab = false; StopWaiting(); BuildTab(); Refresh(); });
+        move.gameObject.AddComponent<LayoutElement>().preferredWidth = 290f;
+        Button act = PaintboxPage.Chip(tabsRow, "Actions", "Gamepad2", actionsTab, () => { AudioManager.ButtonTap(); actionsTab = true; StopWaiting(); BuildTab(); Refresh(); });
+        act.gameObject.AddComponent<LayoutElement>().preferredWidth = 260f;
+
+        for (int i = list.childCount - 1; i >= 0; i--) { list.GetChild(i).gameObject.SetActive(false); Destroy(list.GetChild(i).gameObject); }
+        keyLabels.Clear();
+        var actions = new List<GameAction>();
+        foreach (GameAction a in KeyBindings.All)
+            if ((System.Array.IndexOf(Movement, a) >= 0) != actionsTab) actions.Add(a);
+
+        int rows = (actions.Count + 1) / 2;
+        for (int i = 0; i < actions.Count; i++)
+        {
+            GameAction action = actions[i];
+            int column = i / rows;
+            RectTransform row = Paintbox.NewRect(list, "Row_" + action);
+            row.anchorMin = new Vector2(column * 0.5f, 1f);
+            row.anchorMax = new Vector2(column * 0.5f + 0.5f, 1f);
+            row.pivot = new Vector2(0.5f, 1f);
+            row.offsetMin = new Vector2(column == 0 ? 0f : 24f, -(i % rows + 1) * 70f);
+            row.offsetMax = new Vector2(column == 0 ? -24f : 0f, -(i % rows) * 70f);
+            Text name = Paintbox.Label(row, KeyBindings.NameOf(action), 28f, Paintbox.Ink);
+            name.name = "Name_" + action;
+            Paintbox.Fill(name.rectTransform, 0f, 200f, 0f, 0f);
+            Image line = Paintbox.Image(row, "Rule", null, Paintbox.Line);
+            line.rectTransform.anchorMin = new Vector2(0f, 0f);
+            line.rectTransform.anchorMax = new Vector2(1f, 0f);
+            line.rectTransform.offsetMin = Vector2.zero;
+            line.rectTransform.offsetMax = new Vector2(0f, 2f);
+
+            // The keycap: paper on a soft edge with a little depth.
+            Button key = Paintbox.Button(row, "", Paintbox.Tone.Quiet, null, () => Listen(action), 24f, 12f);
+            key.name = "Key_" + action;
+            Paintbox.Pin((RectTransform)key.transform, new Vector2(1f, 0.5f), new Vector2(0f, 3f), new Vector2(170f, 52f));
+            ((RectTransform)key.transform).pivot = new Vector2(1f, 0.5f);
+            PaintboxFrame f = key.GetComponent<PaintboxFrame>();
+            f.Edge.color = Paintbox.PanelLine;
+            if (f.Shade != null) f.Shade.color = Paintbox.PanelLine;
+            Text cap = Paintbox.Label(f.Body, "", 24f, Paintbox.Ink, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
+            cap.name = "Label";
+            Paintbox.Fill(cap.rectTransform, 6f, 6f, 0f, 0f);
+            Paintbox.Fit(cap, 14);
+            keyLabels[action] = cap;
+        }
     }
 
     private Image Box(string name, Transform parent, Color color, Vector2 pos, Vector2 size)
