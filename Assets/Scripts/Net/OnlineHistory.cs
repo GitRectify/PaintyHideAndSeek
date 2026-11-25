@@ -464,7 +464,8 @@ public class OnlineHistory : MonoBehaviour
         var root = new GameObject("OnlineHistoryUI");
         root.transform.SetParent(transform, false);
         // Over the other online screens.
-        Transform canvas = OnlineUI.CreateCanvas("OnlineHistoryCanvas", root.transform, 62).transform;
+        // With the other Multiplayer pages (48): under Settings (52) and the Shop (58), which open over it.
+        Transform canvas = OnlineUI.CreateCanvas("OnlineHistoryCanvas", root.transform, 48).transform;
 
         PaintboxPage page = PaintboxPage.Build(canvas, "HistoryScreen", "Multiplayer", Close,
                                                PaintboxPage.Top.Balance | PaintboxPage.Top.Shop | PaintboxPage.Top.Settings, HubTab.History);

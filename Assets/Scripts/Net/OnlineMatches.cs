@@ -600,7 +600,9 @@ public class OnlineMatches : MonoBehaviour
     private void BuildUI()
     {
         overlayCanvas = OnlineUI.CreateCanvas("OnlineMatchesOverlay", transform, 56);
-        screenCanvas = OnlineUI.CreateCanvas("OnlineMatchesScreens", transform, 57);
+        // With the other Multiplayer pages (48): under Settings (52) and the Shop (58), which open
+        // over it (2026-11-25: they opened behind it), over the round's HUD and menu (47).
+        screenCanvas = OnlineUI.CreateCanvas("OnlineMatchesScreens", transform, 48);
 
         // The coin balance, top right, left of the HUD's Settings column: Home's own pill once Home
         // is loaded (UpdateCoinPill), a plain one until then.

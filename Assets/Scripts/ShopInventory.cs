@@ -97,6 +97,7 @@ public static class ShopInventory
                 return;
             }
 
+            string before = Loaded ? Fingerprint() : null;
             listing.Clear();
             ordered.Clear();
             foreach (MetaItem item in reply.Items ?? new MetaItem[0])
@@ -108,9 +109,26 @@ public static class ShopInventory
             if (reply.Categories != null) categories.AddRange(reply.Categories);
             ImagePort = reply.ImagePort;
             Loaded = true;
-            Changed?.Invoke();
+            // Told only when something is different: the open shop asks again every little while
+            // (items an operator adds show up), and an answer with nothing new redraws nothing.
+            if (before == null || before != Fingerprint()) Changed?.Invoke();
             done?.Invoke(null);
         });
+    }
+
+    // Everything the shop shows of the listing, in one string, to tell whether an answer changed it.
+    private static string Fingerprint()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (MetaShopCategory c in categories) sb.Append(c.Id).Append(':').Append(c.Name).Append(':').Append(c.Icon).Append(':').Append(c.Special).Append('|');
+        foreach (MetaItem i in ordered)
+        {
+            sb.Append(i.Id).Append(':').Append(i.Kind).Append(':').Append(i.GameId).Append(':').Append(i.PriceCents).Append(':').Append(i.Owned)
+              .Append(':').Append(i.Category).Append(':').Append(i.Name).Append(':').Append(i.Description).Append(':').Append(i.Image)
+              .Append(':').Append(i.OwnedAmmo).Append(':').Append(i.Ammo).Append(':').Append(i.AmmoCapacity)
+              .Append(':').Append(i.OriginalPriceCents).Append(':').Append(i.SaleEndsUnix).Append(':').Append(i.SaleName).Append('|');
+        }
+        return sb.ToString();
     }
 
     // The coin packs on sale. Without a wallet provider (WalletUnavailable) or on a failed answer

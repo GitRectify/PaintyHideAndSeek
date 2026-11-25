@@ -710,3 +710,7 @@ Results are kept for matches played from this version on.	从此版本起进行�
 Sale	促销	Распродажа
 {0} · {1}% off · until {2}	{0} · 优惠 {1}% · 截至 {2}	{0} · скидка {1}% · до {2}
 {0} coins (was {1}, -{2}%)	{0} 金币（原价 {1}，-{2}%）	{0} монет (было {1}, −{2}%)
+{0} rounds · {1}	{0} 发 · {1}	{0} патр. · {1}
+You have {0} of the {1} rounds it holds.	你有 {0} 发，最多可装 {1} 发。	У вас {0} из {1} патронов, которые оно вмещает.
+Get the weapon to load more rounds into it.	先获得这件武器，才能为它装填更多弹药。	Получите это оружие, чтобы заряжать в него патроны.
+Buy rounds	购买弹药	Купить патроны

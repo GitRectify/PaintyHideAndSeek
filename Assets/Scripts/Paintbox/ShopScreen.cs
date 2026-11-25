@@ -106,6 +106,7 @@ public sealed class ShopScreen : MonoBehaviour
         if (currentCategory == null && ShopInventory.Categories.Count > 0) currentCategory = ShopInventory.Categories[0].Id;
         currentFilter = -1;
         dirty = true;
+        listCheckAt = Time.unscaledTime + ListCheckSeconds;   // this opening asks for the listing itself
 
         ShopInventory.Changed += MarkDirty;
         Shoes.Changed += MarkDirty;
@@ -143,13 +144,23 @@ public sealed class ShopScreen : MonoBehaviour
         if (state != PaymentState.Credited) Notices.Show(NoticeKind.Error, PendingTopUp.MessageFor(entry, state));
     }
 
-    private float saleCheckAt;
+    private float saleCheckAt, listCheckAt;
     private bool saleRefreshing;
+
+    // While the shop is open it asks for the listing again now and then, so items and categories an
+    // operator adds or changes in the admin panel show up without closing it (2026-11-25).
+    private const float ListCheckSeconds = 15f;
 
     private void Update()
     {
         if (!IsOpen) return;
         if (spinner != null && spinner.gameObject.activeInHierarchy) spinner.rectTransform.Rotate(0f, 0f, -300f * Time.unscaledDeltaTime);
+
+        if (Time.unscaledTime >= listCheckAt && !saleRefreshing && !busy)
+        {
+            if (listCheckAt > 0f) ShopInventory.Refresh(_ => { });   // redraws only if the listing changed
+            listCheckAt = Time.unscaledTime + ListCheckSeconds;
+        }
 
         // A sale that ends while the shop is open: its prices again, from the server (SDK 0.9.9).
         if (Time.unscaledTime >= saleCheckAt && !saleRefreshing)
@@ -420,6 +431,24 @@ public sealed class ShopScreen : MonoBehaviour
         dirty = true;
     }
 
+    // What a category's grid shows, in the server's order: everything but ammo packs.
+    private static List<MetaItem> GridItems(string categoryId)
+    {
+        List<MetaItem> items = ShopInventory.ItemsIn(categoryId);
+        items.RemoveAll(i => i.Kind == ItemKind.Ammo);
+        return items;
+    }
+
+    // A weapon's ammo packs, wherever the server lists them.
+    private static List<MetaItem> AmmoPacksFor(int weaponId)
+    {
+        var packs = new List<MetaItem>();
+        foreach (MetaShopCategory c in ShopInventory.Categories)
+            foreach (MetaItem i in ShopInventory.ItemsIn(c.Id))
+                if (i.Kind == ItemKind.Ammo && (int)i.GameId == weaponId && !packs.Exists(p => p.Id == i.Id)) packs.Add(i);
+        return packs;
+    }
+
     private void RebuildGrid()
     {
         foreach (Transform child in gridContent) Destroy(child.gameObject);
@@ -452,8 +481,9 @@ public sealed class ShopScreen : MonoBehaviour
             }
         }
 
-        // The category's items, and its kinds for the filter chips.
-        List<MetaItem> items = ShopInventory.ItemsIn(currentCategory);
+        // The category's items, and its kinds for the filter chips. Ammo is bought on its
+        // weapon's page (2026-11-25), so its packs are not cards of their own.
+        List<MetaItem> items = GridItems(currentCategory);
         var kinds = new List<ItemKind>();
         foreach (MetaItem item in items) if (!kinds.Contains(item.Kind)) kinds.Add(item.Kind);
         if (currentFilter >= 0 && !kinds.Contains((ItemKind)currentFilter)) currentFilter = -1;
@@ -741,6 +771,19 @@ public sealed class ShopScreen : MonoBehaviour
         detailArt.preserveAspect = true;
         Paintbox.Fill(detailArt.rectTransform, 16f, 16f, 16f, 16f);
 
+        // Previous / Next: the other items of the same category, without going back to the grid.
+        detailPrev = Paintbox.IconButton(left.Body, "ChevronLeft", Paintbox.Tone.Paper, () => StepDetail(-1), 76f);
+        detailPrev.name = "DetailPrevious";
+        Paintbox.Pin((RectTransform)detailPrev.transform, new Vector2(0f, 0.5f), new Vector2(26f, 0f), new Vector2(76f, 76f));
+        ((RectTransform)detailPrev.transform).pivot = new Vector2(0f, 0.5f);
+        detailNext = Paintbox.IconButton(left.Body, "ChevronRight", Paintbox.Tone.Paper, () => StepDetail(1), 76f);
+        detailNext.name = "DetailNext";
+        Paintbox.Pin((RectTransform)detailNext.transform, new Vector2(1f, 0.5f), new Vector2(-26f, 0f), new Vector2(76f, 76f));
+        ((RectTransform)detailNext.transform).pivot = new Vector2(1f, 0.5f);
+        detailPlace = Paintbox.Label(left.Body, "", 24f, Paintbox.Muted, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
+        detailPlace.name = "DetailPlace";
+        Paintbox.Pin(detailPlace.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(200f, 36f));
+
         PaintboxFrame right = Paintbox.Panel(detailView, "InfoPanel");
         right.Root.anchorMin = new Vector2(0.4f, 0f);
         right.Root.anchorMax = new Vector2(1f, 1f);
@@ -770,6 +813,17 @@ public sealed class ShopScreen : MonoBehaviour
         sg.constraintCount = 3;
         ContentSizeFitter sf = detailStats.gameObject.AddComponent<ContentSizeFitter>();
         sf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        // A weapon's ammo: its packs, one picked; bought from the foot (2026-11-25).
+        detailAmmoTitle = Line(info, "AMMO", Paintbox.TinySize, Paintbox.Muted, Paintbox.Weight.Bold, 30f);
+        detailAmmo = Paintbox.NewRect(info, "AmmoPacks");
+        detailAmmo.gameObject.AddComponent<LayoutElement>().preferredHeight = 72f;
+        HorizontalLayoutGroup ah = detailAmmo.gameObject.AddComponent<HorizontalLayoutGroup>();
+        ah.childAlignment = TextAnchor.MiddleLeft;
+        ah.spacing = 12f;
+        ah.childControlWidth = ah.childControlHeight = true;
+        ah.childForceExpandWidth = ah.childForceExpandHeight = false;
+        detailAmmoNote = Line(info, "", 24f, Paintbox.Muted, Paintbox.Weight.Regular, 34f);
 
         detailHowTitle = Line(info, "HOW TO USE", Paintbox.TinySize, Paintbox.Muted, Paintbox.Weight.Bold, 30f);
         detailHow = Line(info, "", 26f, Paintbox.Muted, Paintbox.Weight.Regular, 70f);
@@ -812,6 +866,26 @@ public sealed class ShopScreen : MonoBehaviour
         return t;
     }
 
+    private Button detailPrev, detailNext;
+    private Text detailPlace, detailAmmoTitle, detailAmmoNote;
+    private RectTransform detailAmmo;
+    private string ammoChoice;   // the ammo pack picked on a weapon's page
+
+    // The items Previous and Next go through: the category's grid, in its order.
+    private List<MetaItem> DetailSiblings(MetaItem item) =>
+        item.Kind == ItemKind.Ammo ? new List<MetaItem>() : GridItems(ShopInventory.CategoryOf(item));
+
+    private void StepDetail(int step)
+    {
+        if (shownDetail == null || !ShopInventory.TryItem(shownDetail, out MetaItem item)) return;
+        List<MetaItem> siblings = DetailSiblings(item);
+        int at = siblings.FindIndex(i => i.Id == item.Id);
+        int to = at + step;
+        if (at < 0 || to < 0 || to >= siblings.Count) return;
+        AudioManager.ButtonTap();
+        OpenDetail(siblings[to]);
+    }
+
     private void OpenDetail(MetaItem item)
     {
         shownDetail = item.Id;
@@ -850,6 +924,47 @@ public sealed class ShopScreen : MonoBehaviour
 
         detailHow.text = HowToUse(item);
         bool owned = ShopInventory.IsOwned(item);
+
+        // Previous / Next within the category.
+        List<MetaItem> siblings = DetailSiblings(item);
+        int place = siblings.FindIndex(i => i.Id == item.Id);
+        bool stepping = place >= 0 && siblings.Count > 1;
+        detailPrev.gameObject.SetActive(stepping);
+        detailNext.gameObject.SetActive(stepping);
+        detailPlace.gameObject.SetActive(stepping);
+        if (stepping)
+        {
+            detailPrev.interactable = place > 0;
+            detailNext.interactable = place < siblings.Count - 1;
+            detailPlace.text = $"{place + 1} / {siblings.Count}";
+        }
+
+        // A weapon's ammo packs.
+        foreach (Transform child in detailAmmo) Destroy(child.gameObject);
+        List<MetaItem> packs = item.Kind == ItemKind.Weapon && item.GameId != WeaponSpecs.Standard ? AmmoPacksFor((int)item.GameId) : new List<MetaItem>();
+        bool ammoRow = packs.Count > 0;
+        detailAmmoTitle.gameObject.SetActive(ammoRow);
+        detailAmmo.gameObject.SetActive(ammoRow);
+        detailAmmoNote.gameObject.SetActive(ammoRow);
+        if (ammoRow)
+        {
+            if (!packs.Exists(pk => pk.Id == ammoChoice)) { ammoChoice = packs[0].Id; ammoPacks = 1; }
+            foreach (MetaItem pack in packs)
+            {
+                MetaItem chosen = pack;
+                string price = pack.PriceCents <= 0 ? L.T("Free") : L.F("{0} coins", CoinBalance.Format(pack.PriceCents));
+                Button chip = PaintboxPage.Chip(detailAmmo, L.F("{0} rounds · {1}", Mathf.Max(1, pack.Ammo), price), "Layers", pack.Id == ammoChoice, () =>
+                {
+                    AudioManager.ButtonTap();
+                    if (ammoChoice != chosen.Id) { ammoChoice = chosen.Id; ammoPacks = 1; }
+                    FillDetail(item);
+                }, 24f);
+                chip.name = "AmmoPack_" + pack.Id;
+            }
+            int have = Mathf.Max(0, item.OwnedAmmo);
+            detailAmmoNote.text = owned ? L.F("You have {0} of the {1} rounds it holds.", have, Mathf.Max(0, item.AmmoCapacity))
+                                        : L.T("Get the weapon to load more rounds into it.");
+        }
 
         switch (item.Kind)
         {
@@ -893,6 +1008,18 @@ public sealed class ShopScreen : MonoBehaviour
         detailPriceLabel.rectTransform.sizeDelta = saleShown ? new Vector2(640f, 34f) : new Vector2(110f, 40f);
         detailPrice.anchoredPosition = saleShown ? new Vector2(0f, -16f) : new Vector2(110f, 0f);
         if (item.Kind == ItemKind.Ammo) AmmoActions(item);
+        else if (owned && ammoRow && ShopInventory.TryItem(ammoChoice, out MetaItem pick))
+        {
+            // An owned weapon: its rounds are bought here, and it is equipped here.
+            detailPriceLabel.text = L.T("AMMO");
+            AmmoActions(pick, true);
+            if (ShopInventory.IsEquipped(item))
+            {
+                Button on = Action("Equipped", Paintbox.Tone.Paper, "CircleCheck", null);
+                on.interactable = false;
+            }
+            else if (ShopInventory.CanEquip(item)) Action("Equip", Paintbox.Tone.Secondary, "Check", () => Equip(item));
+        }
         else ItemActions(item, owned);
     }
 
@@ -940,7 +1067,11 @@ public sealed class ShopScreen : MonoBehaviour
         Action("Buy item", Paintbox.Tone.Primary, "ShoppingBag", () => AskBuy(item, 1));
     }
 
-    private void AmmoActions(MetaItem item)
+    private void AmmoActions(MetaItem item) => AmmoActions(item, false);
+
+    // An ammo pack's price for the packs picked, the - n + of them and its Buy: on the pack's own
+    // page, or (onWeapon) on its weapon's page, where a refill comes back to the weapon.
+    private void AmmoActions(MetaItem item, bool onWeapon)
     {
         bool hasWeapon = ShopInventory.TryWeapon((int)item.GameId, out MetaItem weapon) && ShopInventory.IsOwned(weapon);
         int have = Mathf.Max(0, ShopInventory.AmmoOf((int)item.GameId));
@@ -956,7 +1087,7 @@ public sealed class ShopScreen : MonoBehaviour
             Paintbox.Fill(row);
         }
 
-        if (!hasWeapon)
+        if (!hasWeapon && !onWeapon)
         {
             MetaItem w = weapon;
             if (weapon.Id != null) Action(L.F("Get the {0} first", ShopInventory.WeaponName((int)item.GameId)), Paintbox.Tone.Secondary, "Crosshair", () => { AudioManager.ButtonTap(); OpenDetail(w); });
@@ -971,16 +1102,17 @@ public sealed class ShopScreen : MonoBehaviour
         }
 
         // How many packs: - n +.
-        Button less = Paintbox.IconButton(detailActions, "Minus", Paintbox.Tone.Paper, () => { AudioManager.ButtonTap(); ammoPacks = Math.Max(1u, ammoPacks - 1); FillDetail(item); }, 76f);
+        MetaItem page = onWeapon && ShopInventory.TryItem(shownDetail, out MetaItem shown) ? shown : item;
+        Button less = Paintbox.IconButton(detailActions, "Minus", Paintbox.Tone.Paper, () => { AudioManager.ButtonTap(); ammoPacks = Math.Max(1u, ammoPacks - 1); FillDetail(page); }, 76f);
         less.gameObject.AddComponent<LayoutElement>().preferredWidth = 76f;
         less.interactable = ammoPacks > 1;
         Text count = Paintbox.Label(detailActions, L.F("{0} x {1} rounds", ammoPacks, perPack), 26f, Paintbox.Ink, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
         count.gameObject.AddComponent<LayoutElement>().preferredWidth = 230f;
-        Button more = Paintbox.IconButton(detailActions, "Plus", Paintbox.Tone.Paper, () => { AudioManager.ButtonTap(); ammoPacks = Math.Min(most, ammoPacks + 1); FillDetail(item); }, 76f);
+        Button more = Paintbox.IconButton(detailActions, "Plus", Paintbox.Tone.Paper, () => { AudioManager.ButtonTap(); ammoPacks = Math.Min(most, ammoPacks + 1); FillDetail(page); }, 76f);
         more.gameObject.AddComponent<LayoutElement>().preferredWidth = 76f;
         more.interactable = ammoPacks < most;
         uint packs = ammoPacks;
-        Action("Buy ammo", Paintbox.Tone.Primary, "ShoppingBag", () => AskBuy(item, packs));
+        Action(onWeapon ? "Buy rounds" : "Buy ammo", Paintbox.Tone.Primary, "ShoppingBag", () => AskBuy(item, packs));
     }
 
     private static bool TryAmmoFor(int weaponId, out MetaItem ammo)

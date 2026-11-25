@@ -182,23 +182,18 @@ public sealed class PaintboxPage
                                        () => { AudioManager.ButtonTap(); MultiplayerHub.Go(tab); }, 28f);
             b.name = t.name;
             PaintboxFrame frame = b.GetComponent<PaintboxFrame>();
-            if (on)
-            {
-                // Picked: a soft violet wash, no outline (the prototype's selected place).
-                frame.Fill.color = Paintbox.Wash;
-                if (frame.Edge != null) frame.Edge.color = Paintbox.Wash;
-                if (frame.Shade != null) frame.Shade.enabled = false;
-                frame.ShadowDepth = 0f;
-            }
-            else Quiet(frame);
+            // Picked: violet with the ink outline and shadow, as the Shop's picked tab (2026-11-25:
+            // the soft wash it had was hard to tell from the others). The others are quiet.
+            if (!on) Quiet(frame);
 
             if (tab == HubTab.Matches)
             {
-                // How many matches are running without the player: a small ink badge.
-                RectTransform content = (RectTransform)frame.Body.Find("Content");
-                Image badge = Paintbox.Image(content, "Badge", UiArt.Circle, Paintbox.Ink);
-                LayoutElement le = badge.gameObject.AddComponent<LayoutElement>();
-                le.preferredWidth = le.preferredHeight = 34f;
+                // How many matches are running without the player: a small ink badge in the tab's
+                // corner, out of the icon and word's row (it pushed them off centre while hidden).
+                Image badge = Paintbox.Image(frame.Body, "Badge", UiArt.Circle, Paintbox.Ink);
+                badge.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+                Paintbox.Pin(badge.rectTransform, new Vector2(1f, 0.5f), new Vector2(-12f, 0f), new Vector2(34f, 34f));
+                badge.rectTransform.pivot = new Vector2(1f, 0.5f);
                 Text count = Paintbox.Label(badge.rectTransform, "", 21f, Color.white, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
                 Paintbox.Fill(count.rectTransform);
                 badge.gameObject.AddComponent<MatchesBadge>().Count = count;

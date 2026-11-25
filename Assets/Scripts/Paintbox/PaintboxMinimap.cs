@@ -1,4 +1,8 @@
+using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
+using Meccha.Client;
+using Meccha.Shared.Game;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
@@ -13,6 +17,11 @@ using UnityEngine.UI;
 /// and upper floors are cut away and the room's layout shows. Every character is left out of the
 /// picture: it shows the room, never where anyone hides. Single Play and online rounds alike: it
 /// needs only the room the scene has loaded.
+///
+/// On it (2026-11-25): the player's own arrow (yellow), the free camera while it is on (blue), and
+/// the other players, an arrow the way they face while they are in and an X where they fell once
+/// they are out; teammates green, the other side red. A hider sees everyone; a seeker sees the
+/// seekers and the hiders who are out, never a hider still hiding.
 /// </summary>
 public sealed class PaintboxMinimap : MonoBehaviour
 {
@@ -30,6 +39,13 @@ public sealed class PaintboxMinimap : MonoBehaviour
     private RectTransform small;
     private RawImage smallMap, largeMap;
     private RectTransform smallArrow, largeArrow, largeFrame;
+    private RectTransform smallCam, largeCam;   // the free camera, blue
+    private readonly List<RectTransform> smallMarks = new List<RectTransform>(), largeMarks = new List<RectTransform>();
+
+    // Marker colours: the player's own (yellow), the free camera (blue), teammates and the other side.
+    private static readonly Color CameraBlue = new Color(0.31f, 0.62f, 1f, 1f);
+    private static readonly Color Teammate = new Color(0.30f, 0.85f, 0.45f, 1f);
+    private static readonly Color Enemy = new Color(0.95f, 0.30f, 0.28f, 1f);
     private GameObject largeRoot;
     private CanvasGroup group;
 
@@ -72,6 +88,7 @@ public sealed class PaintboxMinimap : MonoBehaviour
         if (content != null) Destroy(content.gameObject);
         group = Paintbox.Ensure<CanvasGroup>(small.gameObject);
         smallMap = MapArea(frame.Body, 6f, 20f, out smallArrow, 30f);
+        smallCam = Marker(smallArrow.parent, "FreeCamera", CameraBlue, "ArrowUp", 26f);
 
         // Large: dimmed screen, a big framed map in the middle, X in its corner; any tap closes it.
         Transform canvas = OnlineUI.CreateCanvas("MinimapCanvas", owner, 46).transform;
@@ -86,6 +103,7 @@ public sealed class PaintboxMinimap : MonoBehaviour
         largeFrame = big.Root;
         Paintbox.Pin(largeFrame, new Vector2(0.5f, 0.5f), new Vector2(0f, -10f), new Vector2(Height * 3.4f * aspect, Height * 3.4f));
         largeMap = MapArea(big.Body, 10f, 30f, out largeArrow, 64f);
+        largeCam = Marker(largeArrow.parent, "FreeCamera", CameraBlue, "ArrowUp", 54f);
 
         Text title = Paintbox.Label(dim.rectTransform, "Map", 40f, Color.white, Paintbox.Weight.Title, TextAnchor.LowerCenter);
         title.rectTransform.anchorMin = title.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
@@ -130,6 +148,25 @@ public sealed class PaintboxMinimap : MonoBehaviour
         return map;
     }
 
+    // A marker on the map: a filled circle with an ink edge and an icon (an arrow, or an X).
+    private static RectTransform Marker(Transform window, string name, Color fill, string icon, float size)
+    {
+        Image dot = Paintbox.Image(window, name, UiArt.Circle, fill);
+        dot.preserveAspect = true;
+        dot.raycastTarget = false;
+        RectTransform rt = dot.rectTransform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(size, size);
+        Outline edge = dot.gameObject.AddComponent<Outline>();
+        edge.effectColor = Paintbox.Ink;
+        edge.effectDistance = new Vector2(2f, -2f);
+        Image glyph = Paintbox.IconImage(rt, icon, size * 0.66f, Paintbox.Ink);
+        glyph.name = "Glyph";
+        glyph.raycastTarget = false;
+        rt.gameObject.SetActive(false);
+        return rt;
+    }
+
     private void OnDestroy()
     {
         if (texture != null) { texture.Release(); Destroy(texture); }
@@ -141,8 +178,9 @@ public sealed class PaintboxMinimap : MonoBehaviour
     /// <summary>Shown with the HUD; PaintboxHud calls this each frame it lays the HUD out.</summary>
     public void Tick(bool hudShown)
     {
+        // Shown in the free camera too (2026-11-25), with the camera on it in blue.
         bool free = cam != null && cam.FreeLook;
-        bool show = hudShown && !free;
+        bool show = hudShown;
         if (small.gameObject.activeSelf != show) small.gameObject.SetActive(show);
         if (!hudShown && largeRoot.activeSelf) largeRoot.SetActive(false);
         if (!hudShown)
@@ -167,19 +205,124 @@ public sealed class PaintboxMinimap : MonoBehaviour
 
         Place(smallArrow, smallMap.rectTransform, body);
         if (largeRoot.activeSelf) Place(largeArrow, largeMap.rectTransform, body);
+
+        // The free camera, where it is and the way it looks.
+        Transform view = free && Camera.main != null ? Camera.main.transform : null;
+        ShowCamera(smallCam, smallMap.rectTransform, view);
+        ShowCamera(largeCam, largeMap.rectTransform, largeRoot.activeSelf ? view : null);
+
+        // Everyone else.
+        CollectOthers(body);
+        DrawOthers(smallMarks, smallArrow.parent, smallMap.rectTransform, 20f);
+        if (largeRoot.activeSelf) DrawOthers(largeMarks, largeArrow.parent, largeMap.rectTransform, 44f);
+        smallArrow.SetAsLastSibling();   // the player's own arrow over the others
+        largeArrow.SetAsLastSibling();
+    }
+
+    private void ShowCamera(RectTransform marker, RectTransform map, Transform view)
+    {
+        bool on = view != null;
+        if (marker.gameObject.activeSelf != on) marker.gameObject.SetActive(on);
+        if (!on) return;
+        PlaceAt(marker, map, view.position, view.forward);
+        marker.SetAsLastSibling();
+    }
+
+    // ================= The other players =================
+
+    private struct Other
+    {
+        public Vector3 Position, Forward;
+        public bool Seeker, Out;
+    }
+
+    private readonly List<Other> others = new List<Other>();
+
+    // Who is where: online, the network's bodies; in Single Play, the bots.
+    private void CollectOthers(Transform me)
+    {
+        others.Clear();
+        bool iSeek = gmm != null && gmm.PlayerIsSeeker;
+
+        if (OnlineRound.Active)
+        {
+            MecchaNetClient net = MecchaNetClient.Instance;
+            byte local = net != null ? net.LocalSlot : (byte)0xFF;
+            for (int slot = 0; slot < 16; slot++)
+            {
+                if (slot == local) continue;
+                NetEntityView v = NetEntityRegistry.Get((byte)slot);
+                if (v == null || !v.gameObject.activeInHierarchy || (!v.HasPosition && !v.IsHosted)) continue;
+                Add(v.transform, v.Role == Role.Hunter, v.Eliminated, iSeek);
+            }
+            return;
+        }
+
+        // Single Play: the seeker bots and the hider bots of this round.
+        foreach (Transform t in BotBodies(typeof(BotSeekController))) if (t != me) Add(t, true, IsDown(t), iSeek);
+        foreach (Transform t in BotBodies(typeof(BotHideController))) if (t != me) Add(t, false, IsDown(t), iSeek);
+    }
+
+    private void Add(Transform body, bool seeker, bool down, bool iSeek)
+    {
+        if (body == null || !body.gameObject.activeInHierarchy) return;
+        // A seeker never sees where a hider still hiding is.
+        if (iSeek && !seeker && !down) return;
+        others.Add(new Other { Position = body.position, Forward = body.forward, Seeker = seeker, Out = down });
+    }
+
+    private static bool IsDown(Transform t) => t.GetComponent<Ragdoll>() != null;
+
+    private static readonly Dictionary<System.Type, FieldInfo> botLists = new Dictionary<System.Type, FieldInfo>();
+
+    // The bots a Single Play controller runs (its private list of bodies).
+    private static IEnumerable<Transform> BotBodies(System.Type controller)
+    {
+        Object c = FindAnyObjectByType(controller);
+        if (c == null) yield break;
+        if (!botLists.TryGetValue(controller, out FieldInfo list))
+            botLists[controller] = list = controller.GetField("bots", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (list?.GetValue(c) is not IEnumerable bots) yield break;
+        foreach (object b in bots)
+        {
+            FieldInfo tf = b?.GetType().GetField("tf");
+            if (tf?.GetValue(b) is Transform t && t != null) yield return t;
+        }
+    }
+
+    private void DrawOthers(List<RectTransform> pool, Transform window, RectTransform map, float size)
+    {
+        bool iSeek = gmm != null && gmm.PlayerIsSeeker;
+        while (pool.Count < others.Count) pool.Add(Marker(window, "Player", Teammate, "ArrowUp", size));
+        for (int i = 0; i < pool.Count; i++)
+        {
+            RectTransform m = pool[i];
+            bool on = i < others.Count;
+            if (m.gameObject.activeSelf != on) m.gameObject.SetActive(on);
+            if (!on) continue;
+
+            Other o = others[i];
+            Color colour = o.Seeker == iSeek ? Teammate : Enemy;
+            Image dot = m.GetComponent<Image>();
+            if (dot.color != colour) dot.color = colour;
+            Image glyph = m.Find("Glyph").GetComponent<Image>();
+            Sprite icon = Paintbox.Icon(o.Out ? "X" : "ArrowUp");
+            if (glyph.sprite != icon) glyph.sprite = icon;
+            PlaceAt(m, map, o.Position, o.Out ? Vector3.forward : o.Forward);
+        }
     }
 
     // The arrow where the body is on the picture, turned the way it faces (north is up).
-    private void Place(RectTransform arrow, RectTransform map, Transform body)
+    private void Place(RectTransform arrow, RectTransform map, Transform body) => PlaceAt(arrow, map, body.position, body.forward);
+
+    private void PlaceAt(RectTransform arrow, RectTransform map, Vector3 p, Vector3 f)
     {
-        Vector3 p = body.position;
         float u = (p.x - centre.x) / (2f * halfHeight * aspect);
         float v = (p.z - centre.y) / (2f * halfHeight);
         Vector2 size = map.rect.size;
         Vector2 at = new Vector2(Mathf.Clamp(u, -0.5f, 0.5f) * size.x, Mathf.Clamp(v, -0.5f, 0.5f) * size.y);
         if ((arrow.anchoredPosition - at).sqrMagnitude > 0.01f) arrow.anchoredPosition = at;
 
-        Vector3 f = body.forward;
         float yaw = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
         arrow.localRotation = Quaternion.Euler(0f, 0f, -yaw);
     }

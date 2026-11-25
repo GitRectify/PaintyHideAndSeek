@@ -11,7 +11,7 @@ using UnityEngine.UI;
 /// </summary>
 public sealed class RateScreen : MonoBehaviour
 {
-    private const int CanvasOrder = 57;
+    private const int CanvasOrder = 48;   // with the other Multiplayer pages, under Settings and the Shop
     private const int MaxComment = 500;
 
     private static RateScreen instance;
@@ -32,7 +32,7 @@ public sealed class RateScreen : MonoBehaviour
     {
         if (instance == null)
         {
-            var go = new GameObject("RateScreen");
+            var go = new GameObject("RateScreenHost");   // the page itself is "RateScreen"
             DontDestroyOnLoad(go);
             instance = go.AddComponent<RateScreen>();
         }

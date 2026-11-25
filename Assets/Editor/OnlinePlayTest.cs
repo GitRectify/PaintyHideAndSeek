@@ -107,7 +107,7 @@ public static class OnlinePlayTest
 
     // ================= State =================
 
-    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited, Away, BuyMap, ShopTabs }
+    private enum Step { WaitPlay, SignIn, FirstRun, Shop, Role, Room, Map, Match, Round, Result, Home, History, ShopCards, Again, SinglePlay, Wallet, Quiet, Done, Body, Language, Pay, NextRooms, Exited, Away, BuyMap, ShopTabs, Climb, Hub }
 
     // -playtestShopTabs: the shop as a player taps it, from Home: tab after tab (Avatars, then Coins
     // and Bullets, buying and equipping in between). Every card must be of the tab tapped, and a
@@ -133,6 +133,10 @@ public static class OnlinePlayTest
     // -playtestSwitchMaps: match A on the first map, Exit; match B on Room2, Exit; REJOIN A. The
     // player must stand on A's floor where the server has them, and stay there.
     private static bool SwitchMapsTest => System.Environment.GetCommandLineArgs().Contains("-playtestSwitchMaps");
+
+    // -playtestOutRejoin: a hider who is out leaves the match and rejoins it; their body must lie on
+    // the floor where it fell, and stay there (2026-11-25: a dead hider who rejoined floated or fell).
+    private static bool OutRejoinTest => System.Environment.GetCommandLineArgs().Contains("-playtestOutRejoin");
     private static bool AwayEndTest => System.Environment.GetCommandLineArgs().Contains("-playtestAwayEnd");
     private static bool roomBackChecked, splashAtStart, splashChecked, cooldownSeen;
     private static int awayStage;
@@ -143,6 +147,10 @@ public static class OnlinePlayTest
     // written once this game sits in a lobby, so a runner can send the other players in after it.
     private static bool Standard => System.Environment.GetCommandLineArgs().Contains("-playtestStandard");
     private static string LobbyMark => System.Environment.GetCommandLineArgs().SkipWhile(a => a != "-playtestLobbyMark").Skip(1).FirstOrDefault();
+
+    // -playtestRemote: other real players join this match (the load tester's clients, started when
+    // the lobby mark appears), so how they are drawn from the network is judged.
+    private static bool RemotePlayers => System.Environment.GetCommandLineArgs().Contains("-playtestRemote");
     private static long standardCoinsBefore;
     private static bool lobbyMarked, standardLobbyChecked;
 
@@ -216,9 +224,41 @@ public static class OnlinePlayTest
 
     // ================= Driver =================
 
+    // The first frames (2026-11-25: the original UI showed for a moment after the launch splash):
+    // until Home has its new look, its canvas is not drawn.
+    private static bool startupWatched, startupOldSeen;
+
+    private static void WatchStartup()
+    {
+        if (startupWatched) return;
+        GameObject home = FindByName("HomeCanvas") ?? FindByName("MainHomeCanvas");
+        if (home == null) return;
+        Canvas canvas = home.GetComponent<Canvas>();
+        bool restyled = home.transform.Find("PbSkinned") != null;
+        if (!restyled && canvas != null && canvas.enabled && home.activeInHierarchy) startupOldSeen = true;
+        if (!restyled) return;
+        startupWatched = true;
+        Check(!startupOldSeen, "the original Home never shows at startup: its canvas is hidden until it has its new look");
+    }
+
+    // -playtestRemote: when each stall began, whose it was, and where the match was.
+    private static int stallsSeen;
+    private static readonly List<string> stallLog = new List<string>();
+
+    private static void WatchStalls()
+    {
+        if (!RemotePlayers || Net == null || NetEntityView.Stalls <= stallsSeen) return;
+        stallsSeen = NetEntityView.Stalls;
+        NetEntityView v = NetEntityRegistry.Get(NetEntityView.LastStallSlot);
+        string who = v == null ? "gone" : v.Eliminated ? "out" : "in play";
+        stallLog.Add($"#{stallsSeen} slot {NetEntityView.LastStallSlot} ({who}) at {Time.realtimeSinceStartup - startedAt:F1} s, {Net.Phase} with {Net.PhaseTimeLeft:F1} s left, ping {Net.PingMs} ms");
+    }
+
     private static void Tick()
     {
         if (!EditorApplication.isPlaying) return;
+        WatchStartup();
+        WatchStalls();
 
         try
         {
@@ -229,9 +269,10 @@ public static class OnlinePlayTest
                 Application.logMessageReceived += CountErrors;
             }
 
-            if (Time.realtimeSinceStartup - startedAt > TimeoutSeconds)
+            float limit = ClimbTest ? 1500f : TimeoutSeconds;   // the climbing test goes round every map
+            if (Time.realtimeSinceStartup - startedAt > limit)
             {
-                Check(false, $"finished within {TimeoutSeconds:F0} s (stuck at {step})");
+                Check(false, $"finished within {limit:F0} s (stuck at {step})");
                 Finish();
                 return;
             }
@@ -753,8 +794,9 @@ public static class OnlinePlayTest
                     int left = ShopInventory.AmmoOf(TestWeapon);
                     Check(ShopScreen.IsOpen && ShopScreen.CurrentCategory == "weapons" && card != null && cardText.Contains("Roller") && cardText.Contains($"{left} rounds"),
                           $"the shop's Weapons tab shows the roller with its rounds left ({cardText})");
-                    Check(FindByName("Filter_Weapons") is { activeInHierarchy: true } && FindByName("Filter_Ammo") is { activeInHierarchy: true },
-                          "and filters for weapons and their ammo");
+                    Check(ShownItemCards().All(c => ShopInventory.TryItem(c.name.Substring(5), out MetaItem k) && k.Kind != ItemKind.Ammo)
+                          && FindByName("Filter_Ammo") is not { activeInHierarchy: true },
+                          "and lists weapons, not their ammo packs (rounds are bought on the weapon's page)");
                     Shot("shop_weapons");
                     ShopScreen.ShowItem("weapon-roller");
                     return;
@@ -766,6 +808,8 @@ public static class OnlinePlayTest
                     string all = detail != null ? string.Join(" | ", detail.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "none";
                     Check(detail is { activeInHierarchy: true } && all.Contains("Cooldown") && all.Contains("2 s") && all.Contains("\u00d71.5"),
                           $"its page shows the roller's own cooldown and bullet size ({(all.Length > 240 ? all.Substring(0, 240) + "..." : all)})");
+                    Check(all.Contains("AMMO") && FindByName("AmmoPack_ammo-roller") is { activeInHierarchy: true } && ShopButton("Action_Buy rounds") != null,
+                          "and sells its rounds right there: its ammo pack and Buy rounds");
                     Shot("shop_weapon_detail");
                     if (NextPlayerTest)
                     {
@@ -806,6 +850,14 @@ public static class OnlinePlayTest
                 Go(SinglePlay ? Step.SinglePlay : Step.Done);
                 return;
 
+            case Step.Climb:
+                PlayClimb();
+                return;
+
+            case Step.Hub:
+                PlayHub();
+                return;
+
             case Step.SinglePlay:
                 PlaySinglePlay();
                 return;
@@ -815,6 +867,383 @@ public static class OnlinePlayTest
                 Finish();
                 return;
         }
+    }
+
+    // ================= Multiplayer's tabs and the coin balance (2026-11-25) =================
+    //
+    // After the shop test: Multiplayer's setup, then each tab tapped where a finger taps it. The
+    // tab's own page has to come up on top, with that tab picked in its row; the coin balance has to
+    // fit its pill with the coin and number centred; and the Shop, opened from a tab's page, has to
+    // come up over it. Pictures at 16:9 and at a phone's 20:9.
+    private static int hubStage;
+    private static float hubAt;
+    private static readonly (string tab, string page)[] HubPages =
+    {
+        ("Extra_MATCHES", "MyMatchesScreen"), ("Extra_HISTORY", "HistoryScreen"), ("Extra_PROFILE", "ProfileScreen"),
+        ("Extra_RATE", "RateScreen"), ("Tab_NEW", "PlaySetup"),
+    };
+
+    private static GameObject ShownByName(string name) =>
+        Resources.FindObjectsOfTypeAll<GameObject>().FirstOrDefault(g => g.name == name && g.scene.IsValid() && g.activeInHierarchy);
+
+    // A page as it is drawn: on a canvas. (The setup stays up under the other hub pages with tabs of
+    // its own, and a page's host object can carry the page's name.)
+    private static GameObject ShownPage(string name) =>
+        Resources.FindObjectsOfTypeAll<GameObject>().FirstOrDefault(g => g.name == name && g.scene.IsValid() && g.activeInHierarchy
+                                                                         && g.transform is RectTransform);
+
+    private static GameObject InPage(GameObject page, string name) =>
+        page == null ? null : page.GetComponentsInChildren<Transform>(false).FirstOrDefault(x => x.name == name)?.gameObject;
+
+    private static void PlayHub()
+    {
+        float now = Time.realtimeSinceStartup;
+        if (now < hubAt) return;
+
+        if (hubStage == 0)
+        {
+            OnlineLobby.Open(profile, null);
+            hubAt = now + 2.5f;
+            hubStage = 1;
+            return;
+        }
+
+        if (hubStage == 1)
+        {
+            GameObject setup = ShownPage("PlaySetup");
+            Check(setup != null, "Multiplayer's setup is up (New Match)");
+            HubLook("newmatch", "Tab_NEW", setup);
+            TapAt(InPage(setup, HubPages[0].tab)?.GetComponent<Button>());
+            hubAt = now + 1.8f;
+            hubStage = 2;
+            return;
+        }
+
+        int index = hubStage - 2;
+        if (index < HubPages.Length)
+        {
+            (string tab, string page) = HubPages[index];
+            GameObject shown = ShownPage(page);
+            string others = string.Join(", ", HubPages.Where(h => h.page != page && h.page != "PlaySetup" && ShownPage(h.page) != null).Select(h => h.page));
+            Check(shown != null && others.Length == 0, $"the {tab} tab brings up its page ({page}{(others.Length > 0 ? "; also up: " + others : "")})");
+            HubLook(page.ToLowerInvariant(), tab, shown);
+
+            if (page == "HistoryScreen")
+            {
+                // The Shop from here comes up over the page, not behind it.
+                InPage(shown, "PageShop")?.GetComponent<Button>()?.onClick.Invoke();
+                hubAt = now + 2f;
+                hubStage = 20;
+                return;
+            }
+
+            if (index + 1 < HubPages.Length) TapAt(InPage(shown, HubPages[index + 1].tab)?.GetComponent<Button>());
+            hubAt = now + 1.8f;
+            hubStage++;
+            if (index + 1 >= HubPages.Length) { Go(Step.Done); }
+            return;
+        }
+
+        if (hubStage == 20)
+        {
+            Canvas shop = FindByName("ShopScreenCanvas")?.GetComponent<Canvas>();
+            Canvas history = FindByName("OnlineHistoryCanvas")?.GetComponent<Canvas>();
+            Check(ShopScreen.IsOpen && shop != null && history != null && shop.sortingOrder > history.sortingOrder,
+                  $"the Shop opened from the History page comes up over it ({(shop != null ? shop.sortingOrder : -1)} over {(history != null ? history.sortingOrder : -1)})");
+            Shot("hub_shop_over_history");
+            ShopScreen.CloseIfOpen();
+            hubAt = now + 1f;
+            hubStage = 21;
+            return;
+        }
+
+        if (hubStage == 21)
+        {
+            GameObject history = ShownPage("HistoryScreen");
+            Check(history != null, "closing it leaves the History page there");
+            TapAt(InPage(history, "Extra_PROFILE")?.GetComponent<Button>());
+            hubAt = now + 1.8f;
+            hubStage = 2 + 2;   // the Profile page next
+        }
+    }
+
+    // A tab page as it looks: its tab picked, the tabs' words centred, the coin balance in its pill.
+    private static void HubLook(string name, string tab, GameObject page)
+    {
+        GameObject picked = InPage(page, tab);
+        PaintboxFrame frame = picked != null ? picked.GetComponent<PaintboxFrame>() : null;
+        Check(frame != null && Near(frame.Fill.color, Paintbox.Violet), $"its tab ({tab}) is picked: violet ({(frame != null ? frame.Fill.color.ToString() : "none")})");
+
+        // The tabs' icon and word, centred in each tab.
+        var off = new List<string>();
+        foreach (var t in HubPages)
+        {
+            GameObject b = InPage(page, t.tab);
+            RectTransform content = b != null ? b.transform.Find("Body/Content") as RectTransform ?? b.GetComponentsInChildren<RectTransform>().FirstOrDefault(r => r.name == "Content") : null;
+            if (content == null) continue;
+            var parts = content.GetComponentsInChildren<Graphic>(false).Where(g => g.transform.parent == content).Select(g => ScreenRect(g.rectTransform)).ToList();
+            if (parts.Count == 0) continue;
+            float left = parts.Min(r => r.xMin), right = parts.Max(r => r.xMax);
+            Rect whole = ScreenRect((RectTransform)b.transform);
+            float shift = (left + right) * 0.5f - whole.center.x;
+            if (Mathf.Abs(shift) > 4f) off.Add($"{t.tab} {shift:F0} px ({string.Join("+", content.Cast<Transform>().Where(c => c.gameObject.activeSelf).Select(c => c.name))})");
+        }
+        Check(off.Count == 0, $"each tab's icon and word are centred in it{(off.Count > 0 ? ": off by " + string.Join(", ", off) : "")}");
+
+        // The coin balance: coin and number inside the pill, centred.
+        GameObject pill = InPage(page, "PageBalance");
+        Text number = pill != null ? pill.GetComponentsInChildren<Text>(false).FirstOrDefault(x => x.GetComponent<CoinLabel>() != null) : null;
+        if (pill != null && number != null)
+        {
+            Rect box = ScreenRect((RectTransform)pill.transform);
+            Rect row = ScreenRect((RectTransform)number.transform.parent);
+            Check(row.xMin >= box.xMin - 1f && row.xMax <= box.xMax + 1f && Mathf.Abs(row.center.x - box.center.x) < 8f,
+                  $"the coin balance sits centred inside its pill ('{number.text}': coin and number {row}, pill {box})");
+        }
+        Shot("hub_" + name);
+        Shot("hub_" + name + "_phone", 1560, 720);
+    }
+
+    // ================= -playtestClimb: climbing everything climbable, on every map =================
+    //
+    // Offline (with -playtestQuietOffline), a Single Play hider round on each map with the bots
+    // stopped: the climbable walls and furniture around the room are found, and at each the player
+    // holds Climb and pushes the stick at it as a player would, for a few seconds. A climb that
+    // stops moving while both are held is a freeze (2026-11-25: players froze climbing).
+    private static bool ClimbTest => System.Environment.GetCommandLineArgs().Contains("-playtestClimb");
+
+    private struct ClimbSpot
+    {
+        public Vector3 Feet, Normal;
+        public float Height;   // how high the climbable thing goes above the floor, in body heights
+    }
+
+    private static int climbStage, climbMap, climbIndex, climbFreezes, climbTopped, climbTried, climbNeverStarted;
+    private static int climbTrial;   // 0: Climb held alone; 1: Climb held and the stick pushed at the wall
+    private static List<ClimbSpot> climbSpots;
+    private static float climbAt, climbStartY, climbBodyHeight, climbFeetOffset, climbBest;
+    private static readonly List<(float t, Vector3 p, bool onWall)> climbPath = new List<(float t, Vector3 p, bool onWall)>();
+    private static readonly List<string> climbProblems = new List<string>();
+    private static bool climbWasOnWall;
+
+    private static void PlayClimb()
+    {
+        GameModeManager gmm = Object.FindAnyObjectByType<GameModeManager>();
+        WallClimber climber = Object.FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
+        float now = Time.realtimeSinceStartup;
+        if (now < climbAt) return;
+        int maps = LevelManager.Instance != null ? LevelManager.Instance.Count : 1;
+
+        switch (climbStage)
+        {
+            case 0:     // a hider round on this map, the bots stopped
+            {
+                if (climbMap >= maps)
+                {
+                    Check(climbTried > 0, $"climbing was tried ({climbTried} spots on {maps} maps; {climbTopped} reached a top, {climbNeverStarted} never took hold)");
+                    Check(climbFreezes == 0, $"no climb froze ({climbFreezes} froze{(climbProblems.Count > 0 ? ": " + string.Join(" | ", climbProblems.Take(40)) : "")})");
+                    Go(Step.Done);
+                    return;
+                }
+                gmm.ShowMenu();
+                LevelManager.Instance.SetLevel(climbMap);
+                gmm.BeginRound(false);
+                Object.FindAnyObjectByType<HomeUI>()?.SetGameplayUIVisible(true);
+                if (FindByName("HomeCanvas") is { } homeCanvas) homeCanvas.SetActive(false);   // as the game's Play hides it
+                BotSeekController seek = Object.FindAnyObjectByType<BotSeekController>();
+                if (seek != null) seek.enabled = false;
+                climbAt = now + 1.5f;
+                climbStage = 1;
+                return;
+            }
+
+            case 1:     // where the climbable things are
+            {
+                Transform body = PlayerRef.Active;
+                CharacterController cc = body != null ? body.GetComponent<CharacterController>() : null;
+                if (body == null || cc == null) { Check(false, "the player's body is there to climb with"); Go(Step.Done); return; }
+                climbBodyHeight = cc.height * body.lossyScale.y;
+                climbFeetOffset = body.position.y - cc.bounds.min.y;
+                climbSpots = FindClimbSpots(climber, cc.bounds.min.y, climbBodyHeight, cc.radius * body.lossyScale.x);
+                report.Add($"INFO  map {climbMap + 1} ({LevelManager.Instance.CurrentRoomName}): {climbSpots.Count} climbable spots found (body {climbBodyHeight:F1} tall)");
+                climbIndex = 0;
+                climbStage = 2;
+                return;
+            }
+
+            case 2:     // to the next spot, facing it
+            {
+                if (climbIndex >= climbSpots.Count)
+                {
+                    climbMap++;
+                    climbStage = 0;
+                    return;
+                }
+                ClimbSpot spot = climbSpots[climbIndex];
+                Transform body = PlayerRef.Active;
+                CharacterController cc = body.GetComponent<CharacterController>();
+                climber.DropToGround();
+                SetClimb(climber, 1, false);
+                SetClimb(climber, -1, false);
+                StickInput(Vector2.zero);
+                cc.enabled = false;
+                body.position = spot.Feet + Vector3.up * climbFeetOffset;
+                body.rotation = Quaternion.LookRotation(-new Vector3(spot.Normal.x, 0f, spot.Normal.z).normalized, Vector3.up);
+                cc.enabled = true;
+                climbAt = now + 0.4f;
+                climbStage = 3;
+                return;
+            }
+
+            case 3:     // hold Climb and push at the wall
+            {
+                Transform body = PlayerRef.Active;
+                climbStartY = body.position.y;
+                climbBest = climbStartY;
+                climbPath.Clear();
+                climbWasOnWall = false;
+                SetClimb(climber, 1, true);
+                climbTried++;
+                climbAt = 0f;
+                climbStage = 4;
+                stepStarted = now;
+                return;
+            }
+
+            case 4:
+            {
+                Transform body = PlayerRef.Active;
+                ClimbSpot spot = climbSpots[climbIndex];
+                Vector3 toWall = -new Vector3(spot.Normal.x, 0f, spot.Normal.z).normalized;
+                StickInput(climbTrial == 1 ? StickToward(toWall) : Vector2.zero);
+                SetClimb(climber, 1, true);
+                climbPath.Add((InStep, body.position, climber.IsOnWall));
+                climbBest = Mathf.Max(climbBest, body.position.y);
+                if (climber.IsOnWall) climbWasOnWall = true;
+
+                bool toppedOut = climbWasOnWall && !climber.IsOnWall && body.position.y > climbStartY + climbBodyHeight * 0.5f;
+                // Still on the wall, holding both, and nowhere new for 1.5 s: frozen.
+                bool frozen = false;
+                if (climber.IsOnWall && InStep > 2f)
+                {
+                    var window = climbPath.Where(s => s.t >= InStep - 1.5f).ToList();
+                    float moved = 0f;
+                    for (int i = 1; i < window.Count; i++) moved += Vector3.Distance(window[i].p, window[i - 1].p);
+                    frozen = window.Count > 5 && moved < 0.25f;
+                }
+
+                if (!toppedOut && !frozen && InStep < 8f) return;
+
+                string where = $"map {climbMap + 1} spot {climbIndex + 1} ({spot.Feet.x:F0}, {spot.Feet.z:F0}), {spot.Height:F1} bodies tall, {(climbTrial == 0 ? "Climb alone" : "Climb and the stick")}";
+                if (toppedOut) climbTopped++;
+                else if (!climbWasOnWall) { climbNeverStarted++; report.Add($"INFO  {where}: never took hold"); }
+                else if (frozen && BlockedAbove(body))
+                {
+                    // Under a ceiling or an overhang: the way up ends there; down and sideways still go.
+                    report.Add($"INFO  {where}: stopped under something {(body.position.y - climbStartY) / climbBodyHeight:F2} bodies up");
+                }
+                else if (frozen)
+                {
+                    climbFreezes++;
+                    float up = (body.position.y - climbStartY) / climbBodyHeight;
+                    climbProblems.Add($"{where}: froze {up:F2} bodies up");
+                    if (climbFreezes <= 4) Shot($"climb_freeze_{climbFreezes}");
+                }
+                else report.Add($"INFO  {where}: still climbing after 8 s ({(climbBest - climbStartY) / climbBodyHeight:F2} bodies up)");
+
+                SetClimb(climber, 1, false);
+                StickInput(Vector2.zero);
+                if (climbTrial == 0) climbTrial = 1;
+                else { climbTrial = 0; climbIndex++; }
+                climbStage = 2;
+                climbAt = now + 0.2f;
+                return;
+            }
+        }
+    }
+
+    // Something just over the head: the ceiling, or an overhang the climb has met.
+    private static bool BlockedAbove(Transform body)
+    {
+        CharacterController cc = body.GetComponent<CharacterController>();
+        if (cc == null) return false;
+        Bounds b = cc.bounds;
+        foreach (RaycastHit hit in Physics.SphereCastAll(new Vector3(b.center.x, b.max.y - cc.radius * body.lossyScale.x, b.center.z),
+                                                          cc.radius * body.lossyScale.x * 0.9f, Vector3.up, 1.5f, ~0, QueryTriggerInteraction.Ignore))
+            if (!hit.transform.IsChildOf(body)) return true;
+        return false;
+    }
+
+    private static void SetClimb(WallClimber climber, int dir, bool held) =>
+        typeof(WallClimber).GetMethod("SetClimb", Any).Invoke(climber, new object[] { dir, held });
+
+    private static void StickInput(Vector2 input)
+    {
+        JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+        Joystick stick = mover != null ? Get<Joystick>(mover, "joystick") : null;
+        if (stick != null) typeof(Joystick).GetField("input", Any).SetValue(stick, input);
+    }
+
+    // The stick's push that moves the body along this world direction, as the camera is now.
+    private static Vector2 StickToward(Vector3 direction)
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return Vector2.up;
+        Vector3 f = cam.transform.forward; f.y = 0f; f.Normalize();
+        Vector3 r = cam.transform.right; r.y = 0f; r.Normalize();
+        return new Vector2(Vector3.Dot(direction, r), Vector3.Dot(direction, f)).normalized;
+    }
+
+    // Steep climbable surfaces around the room, seen from a grid of open floor points, each with
+    // how high it goes; no two within a few bodies of each other.
+    private static List<ClimbSpot> FindClimbSpots(WallClimber climber, float floorY, float bodyHeight, float radius)
+    {
+        var spots = new List<ClimbSpot>();
+        GameObject room = LevelManager.Instance != null ? LevelManager.Instance.CurrentRoomInstance : null;
+        if (room == null) return spots;
+        Bounds area = default;
+        bool any = false;
+        foreach (Renderer r in room.GetComponentsInChildren<Renderer>())
+        {
+            if (!r.enabled || r.GetComponentInParent<Animator>() != null) continue;
+            if (!any) { area = r.bounds; any = true; } else area.Encapsulate(r.bounds);
+        }
+        if (!any) return spots;
+
+        MethodInfo climbable = typeof(WallClimber).GetMethod("IsClimbable", Any);
+        var rng = new System.Random(7 + (int)(area.center.x * 13));
+        Vector3[] dirs = { Vector3.forward, Vector3.back, Vector3.left, Vector3.right };
+        for (int attempt = 0; attempt < 400 && spots.Count < 14; attempt++)
+        {
+            float x = Mathf.Lerp(area.min.x, area.max.x, (float)rng.NextDouble());
+            float z = Mathf.Lerp(area.min.z, area.max.z, (float)rng.NextDouble());
+            // Open floor at about the spawn's height.
+            if (!Physics.Raycast(new Vector3(x, floorY + bodyHeight * 1.2f, z), Vector3.down, out RaycastHit floor, bodyHeight * 2f)) continue;
+            if (Mathf.Abs(floor.point.y - floorY) > bodyHeight * 0.3f || Vector3.Angle(floor.normal, Vector3.up) > 20f) continue;
+            Vector3 mid = floor.point + Vector3.up * (bodyHeight * 0.5f);
+            if (Physics.CheckSphere(mid, radius * 1.1f, ~0, QueryTriggerInteraction.Ignore)) continue;
+
+            Vector3 dir = dirs[rng.Next(dirs.Length)];
+            if (!Physics.Raycast(mid, dir, out RaycastHit wall, bodyHeight * 4f, ~0, QueryTriggerInteraction.Ignore)) continue;
+            if (Vector3.Angle(wall.normal, Vector3.up) < climber.minWallSteepness) continue;
+            if (!(bool)climbable.Invoke(climber, new object[] { wall.collider })) continue;
+
+            Vector3 n = new Vector3(wall.normal.x, 0f, wall.normal.z).normalized;
+            Vector3 feet = new Vector3(wall.point.x, floor.point.y, wall.point.z) + n * (radius + 0.6f);
+            if (Physics.CheckSphere(feet + Vector3.up * (bodyHeight * 0.5f), radius * 1.05f, ~0, QueryTriggerInteraction.Ignore)) continue;
+            if (spots.Any(s => Vector3.Distance(s.Feet, feet) < bodyHeight * 1.5f)) continue;
+
+            // How high it goes: the first height a ray at it no longer meets it.
+            float height = 0f;
+            for (float h = 0.25f; h <= 6f; h += 0.25f)
+            {
+                if (!Physics.Raycast(feet + Vector3.up * (bodyHeight * h), -n, radius + 1.6f, ~0, QueryTriggerInteraction.Ignore)) break;
+                height = h;
+            }
+            if (height < 0.75f) continue;   // too low to climb: stepped or jumped onto
+            spots.Add(new ClimbSpot { Feet = feet, Normal = n, Height = height });
+        }
+        return spots;
     }
 
     // -playtestSinglePlay: after the online match, a Single Play round on each side, offline, through
@@ -1238,6 +1667,7 @@ public static class OnlinePlayTest
     private static Vector3 lastFeet;
     private static bool haveLastFeet;
     private static float walkedPath, walkedSince, walkedSeconds, worstServerGap, placementGap;
+    private static string worstGapWhen = "";
     private static readonly List<float> feetAboveFloor = new List<float>();
 
     // Pushes the real on-screen joystick, so JoystickMover and the CharacterController do the walking.
@@ -1422,6 +1852,15 @@ public static class OnlinePlayTest
 
             // Once it has landed: the snapshot that places the player still says where they were.
             float gap = Vector3.Distance(local.FeetPosition, local.LastServerFeet);
+            if (now > walkedSince && gap > worstServerGap)
+            {
+                // What was going on at the worst moment, to tell a slow frame from a climb or a lag.
+                WallClimber climber = local.GetComponentInChildren<WallClimber>();
+                CharacterController body = local.GetComponent<CharacterController>();
+                Vector3 d = local.FeetPosition - local.LastServerFeet;
+                worstGapWhen = $"{Net.Phase}, frame {Time.unscaledDeltaTime * 1000f:F0} ms, across {new Vector2(d.x, d.z).magnitude:F1}, up {d.y:F1}, " +
+                               $"on a wall {climber != null && climber.IsOnWall}, grounded {body != null && body.isGrounded}, ping {Net.PingMs} ms";
+            }
             if (now > walkedSince) worstServerGap = Mathf.Max(worstServerGap, gap);
             else placementGap = Mathf.Max(placementGap, gap);
         }
@@ -1807,6 +2246,7 @@ public static class OnlinePlayTest
     {
         NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
         if (me == null || !me.Eliminated || freeLookStage == 2 || Pair) return;
+        if (freeLookStage == 0 && OnlineRoundInstance() is not { IsSettled: true }) return;   // a rejoin still loading
 
         CameraController cam = Object.FindAnyObjectByType<CameraController>();
         FieldInfo pivot = typeof(CameraController).GetField("_freePivot", Any);
@@ -1899,6 +2339,142 @@ public static class OnlinePlayTest
                 exitStage = 9;
                 Go(Step.Exited);
                 return;
+        }
+    }
+
+    // ================= -playtestOutRejoin: out, Exit, Rejoin: the body lies where it fell =================
+
+    private static int outStage;
+    private static float outAt;
+    private static Vector3 outFellAt;
+    private static readonly FieldInfo LocalBodyField = typeof(OnlineRound).GetField("localBody", Any);
+
+    private static Transform LocalDeadBody() => LocalBodyField?.GetValue(OnlineRoundInstance()) as Transform;
+
+    // The body as drawn: its renderers' box (the gun's too, held in its hand).
+    private static bool DrawnBounds(Transform body, out Bounds bounds)
+    {
+        bounds = default;
+        bool any = false;
+        if (body == null) return false;
+        foreach (Renderer r in body.GetComponentsInChildren<Renderer>(false))
+        {
+            if (!r.enabled || r is ParticleSystemRenderer || r is LineRenderer || r is TrailRenderer) continue;
+            if (!any) { bounds = r.bounds; any = true; }
+            else bounds.Encapsulate(r.bounds);
+        }
+        return any;
+    }
+
+    // What the body rests on: the highest surface under its middle, not the body itself or anyone else.
+    private static bool SurfaceUnder(Transform body, Bounds drawn, out float y)
+    {
+        y = float.NegativeInfinity;
+        Vector3 from = new Vector3(drawn.center.x, drawn.max.y + 2f, drawn.center.z);
+        foreach (RaycastHit hit in Physics.RaycastAll(from, Vector3.down, drawn.size.y + 60f, ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (hit.collider.transform.IsChildOf(body)) continue;
+            if (hit.collider.GetComponentInParent<NetEntityView>() != null || hit.collider.GetComponentInParent<Ragdoll>() != null) continue;
+            if (hit.point.y > drawn.center.y) continue;   // a ceiling, a table top over the body
+            y = Mathf.Max(y, hit.point.y);
+        }
+        return !float.IsNegativeInfinity(y);
+    }
+
+    private static float BodyHeight(Transform body)
+    {
+        CharacterController cc = body != null ? body.GetComponent<CharacterController>() : null;
+        return cc != null ? cc.height * body.lossyScale.y : 2f * (body != null ? body.lossyScale.y : 1f);
+    }
+
+    private static void CheckOutRejoin()
+    {
+        if (!OutRejoinTest || outStage >= 9) return;
+        float now = Time.realtimeSinceStartup;
+        NetEntityView me = NetEntityRegistry.Get(Net.LocalSlot);
+
+        switch (outStage)
+        {
+            case 0:     // out: a few seconds for the body to come to rest
+                if (me == null || !me.Eliminated || OnlineRoundInstance() is not { IsSettled: true }) return;
+                outAt = now + 3f;
+                outStage = 1;
+                return;
+
+            case 1:
+            {
+                if (now < outAt) return;
+                Transform body = LocalDeadBody();
+                if (!DrawnBounds(body, out Bounds drawn)) { Check(false, "the hider who is out has a body drawn"); outStage = 9; return; }
+                outFellAt = drawn.center;
+                float floor = SurfaceUnder(body, drawn, out float y) ? y : float.NaN;
+                report.Add($"INFO  out: the body rests at {drawn.center} (lowest {drawn.min.y:F2}, under it {floor:F2}, body height {BodyHeight(body):F2}); "
+                           + $"the server has the feet at {(me != null ? me.LastServerFeet.ToString() : "?")}, the knock-back carried it {(me != null ? new Vector2(drawn.center.x - me.LastServerFeet.x, drawn.center.z - me.LastServerFeet.z).magnitude : -1f):F1}");
+                Shot("out_before_exit");
+                awayMatch = (int)typeof(OnlineRound).GetField("matchId", Any).GetValue(OnlineRoundInstance());
+                OpenRoundMenu();
+                outAt = now + 0.5f;
+                outStage = 2;
+                return;
+            }
+
+            case 2:
+                if (now < outAt) return;
+                MenuItem("MenuLeave")?.onClick.Invoke();
+                outAt = now + 0.5f;
+                outStage = 3;
+                return;
+
+            case 3:
+                if (now < outAt) return;
+                FindButton("ExitMatchConfirm", "LEAVE")?.onClick.Invoke();
+                awayAt = now + 3f;
+                awayStage = 4;      // the matches list and REJOIN, as -playtestAway does
+                outStage = 4;
+                Go(Step.Away);
+                return;
+
+            case 4:     // back in the round
+                if (!OnlineRound.Active || OnlineRoundInstance() is not { IsSettled: true }) return;
+                Check(me != null && me.Eliminated, "after the rejoin the server still has this hider out");
+                outAt = now + 3f;
+                outStage = 5;
+                return;
+
+            case 5:
+            {
+                if (now < outAt) return;
+                Transform body = LocalDeadBody();
+                Ragdoll ragdoll = body != null ? body.GetComponent<Ragdoll>() : null;
+                Check(ragdoll != null && ragdoll.IsRagdolling, "after the rejoin the hider who is out lies down (ragdoll), not standing");
+                if (!DrawnBounds(body, out Bounds drawn)) { Check(false, "and has a body drawn"); outStage = 9; return; }
+                float h = BodyHeight(body);
+                bool surface = SurfaceUnder(body, drawn, out float floor);
+                float gap = surface ? drawn.min.y - floor : float.NaN;
+                Check(surface && gap > -0.25f * h && gap < 0.25f * h,
+                      $"and lies on the floor: not floating, not in it (lowest {drawn.min.y:F2}, floor {floor:F2}, gap {gap:F2} for a body {h:F2} tall)");
+                report.Add($"INFO  rejoined: the body at {drawn.center}, the server's feet {(me != null ? me.LastServerFeet.ToString() : "?")}, kept on this device '{PlayerPrefs.GetString("OnlineRound.OutRest", "")}'");
+                Vector2 off = new Vector2(drawn.center.x - outFellAt.x, drawn.center.z - outFellAt.z);
+                Check(off.magnitude < 1.5f * h, $"where it fell ({off.magnitude:F2} from where it lay before the Exit, body {h:F2} tall)");
+                outFellAt = drawn.center;
+                Shot("out_rejoined");
+                outAt = now + 2f;
+                outStage = 6;
+                return;
+            }
+
+            case 6:
+            {
+                if (now < outAt) return;
+                Transform body = LocalDeadBody();
+                if (DrawnBounds(body, out Bounds drawn))
+                {
+                    float moved = Vector3.Distance(drawn.center, outFellAt);
+                    Check(moved < 0.1f * BodyHeight(body), $"and stays there: not falling or sliding ({moved:F3} in 2 s)");
+                }
+                outStage = 9;
+                return;
+            }
         }
     }
 
@@ -2224,6 +2800,7 @@ public static class OnlinePlayTest
                 hostedSeeker = null;
                 bodyViews = null;
                 if (!bodiesChecked) bodyStage = 0;      // a body check under way starts over on the new bodies
+                if (freeLookStage == 1) freeLookStage = 0;   // so does the free camera's: the rejoin reset the camera
                 awayStage = 9;
                 Go(Step.Round);
                 return;
@@ -2357,7 +2934,9 @@ public static class OnlinePlayTest
     // -playtestShots: pictures of the screens these modes open, next to the report.
     private static bool Shots => System.Environment.GetCommandLineArgs().Contains("-playtestShots");
 
-    private static void Shot(string name)
+    private static void Shot(string name) => Shot(name, 1280, 720);
+
+    private static void Shot(string name, int width, int height)
     {
         if (!Shots) return;
         Camera cam = Camera.main;
@@ -2372,16 +2951,16 @@ public static class OnlinePlayTest
             c.worldCamera = cam;
             c.planeDistance = cam.nearClipPlane + 0.05f + 0.001f * (100 - Mathf.Clamp(c.sortingOrder, -100, 100));
         }
-        var rt = new RenderTexture(1280, 720, 24);
+        var rt = new RenderTexture(width, height, 24);
         RenderTexture before = cam.targetTexture;
         cam.targetTexture = rt;
-        Canvas.ForceUpdateCanvases();   // laid out for the picture's own size (16:9), not the batch screen's
+        Canvas.ForceUpdateCanvases();   // laid out for the picture's own size, not the batch screen's
         PaintboxHud.Relayout();         // the match HUD in design units at that size
         Canvas.ForceUpdateCanvases();
         cam.Render();
         RenderTexture.active = rt;
-        var tex = new Texture2D(1280, 720, TextureFormat.RGB24, false);
-        tex.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
+        var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+        tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
         tex.Apply();
         cam.targetTexture = before;
         RenderTexture.active = null;
@@ -2595,8 +3174,8 @@ public static class OnlinePlayTest
                     PaintboxHudButton climbSkin = climb.GetComponent<PaintboxHudButton>();
                     Image climbFill = climbSkin != null ? Get<Image>(climbSkin, "fill") : null;
                     WallClimber climber = Object.FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
-                    Check(climbFill != null && climber != null && !climber.IsOnWall && !Near(climbFill.color, Paintbox.Yellow) && !Near(climbFill.color, Paintbox.Hot),
-                          $"Climb is not yellow while the player is off the walls ({(climbFill != null ? climbFill.color.ToString() : "no skin")})");
+                    Check(climbFill != null && climber != null && !climber.UpHeld && !Near(climbFill.color, Paintbox.Yellow) && !Near(climbFill.color, Paintbox.Hot),
+                          $"Climb is not yellow while it is not held ({(climbFill != null ? climbFill.color.ToString() : "no skin")})");
                 }
 
                 // Pose, then Rotate: the pose tray closes. Then Paint: the Rotate tray closes.
@@ -2741,6 +3320,7 @@ public static class OnlinePlayTest
         CheckSeekerBotGun();
         CheckSeekerBodyLiesDown();
         CheckFreeLookWhenOut();
+        CheckOutRejoin();
         CheckNextPlayer();
         CheckExit();
         CheckAway();
@@ -4116,7 +4696,7 @@ public static class OnlinePlayTest
             if (!walked) report.AddRange(moveTrace);
         }
         else report.Add($"INFO  the round left too little time to judge walking ({walkedSeconds:F1} s)");
-        Check(worstServerGap < (Handover ? 14f : 8f), $"the server's position kept up with the client's (worst gap {worstServerGap:F1} units)");
+        Check(worstServerGap < (Handover ? 14f : 8f), $"the server's position kept up with the client's (worst gap {worstServerGap:F1} units: {worstGapWhen})");
         Check(Net.PositionPlacements <= 2, $"the server never had to correct the walking ({Net.PositionPlacements} placements: the spawns only)");
 
         if (feetAboveFloor.Count > 0)
@@ -4152,6 +4732,18 @@ public static class OnlinePlayTest
         if (remoteShots > 0) Check(true, $"other players' shots arrived as OnRemoteShot ({remoteShots}) and were drawn");
         else report.Add("INFO  no other player's shot was in view this match (OnRemoteShot 0)");
         report.Add($"INFO  other players are drawn {Net.InterpolationDelaySeconds * 1000f:F0} ms behind the newest snapshot; ping {Net.PingMs} ms");
+
+        // Other players drawn from the network (not bots this game runs): how often they stood
+        // still for want of a newer position (2026-11-25: other players looked frozen).
+        string stalls = $"{NetEntityView.Stalls} stalls, {NetEntityView.StalledSeconds:F2} s stalled of {NetEntityView.DrawnSeconds:F0} s drawn, longest {NetEntityView.LongestStall * 1000f:F0} ms";
+        if (RemotePlayers)
+        {
+            float share = NetEntityView.DrawnSeconds > 0f ? NetEntityView.StalledSeconds / NetEntityView.DrawnSeconds : 1f;
+            Check(NetEntityView.DrawnSeconds > 20f, $"other players were drawn from the network ({NetEntityView.DrawnSeconds:F0} body-seconds)");
+            Check(share < 0.01f && NetEntityView.LongestStall < 0.25f, $"other players move without freezing ({stalls}; {share * 100f:F2}% of the time)");
+            foreach (string s in stallLog.Take(12)) report.Add("INFO  stall " + s);
+        }
+        else report.Add($"INFO  other players drawn from the network: {stalls}");
         if (freeLookStage == 0) report.Add("INFO  this player was not eliminated, so the free camera was not tried out of the round");
         Check(matchEnds > 0, "the match ended with the server's result");
     }
@@ -4261,11 +4853,14 @@ public static class OnlinePlayTest
         bool coins = category == "coins";
         int packs = Resources.FindObjectsOfTypeAll<GameObject>().Count(g => g.activeInHierarchy && g.name.StartsWith("Pack_"));
         if (coins && packs != ShopInventory.Packages.Count) problems.Add($"{packs} pack cards for {ShopInventory.Packages.Count} packs");
-        if (!coins && cards != ShopInventory.ItemsIn(category).Count) problems.Add($"{cards} cards for {ShopInventory.ItemsIn(category).Count} items");
+        int listed = ShopInventory.ItemsIn(category).Count(i => i.Kind != ItemKind.Ammo);   // packs: on their weapon's page
+        if (!coins && cards != listed) problems.Add($"{cards} cards for {listed} items");
         if (problems.Count > 0) { tabMismatches++; tabProblems.Add($"{when}: {string.Join("; ", problems)}"); }
     }
 
     // Through an item's page: its Buy (or a quantity's), the confirmation, then the receipt's Done.
+    private static bool shopStepped;
+
     private static bool TapBuyOnPage(string action)
     {
         Button buy = ShopButton("Action_" + action);
@@ -4339,12 +4934,13 @@ public static class OnlinePlayTest
             case 4:
             {
                 VerifyTab("weapons", "Weapons after Coins");
-                bool filters = ShopButton("Filter_All") != null && ShopButton("Filter_Weapons") != null && ShopButton("Filter_Ammo") != null;
-                Check(filters, "the Weapons tab has filters for All, Weapons and Ammo");
+                List<GameObject> weaponCards = ShownItemCards().ToList();
+                Check(weaponCards.Count > 1 && weaponCards.All(c => ShopInventory.TryItem(c.name.Substring(5), out MetaItem i) && i.Kind == ItemKind.Weapon)
+                      && ShopButton("Filter_Ammo") == null,
+                      $"the Weapons tab lists the weapons only, no ammo packs ({string.Join(", ", weaponCards.Select(c => c.name))})");
                 Shot("shop_weapons");
-                TapLater("Filter_Ammo");
-                shopAt = now + 0.5f;
-                shopStage = 5;
+                shopAt = now + 0.3f;
+                shopStage = 6;
                 return;
             }
 
@@ -4375,6 +4971,18 @@ public static class OnlinePlayTest
                 Check(FindByName("Detail") is { activeInHierarchy: true } && page.Contains("Cooldown") && page.Contains("Bullet size") && page.Contains("Rounds with it"),
                       $"its page shows how it shoots and the rounds it comes with ({(page.Length > 200 ? page.Substring(0, 200) + "..." : page)})");
                 Shot("shop_detail");
+                if (!shopStepped)
+                {
+                    // Previous / Next: the other weapons, without going back to the grid.
+                    shopStepped = true;
+                    Text place = FindByName("DetailPlace")?.GetComponent<Text>();
+                    Check(ShopButton("DetailNext") != null && ShopButton("DetailPrevious") != null && place != null && place.text.Contains("/"),
+                          $"the page has Previous and Next, and says where it is among the weapons ('{place?.text}')");
+                    TapLater("DetailNext");
+                    shopAt = now + 0.6f;
+                    shopStage = 70;
+                    return;
+                }
                 ammoBeforeBuy = ShopInventory.AmmoOf(TestWeapon);
                 if (ShopButton("Action_Buy item") != null)
                 {
@@ -4383,13 +4991,28 @@ public static class OnlinePlayTest
                     shopStage = 8;
                     return;
                 }
-                // Owned already (bought before the match): straight to its ammo.
-                Check(ShopButton("Action_Buy ammo") != null, "an owned weapon offers its ammo");
-                TapLater("Action_Buy ammo");
-                shopAt = now + 0.5f;
+                // Owned already (bought before the match): its rounds are bought right here.
+                Check(ShopButton("Action_Buy rounds") != null, "an owned weapon sells its rounds on its own page");
+                shopAt = now + 0.3f;
                 shopStage = 10;
                 return;
             }
+
+            case 70:
+            {
+                string page = CardText(FindByName("Detail"));
+                Check(!page.Contains("Roller") && page.Contains("WEAPONS"), $"Next shows the next weapon ({(page.Length > 120 ? page.Substring(0, 120) + "..." : page)})");
+                Shot("shop_detail_next");
+                TapLater("DetailPrevious");
+                shopAt = now + 0.6f;
+                shopStage = 71;
+                return;
+            }
+
+            case 71:
+                Check(CardText(FindByName("Detail")).Contains("Roller"), "and Previous goes back to the roller");
+                shopStage = 7;
+                return;
 
             case 8:     // the confirmation, then the server's answer
             {
@@ -4420,8 +5043,10 @@ public static class OnlinePlayTest
             case 91:
                 Check(ShopInventory.AmmoOf(TestWeapon) == 10, $"a weapon bought comes with 10 rounds ({ShopInventory.AmmoOf(TestWeapon)})");
                 ammoBeforeBuy = ShopInventory.AmmoOf(TestWeapon);
-                Check(ShopButton("Action_Buy ammo") != null && TapBuyOnPage("Buy ammo"), "its page now offers its ammo, and Buy ammo is tapped");
-                shopAt = now + 0.5f;
+                Check(ShopButton("Action_Buy rounds") != null && FindByName("AmmoPack_ammo-roller") is { activeInHierarchy: true },
+                      "its page now sells its rounds: the ammo pack and Buy rounds, without leaving it");
+                Shot("shop_weapon_rounds");
+                shopAt = now + 0.3f;
                 shopStage = 10;
                 return;
 
@@ -4435,7 +5060,7 @@ public static class OnlinePlayTest
             }
 
             case 11:
-                if (!TapBuyOnPage("Buy ammo")) { Check(false, "the ammo page has Buy ammo"); shopStage = 13; return; }
+                if (!TapBuyOnPage("Buy rounds")) { Check(false, "the weapon's page has Buy rounds"); shopStage = 13; return; }
                 shopAt = now + 0.4f;
                 shopStage = 12;
                 return;
@@ -4574,7 +5199,7 @@ public static class OnlinePlayTest
                 Check(comingSoonToasts == 0, $"no 'Coming soon' for an item on sale ({comingSoonToasts})");
                 ShopScreen.CloseIfOpen();
                 Check(!ShopScreen.IsOpen && FindByName("HomeCanvas") is { activeInHierarchy: true }, "closing the shop goes back to Home");
-                Go(Step.Done);
+                Go(Step.Hub);
                 return;
             }
         }
@@ -4621,6 +5246,11 @@ public static class OnlinePlayTest
             Check(!CoinBalance.Known && home != null && home.text == CoinBalance.Unknown, $"with no server in reach Home shows no number ('{home?.text}')");
             Check(Net != null && !Net.IsConnected && !Net.IsInvoking("Connect"), "the game stopped trying to connect");
             Check(noScreens, "and showed no online screen or error");
+            if (ClimbTest)
+            {
+                Go(Step.Climb);
+                return;
+            }
             if (SinglePlay)
             {
                 // Single Play with no server at all (2026-11-13).

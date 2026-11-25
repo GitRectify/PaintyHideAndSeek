@@ -589,6 +589,7 @@ public static class Paintbox
         row.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
         CoinBalance.Bind(amount);
         PaintboxPage.MakeCoinsOpener(amount);
+        pill.gameObject.AddComponent<PaintboxCoinFit>().Bind(amount, 32f);
         return amount;
     }
 
@@ -665,6 +666,38 @@ public static class Paintbox
 
 /// <summary>The parts of a Paintbox frame, for screens that recolour or fill one.</summary>
 [DisallowMultipleComponent]
+/// <summary>
+/// A coin pill as wide as its coin and number need, never narrower than it was made: a long
+/// balance used to run past the pill's edge, the number and the panel no longer lined up
+/// (2026-11-25). Inside a layout group it asks for that width.
+/// </summary>
+public sealed class PaintboxCoinFit : MonoBehaviour
+{
+    private Text amount;
+    private float size, minWidth = -1f, shown = -1f;
+    private LayoutElement layout;
+
+    public void Bind(Text label, float fontSize)
+    {
+        amount = label;
+        size = fontSize;
+        layout = Paintbox.Ensure<LayoutElement>(gameObject);
+    }
+
+    private void LateUpdate()
+    {
+        if (amount == null) return;
+        var rt = (RectTransform)transform;
+        if (minWidth < 0f) minWidth = Mathf.Max(160f, rt.sizeDelta.x);
+        float want = Mathf.Max(minWidth, 2f * 22f + size * 1.05f + size * 0.3f + amount.preferredWidth);
+        if (Mathf.Abs(want - shown) < 0.5f) return;
+        shown = want;
+        rt.sizeDelta = new Vector2(want, rt.sizeDelta.y);
+        layout.preferredWidth = want;
+        layout.minWidth = want;
+    }
+}
+
 public sealed class PaintboxFrame : MonoBehaviour
 {
     public RectTransform Root;

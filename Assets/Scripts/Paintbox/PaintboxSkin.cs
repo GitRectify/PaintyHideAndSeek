@@ -21,22 +21,47 @@ public static class PaintboxSkin
     {
         var go = new GameObject("PaintboxSkin");
         Object.DontDestroyOnLoad(go);
-        go.AddComponent<Runner>();
+        Runner runner = go.AddComponent<Runner>();
+        runner.HideOldLook();   // before the first frame is drawn
     }
 
     private sealed class Runner : MonoBehaviour
     {
+        // The scene's canvases kept from being drawn until they have their new look: the first
+        // frames used to show the original screens for a moment after the launch splash
+        // (2026-11-25). The loading screen keeps its own look and is never hidden here.
+        private readonly List<Canvas> hidden = new List<Canvas>();
+
         private void OnEnable() => SceneManager.sceneLoaded += Loaded;
         private void OnDisable() => SceneManager.sceneLoaded -= Loaded;
-        private void Loaded(Scene scene, LoadSceneMode mode) => StartCoroutine(Later());
+        private void Loaded(Scene scene, LoadSceneMode mode)
+        {
+            HideOldLook();
+            StartCoroutine(Later());
+        }
         private IEnumerator Start() { yield return Later(); }
+
+        public void HideOldLook()
+        {
+            foreach (Canvas c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (!c.isRootCanvas || !c.enabled || !c.gameObject.scene.IsValid() || c.name == "LoadingCanvas") continue;
+                c.enabled = false;
+                hidden.Add(c);
+            }
+        }
 
         // After every screen's Awake and Start have made and bound their objects.
         private IEnumerator Later()
         {
             yield return null;
             yield return null;
-            ApplyAll();
+            try { ApplyAll(); }
+            finally
+            {
+                foreach (Canvas c in hidden) if (c != null) c.enabled = true;
+                hidden.Clear();
+            }
         }
     }
 

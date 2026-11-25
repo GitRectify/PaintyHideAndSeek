@@ -62,6 +62,7 @@ public class WallClimber : MonoBehaviour
     private Mode1FirstPersonGun gun;
     private bool clinging;
     private float lastTouchedWallAt;
+    private Vector3 lastWallNormal = Vector3.back;   // the face last climbed, for going over its top
 
     // Walls have gaps (shelves, window frames) and the probes see straight through them. Crossing one
     // is still the same climb: the body must not let go and take hold again, on anybody's screen.
@@ -94,6 +95,12 @@ public class WallClimber : MonoBehaviour
     // ================= properties =================
 
     public bool IsOnWall => state == State.OnWall;
+
+    /// <summary>The Climb (up) button is held down now (its colour shows it, 2026-11-25).</summary>
+    public bool UpHeld => up > 0;
+
+    /// <summary>The Down button is held down now.</summary>
+    public bool DownHeld => down > 0;
 
     /// <summary>On a wall and touching it, not hanging in the open past its top.</summary>
     public bool IsClinging => state == State.OnWall && clinging;
@@ -381,7 +388,8 @@ public class WallClimber : MonoBehaviour
         // Where the thing climbed is: against the body; or, with nothing against it, just under the
         // feet (its top reached) or just over the head (a gap in it being crossed). Any of them is
         // still holding on to it.
-        bool touching = TryGetWall(out Vector3 _);
+        bool touching = TryGetWall(out Vector3 wallNormal);
+        if (touching) lastWallNormal = wallNormal;
         bool above = !touching && WallNear(true);
         bool below = !touching && !above && WallNear(false);
         if (touching || above || below) lastTouchedWallAt = Time.time;
@@ -431,6 +439,18 @@ public class WallClimber : MonoBehaviour
         // floor (2026-11-24).
         int vertical = climbDir > 0 && !touching && !above ? 0 : climbDir;
         Vector3 motion = (camHoriz + Vector3.up * vertical) * (dt * climbSpeed);
+
+        // Climb held at the top (the face ends just under the feet): over it and onto the top, as a
+        // player holding Climb expects. It used to stop there, hanging, until the stick pushed it
+        // over, and a player holding Climb alone saw the climb freeze (2026-11-25). The stick, when
+        // it is pushed, still says which way; a little rise clears the edge.
+        if (climbDir > 0 && !touching && !above && below)
+        {
+            Vector3 over = camHoriz.sqrMagnitude > 0.01f
+                ? camHoriz
+                : -new Vector3(lastWallNormal.x, 0f, lastWallNormal.z).normalized;
+            motion = (over + Vector3.up * 0.35f) * (dt * climbSpeed);
+        }
 
         CollisionFlags flags = CollisionFlags.None;
         if (motion.sqrMagnitude > 0f)

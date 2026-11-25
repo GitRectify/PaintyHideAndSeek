@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using Meccha.Client;
 using Meccha.Shared.Game;
 using Meccha.Shared.Protocol;
@@ -354,6 +355,8 @@ public partial class OnlineRound : MonoBehaviour
         laidDown.Clear();
         outSeenAt.Clear();
         firstRefreshAt = -1f;
+        restSavedAt = 0f;
+        restSaved = Vector3.zero;
         nameTags.Clear();
         nextFireAt = 0f;
         lastWeapon = WeaponSpecs.Standard;
@@ -508,6 +511,7 @@ public partial class OnlineRound : MonoBehaviour
         FeedInput();
         PumpBots();
         RefreshCounters();
+        KeepRestingPlace();
         RefreshNameTags();
         ApplyCanvases();
         UpdateSpotView();
@@ -1022,11 +1026,93 @@ public partial class OnlineRound : MonoBehaviour
     private float firstRefreshAt = -1f;
 
     // A body that was out before this client knew (it rejoined): down at once, without the shove an
-    // elimination it watched gets.
+    // elimination it watched gets, where the server has it and on the floor under it (2026-11-25:
+    // it was laid down wherever this client had put it, and hung or fell through the air).
     private void LayDown(Transform body, bool remote)
     {
         if (body == null || !laidDown.Add(body)) return;
+
+        NetEntityView view = body.GetComponent<NetEntityView>() ?? body.GetComponentInParent<NetEntityView>();
+        CharacterController cc = body.GetComponent<CharacterController>();
+        bool ccOn = cc != null && cc.enabled;
+        if (cc != null) cc.enabled = false;
+        if (view != null && view.TryNewestFeet(out Vector3 feet))
+            body.position += feet - view.FeetPosition;
+
+        // This player's own body: where it came to rest before they left, when this device saw it.
+        // Near the server's spot only: the shot's knock-back carries a body up to about four of its
+        // own heights (measured 2026-11-25); ten allows for a hard knock, not another place.
+        if (!remote && TryRestingPlace(out Vector3 rest))
+        {
+            Vector3 now = DrawnCentre(body);
+            var shift = new Vector3(rest.x - now.x, 0f, rest.z - now.z);
+            float tall = cc != null ? cc.height * body.lossyScale.y : 2f * body.lossyScale.y;
+            if (shift.magnitude < 10f * tall) body.position += shift;
+        }
+        Grounding.ToFloor(body, body.GetComponentsInChildren<Renderer>());
+        if (cc != null) cc.enabled = ccOn;
+
         Ragdoll.Trigger(body, body.position + Vector3.up, -body.forward, 0.05f, remote);
+    }
+
+    // ================= Where this player's body came to rest =================
+    //
+    // The server keeps the spot a player was caught on; the shot's knock-back carries the body on
+    // from there, and only this device saw where it stopped. Kept per match (through a closed game
+    // too), so a rejoin lays the body back where it lay (2026-11-25: it came back two bodies away).
+    private const string RestKey = "OnlineRound.OutRest";
+    private float restSavedAt;
+    private Vector3 restSaved;
+
+    // The middle of the body as drawn: the ragdoll moves the mesh's bones, not the body's own
+    // transform or the animator's (2026-11-25: the hips bone stayed on the spot of the shot).
+    private static Vector3 DrawnCentre(Transform body)
+    {
+        bool any = false;
+        Bounds all = default;
+        foreach (Renderer r in body.GetComponentsInChildren<Renderer>(false))
+        {
+            if (!r.enabled || r is ParticleSystemRenderer || r is LineRenderer || r is TrailRenderer) continue;
+            if (!any) { all = r.bounds; any = true; }
+            else all.Encapsulate(r.bounds);
+        }
+        return any ? all.center : body.position;
+    }
+
+    private void KeepRestingPlace()
+    {
+        if (!localOut || localBody == null || !laidDown.Contains(localBody)) return;
+        float now = Time.unscaledTime;
+        if (now < restSavedAt + 1f) return;
+        restSavedAt = now;
+        Vector3 at = DrawnCentre(localBody);
+        if ((at - restSaved).sqrMagnitude < 0.01f) return;
+        restSaved = at;
+        PlayerPrefs.SetString(RestKey, string.Format(CultureInfo.InvariantCulture, "{0}|{1}|{2}|{3}|{4}|{5}",
+                                                     matchId, roomName, System.DateTime.UtcNow.Ticks, at.x, at.y, at.z));
+        PlayerPrefs.Save();
+    }
+
+    // The same match: its number, its map, and recent (a restarted server numbers matches from 1 again).
+    private bool TryRestingPlace(out Vector3 at)
+    {
+        at = Vector3.zero;
+        string[] p = PlayerPrefs.GetString(RestKey, "").Split('|');
+        return p.Length == 6
+               && int.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int id) && id == matchId
+               && p[1] == roomName
+               && long.TryParse(p[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out long ticks)
+               && System.DateTime.UtcNow.Ticks - ticks < System.TimeSpan.FromMinutes(15).Ticks
+               && float.TryParse(p[3], NumberStyles.Float, CultureInfo.InvariantCulture, out at.x)
+               && float.TryParse(p[4], NumberStyles.Float, CultureInfo.InvariantCulture, out at.y)
+               && float.TryParse(p[5], NumberStyles.Float, CultureInfo.InvariantCulture, out at.z);
+    }
+
+    private static void ForgetRestingPlace()
+    {
+        if (!PlayerPrefs.HasKey(RestKey)) return;
+        PlayerPrefs.DeleteKey(RestKey);
+        PlayerPrefs.Save();
     }
 
     private void HandleEliminated(byte victim, byte by, EliminationCause cause)
@@ -1189,6 +1275,7 @@ public partial class OnlineRound : MonoBehaviour
         if (camCtrl != null) camCtrl.SetFreeLook(false);
         StopSpectating();
         OnlineRejoin.Clear();   // the match is decided: nothing left to rejoin
+        ForgetRestingPlace();
         if (first) EnterAfterMatch(won);
         else UpdateRevealOffer();
     }

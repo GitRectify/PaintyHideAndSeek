@@ -356,7 +356,7 @@ public sealed class PaintboxHud : MonoBehaviour
 
     // ================= What the buttons show =================
 
-    // Jump turns yellow from take-off until it lands, Climb while the player is on a wall
+    // Jump turns yellow from take-off until it lands; Climb and Down only while they are held
     // (2026-11-25); the buttons fade between their colours (PaintboxHudButton).
     private void HookButtonStates()
     {
@@ -369,8 +369,8 @@ public sealed class PaintboxHud : MonoBehaviour
         statesHooked = true;
         jump.OnTone = up.OnTone = down.OnTone = Paintbox.Tone.Primary;
         jump.OnWhen = () => mover != null && mover.InJump;
-        up.OnWhen = () => climber != null && climber.IsOnWall;
-        down.OnWhen = () => climber != null && climber.IsOnWall;
+        up.OnWhen = () => climber != null && climber.UpHeld;
+        down.OnWhen = () => climber != null && climber.DownHeld;
     }
 
     // Pose, Rotate and Paint: one open at a time (2026-11-25). The one just opened stays; the
