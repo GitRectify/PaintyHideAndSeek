@@ -146,7 +146,8 @@ public sealed class KeyBindingsUI : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
         canvasGO.AddComponent<GraphicRaycaster>();
 
-        Image dim = Box("Dim", canvasGO.transform, new Color(0f, 0f, 0f, 0.7f), Vector2.zero, Vector2.zero);
+        // Design B (2026-11-24): a paper panel with an ink edge, ink words, paper key caps, a yellow Back.
+        Image dim = Box("Dim", canvasGO.transform, Paintbox.Dim, Vector2.zero, Vector2.zero);
         RectTransform dimRT = dim.rectTransform;
         dimRT.anchorMin = Vector2.zero;
         dimRT.anchorMax = Vector2.one;
@@ -157,15 +158,14 @@ public sealed class KeyBindingsUI : MonoBehaviour
         int rows = (count + Columns - 1) / Columns;
         float height = 300f + rows * RowHeight;
         float width = Columns * ColumnWidth + 80f;
-        Image panel = Box("Panel", canvasGO.transform, new Color(0.12f, 0.14f, 0.2f, 0.97f), Vector2.zero, new Vector2(width, height));
-        Outline outline = panel.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(1f, 1f, 1f, 0.25f);
-        outline.effectDistance = new Vector2(3f, -3f);
+        Image panel = Box("Panel", canvasGO.transform, Paintbox.Paper, Vector2.zero, new Vector2(width, height));
+        PaintboxSkin.Panel(panel);
         Transform p = panel.transform;
 
-        Label("Title", p, "Controls", 56, new Vector2(0f, height / 2f - 60f), new Vector2(width - 80f, 70f), TextAnchor.MiddleCenter);
+        Text title = Label("Title", p, "Controls", 56, new Vector2(0f, height / 2f - 60f), new Vector2(width - 80f, 70f), TextAnchor.MiddleCenter);
+        UiTranslator.Restyle(title, Paintbox.Title);
         hint = Label("Hint", p, "", 32, new Vector2(0f, height / 2f - 115f), new Vector2(width - 80f, 44f), TextAnchor.MiddleCenter);
-        hint.color = new Color(1f, 1f, 1f, 0.7f);
+        hint.color = Paintbox.Muted;
 
         float top = height / 2f - 175f;
         for (int i = 0; i < count; i++)
@@ -176,12 +176,12 @@ public sealed class KeyBindingsUI : MonoBehaviour
             float y = top - (i % rows) * RowHeight;
             Label("Name_" + action, p, KeyBindings.NameOf(action), 34, new Vector2(x - 110f, y), new Vector2(420f, RowHeight), TextAnchor.MiddleLeft);
 
-            Button key = MakeButton("Key_" + action, p, new Vector2(x + 220f, y), new Vector2(230f, RowHeight - 10f), new Color(0.25f, 0.3f, 0.42f, 1f));
+            Button key = MakeButton("Key_" + action, p, new Vector2(x + 220f, y), new Vector2(230f, RowHeight - 10f), Paintbox.Paper);
             keyLabels[action] = Label("Label", key.transform, "", 32, Vector2.zero, new Vector2(220f, RowHeight - 10f), TextAnchor.MiddleCenter);
             key.onClick.AddListener(() => Listen(action));
         }
 
-        Button reset = MakeButton("ResetKeys", p, new Vector2(-200f, -height / 2f + 70f), new Vector2(360f, 84f), new Color(0.65f, 0.3f, 0.25f, 1f));
+        Button reset = MakeButton("ResetKeys", p, new Vector2(-200f, -height / 2f + 70f), new Vector2(360f, 84f), Paintbox.Paper);
         Label("Label", reset.transform, "Reset to defaults", 34, Vector2.zero, new Vector2(350f, 84f), TextAnchor.MiddleCenter);
         reset.onClick.AddListener(() =>
         {
@@ -190,7 +190,7 @@ public sealed class KeyBindingsUI : MonoBehaviour
             KeyBindings.ResetAll();
         });
 
-        Button back = MakeButton("BackKeys", p, new Vector2(200f, -height / 2f + 70f), new Vector2(360f, 84f), new Color(0.2f, 0.55f, 0.35f, 1f));
+        Button back = MakeButton("BackKeys", p, new Vector2(200f, -height / 2f + 70f), new Vector2(360f, 84f), Paintbox.Yellow);
         Label("Label", back.transform, "Back", 34, Vector2.zero, new Vector2(350f, 84f), TextAnchor.MiddleCenter);
         back.onClick.AddListener(() =>
         {
@@ -216,15 +216,11 @@ public sealed class KeyBindingsUI : MonoBehaviour
 
     private Button MakeButton(string name, Transform parent, Vector2 pos, Vector2 size, Color tint)
     {
-        Image image = Box(name, parent, Color.white, pos, size);
-        if (buttonSprite != null)
-        {
-            image.sprite = buttonSprite;
-            image.type = Image.Type.Simple;
-        }
-        image.color = buttonSprite != null ? Color.white : tint;
+        Image image = Box(name, parent, tint, pos, size);
+        OnlineUI.Chunky(image, Mathf.Min(Paintbox.Radius, size.y * 0.32f), Paintbox.Ink, 5f);
         Button button = image.gameObject.AddComponent<Button>();
         button.targetGraphic = image;
+        image.gameObject.AddComponent<PaintboxPressFlat>();
         return button;
     }
 
@@ -238,17 +234,14 @@ public sealed class KeyBindingsUI : MonoBehaviour
         rt.sizeDelta = box;
 
         Text label = go.AddComponent<Text>();
-        label.font = font;
+        label.font = Paintbox.Bold;
         label.text = text;
         label.fontSize = size;
         label.alignment = anchor;
-        label.color = Color.white;
+        label.color = Paintbox.Ink;
         label.raycastTarget = false;
         label.horizontalOverflow = HorizontalWrapMode.Overflow;
         label.verticalOverflow = VerticalWrapMode.Overflow;
-        Outline outline = go.AddComponent<Outline>();
-        outline.effectColor = new Color(0f, 0f, 0f, 0.6f);
-        outline.effectDistance = new Vector2(2f, -2f);
         UiTranslator.Track(label);
         return label;
     }

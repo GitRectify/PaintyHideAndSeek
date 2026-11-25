@@ -167,6 +167,7 @@ public class SettingsUI : MonoBehaviour
         UiTranslator.Track(exitLabel);
 
         WireControls();
+        PaintboxSkin.Settings(canvasGO.transform);   // design B (2026-11-24)
         canvasGO.SetActive(false);
     }
 
@@ -222,10 +223,13 @@ public class SettingsUI : MonoBehaviour
             Image dim = exitConfirm.AddComponent<Image>();
             dim.color = new Color(0f, 0f, 0f, 0.55f);
 
-            Image box = NewImage("ExitBox", exitConfirm.transform, null, new Color(0.12f, 0.14f, 0.2f, 0.97f), true, false);
+            dim.color = Paintbox.Dim;
+            Image box = NewImage("ExitBox", exitConfirm.transform, null, Paintbox.Paper, true, false);
             Place(box, CenterAnchor, CenterAnchor, Vector2.zero, new Vector2(600f, 300f));
+            PaintboxSkin.Panel(box);
 
-            Text question = NewText("Question", box.transform, "Exit the game?", 44, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
+            Text question = NewText("Question", box.transform, "Exit the game?", 44, Paintbox.Ink, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
+            UiTranslator.Restyle(question, Paintbox.Title);
             Place(question, CenterAnchor, CenterAnchor, new Vector2(0f, 70f), new Vector2(560f, 60f));
             UiTranslator.Track(question);
 
@@ -262,6 +266,7 @@ public class SettingsUI : MonoBehaviour
         Text text = NewText("Label", img.transform, label, 38, Color.white, (int)TextAnchor.MiddleCenter, (int)HorizontalWrapMode.Overflow);
         Place(text, CenterAnchor, CenterAnchor, Vector2.zero, new Vector2(230f, 90f));
         UiTranslator.Track(text);
+        PaintboxSkin.Button(img, name == "ExitYes" ? Paintbox.Tone.Danger : Paintbox.Tone.Paper);
         return button;
     }
 
@@ -297,7 +302,6 @@ public class SettingsUI : MonoBehaviour
     {
         if (t.knob != null)
         {
-            t.knob.sprite = t.on ? knobOn : knobOff;
 
             RectTransform knobRT = t.knob.rectTransform;
             float half = (t.track != null) ? t.track.rectTransform.rect.width * 0.5f : 48f;
@@ -309,14 +313,8 @@ public class SettingsUI : MonoBehaviour
             knobRT.anchoredPosition = new Vector2(offset, 0f);
         }
 
-        if (t.onLabel != null)
-        {
-            t.onLabel.color = t.on ? OnColor : OffColor;
-        }
-        if (t.offLabel != null)
-        {
-            t.offLabel.color = t.on ? OffColor : OnColor;
-        }
+        // Design B's switch: violet when on, a paper knob (2026-11-24).
+        PaintboxSkin.Toggle(t.track, t.knob, t.onLabel, t.offLabel, t.on);
     }
 
     private void ApplyAudioSetting(Tog t)

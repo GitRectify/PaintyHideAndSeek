@@ -51,6 +51,7 @@ public partial class OnlineRound
         // Who is ready, under Exit.
         readyPanel = OnlineUI.NewLabel(canvas, "", 30, Vector2.zero, new Vector2(520f, 400f), TextAnchor.UpperLeft, false);
         readyPanel.name = "HidersReady";
+        readyPanel.color = Color.white;   // over the game
         RectTransform rrt = readyPanel.rectTransform;
         rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(0f, 1f);
         rrt.anchoredPosition = new Vector2(28f, -120f);
@@ -94,8 +95,8 @@ public partial class OnlineRound
     // ---- Shop ----
 
     // The shop over the match (the HUD's Shop button), which goes on under it. A pose bought is in
-    // the pose picker at once (the server adds it to this match's loadout), bullets join the stock,
-    // and a weapon bought or equipped is carried straight away.
+    // the pose picker at once (the server adds it to this match's loadout), rounds bought join the
+    // weapon's, and a weapon bought or equipped is carried straight away.
     // The shop's listing or the equipped weapon changed: carry the weapon now equipped.
     private void HandleShopChangedInMatch()
     {

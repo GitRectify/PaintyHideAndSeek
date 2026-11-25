@@ -27,8 +27,8 @@ public class OnlineHistory : MonoBehaviour
     private const int RateLimitRetries = 3;
     private const float BalanceRefreshSeconds = 1.5f;
 
-    private const string Good = "#7CFC9A";
-    private const string Bad = "#FF8A80";
+    private const string Good = "#2C684C";   // design B (2026-11-24): readable on paper
+    private const string Bad = "#A33D36";
 
     private static MetaClient Meta => MetaClient.Instance;
 
@@ -259,7 +259,7 @@ public class OnlineHistory : MonoBehaviour
             OnlineUI.Place(bg.rectTransform, new Vector2(0f, 200f - row * 100f), new Vector2(1000f, 88f));
 
             string when = DateTimeOffset.FromUnixTimeSeconds(t.UnixSeconds).ToLocalTime().ToString("MMM d, HH:mm", CultureInfo.InvariantCulture);
-            Text what = OnlineUI.NewLabel(bg.transform, $"<b>{KindText(t)}</b>\n<size=24><color=#FFFFFFA6>{when}  -  balance {CoinBalance.Format(t.BalanceAfterCents)}</color></size>",
+            Text what = OnlineUI.NewLabel(bg.transform, $"<b>{KindText(t)}</b>\n<size=24><color=#674E65>{when}  -  balance {CoinBalance.Format(t.BalanceAfterCents)}</color></size>",
                                           30, new Vector2(-140f, 0f), new Vector2(680f, 84f), TextAnchor.MiddleLeft);
             what.horizontalOverflow = HorizontalWrapMode.Overflow;
 

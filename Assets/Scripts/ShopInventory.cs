@@ -10,16 +10,20 @@ using UnityEngine;
 // balance come from ListItems, and a purchase names items and quantities only — the server
 // charges and grants in one step. Equipping is a local preference, limited to what is owned:
 //   * avatar  = CharacterSelect's character (the server checks ownership at FindMatch);
-//   * weapon  = sent with SelectWeapon at the start of each online round (0 = the standard gun);
+//   * weapon  = sent with SelectWeapon at the start of each online round (0 = the standard gun),
+//     and switched in the round with the weapon dock;
 //   * poses are picked in the round itself (PoseSelectorUI);
 //   * features (Extras): unlocked for good, nothing to equip; Next Player (GameFeatures) is what
 //     lets a player knocked out of an online round switch between the players still in;
 //   * shoes: each pair runs faster (ShoeSpecs); the pair worn is the account's, saved on the
 //     server (Shoes.Equip), and sets the player's speed in both modes (Shoes.SpeedScale);
-//   * bullets: default bullets are free and unlimited; special bullets 1-3 are bought per type
-//     (a bullet card's gameId is the type, as the server's GameId) and spent by shooting. The type
-//     to shoot is switched in the round (tapping the bullet label) and remembered here
-//     (PreferredBullet), then sent with SelectBullet at the start of the next round.
+//   * weapons and their ammo (2026-11-24, replacing bullet types): a weapon decides how its
+//     holder shoots (cooldown, bullet size) and has rounds of its own: 10 with the weapon, more in
+//     ammo packs (kind Ammo, GameId = the weapon), up to what it holds. The standard weapon is
+//     everyone's and never runs out. The rounds are the server's (MetaItem.OwnedAmmo).
+// The shop the player sees is the server's too (SDK 0.9.8): its categories in its order, each
+// item's name, description, picture and numbers (Items, Categories), so an operator changes the
+// shop from the admin panel without a new game.
 // Coin packs are the server's top-up packages (ListTopUps): coins and price come from the server,
 // paid at the wallet provider's checkout and credited by the provider's callback to the server.
 // PendingTopUp watches each one until the server says how it ended. The balance itself is
@@ -28,7 +32,6 @@ public static class ShopInventory
 {
     private const string Category = "none";
     private const string EquippedWeaponKey = "ShopEquippedWeapon";
-    private const string PreferredBulletKey = "OnlinePreferredBullet";
 
     /// <summary>Poses every profile owns (server: 0 = no pose, 1-2 = the picker's two free slots).</summary>
     public const int FreePoseMax = 2;
@@ -37,6 +40,9 @@ public static class ShopInventory
     public static event Action Changed;
 
     private static readonly Dictionary<string, MetaItem> listing = new Dictionary<string, MetaItem>(StringComparer.Ordinal);
+    private static readonly List<MetaItem> ordered = new List<MetaItem>();          // as the server listed them
+    private static readonly List<MetaShopCategory> categories = new List<MetaShopCategory>();
+    private static readonly List<MetaTopUpPackage> orderedPackages = new List<MetaTopUpPackage>();
     private static readonly Dictionary<string, MetaTopUpPackage> packages = new Dictionary<string, MetaTopUpPackage>(StringComparer.Ordinal);
     private static MetaClient hookedMeta;
 
@@ -92,7 +98,15 @@ public static class ShopInventory
             }
 
             listing.Clear();
-            foreach (MetaItem item in reply.Items ?? new MetaItem[0]) listing[item.Id] = item;
+            ordered.Clear();
+            foreach (MetaItem item in reply.Items ?? new MetaItem[0])
+            {
+                listing[item.Id] = item;
+                ordered.Add(item);
+            }
+            categories.Clear();
+            if (reply.Categories != null) categories.AddRange(reply.Categories);
+            ImagePort = reply.ImagePort;
             Loaded = true;
             Changed?.Invoke();
             done?.Invoke(null);
@@ -106,10 +120,14 @@ public static class ShopInventory
         meta.ListTopUps(reply =>
         {
             packages.Clear();
+            orderedPackages.Clear();
             if (!reply.TimedOut && reply.Error == MetaError.None)
             {
                 foreach (MetaTopUpPackage package in reply.Packages ?? new MetaTopUpPackage[0])
+                {
                     packages[package.Id] = package;
+                    orderedPackages.Add(package);
+                }
             }
             else if (reply.Error != MetaError.WalletUnavailable)
             {
@@ -145,10 +163,9 @@ public static class ShopInventory
         // A server whose catalog names the item otherwise still sells the same thing: its kind and
         // the game's own number say which (2026-11-13: such cards said "Coming soon").
         if (!KindOf(item.category, out ItemKind kind)) return false;
-        int gameId = kind == ItemKind.Bullets && item.gameId == 0 ? (int)BulletType.Special1 : item.gameId;
         foreach (MetaItem candidate in listing.Values)
         {
-            if (candidate.Kind != kind || (int)candidate.GameId != gameId) continue;
+            if (candidate.Kind != kind || (int)candidate.GameId != item.gameId) continue;
             listed = candidate;
             return true;
         }
@@ -162,17 +179,14 @@ public static class ShopInventory
             case ShopCategory.Avatars: kind = ItemKind.Avatar; return true;
             case ShopCategory.Poses: kind = ItemKind.Pose; return true;
             case ShopCategory.Weapons: kind = ItemKind.Weapon; return true;
-            case ShopCategory.Bullets: kind = ItemKind.Bullets; return true;
             case ShopCategory.Shoes: kind = ItemKind.Shoes; return true;
             default: kind = default; return false;
         }
     }
 
-    /// <summary>Bullets this card buys (1 for everything else).</summary>
-    private static uint Quantity(ShopItem item) =>
-        item.category == ShopCategory.Bullets ? (uint)Mathf.Max(1, item.quantity) : 1u;
+    private static uint Quantity(ShopItem item) => 1u;
 
-    /// <summary>The server sells it now (a bullet pack also has to fit the per-purchase cap).</summary>
+    /// <summary>The server sells it now.</summary>
     public static bool IsForSale(ShopItem item)
     {
         if (item == null) return false;
@@ -435,23 +449,239 @@ public static class ShopInventory
         return false;
     }
 
-    // ================= Bullets =================
+    // ================= Weapons =================
 
-    /// <summary>Special bullets of one type owned, as the server last said (0 before signing in).</summary>
-    public static int SpecialBullets(BulletType type) => MetaClient.Instance != null ? MetaClient.Instance.Bullets[type] : 0;
+    /// <summary>A weapon's name as the server's shop lists it (the game's own before the listing arrives).</summary>
+    public static string WeaponName(int weaponId)
+    {
+        foreach (MetaItem item in ordered)
+            if (item.Kind == ItemKind.Weapon && (int)item.GameId == weaponId && !string.IsNullOrEmpty(item.Name)) return item.Name;
+        return weaponId == WeaponSpecs.Standard ? "Standard Gun" : WeaponSkins.NameOf(weaponId);
+    }
+
+    /// <summary>Rounds of a weapon this player has, as the server last listed them (-1: unlimited).</summary>
+    public static int AmmoOf(int weaponId)
+    {
+        if (weaponId == WeaponSpecs.Standard) return -1;
+        foreach (MetaItem item in ordered)
+            if (item.Kind == ItemKind.Weapon && (int)item.GameId == weaponId) return item.Owned ? Mathf.Max(0, item.OwnedAmmo) : 0;
+        return 0;
+    }
+
+    /// <summary>Keeps a weapon as the one carried into online rounds (the in-round weapon dock's pick too).</summary>
+    public static void SetEquippedWeapon(int weaponId)
+    {
+        if (weaponId != WeaponSpecs.Standard && !OwnsWeapon(weaponId)) return;
+        if (UtilGame.GetDataInt(EquippedWeaponKey, 0, Category) == weaponId) return;
+        UtilGame.SetDataInt(EquippedWeaponKey, weaponId, Category);
+        Changed?.Invoke();
+    }
+
+    // ================= The server's shop (SDK 0.9.8) =================
+
+    /// <summary>The HTTP port the game server serves item pictures on (0: none).</summary>
+    public static int ImagePort { get; private set; }
+
+    // The shop's usual categories, for a server that names none (older than SDK 0.9.8).
+    private static readonly MetaShopCategory[] DefaultCategories =
+    {
+        new MetaShopCategory { Id = "coins", Name = "Coins", Icon = "coins", Special = "coins" },
+        new MetaShopCategory { Id = "avatars", Name = "Characters", Icon = "user" },
+        new MetaShopCategory { Id = "poses", Name = "Poses", Icon = "person" },
+        new MetaShopCategory { Id = "weapons", Name = "Weapons", Icon = "crosshair" },
+        new MetaShopCategory { Id = "shoes", Name = "Shoes", Icon = "footprints" },
+        new MetaShopCategory { Id = "extras", Name = "More", Icon = "sparkles" },
+    };
+
+    /// <summary>The shop's categories in the server's order (the usual ones from an older server).</summary>
+    public static IReadOnlyList<MetaShopCategory> Categories => categories.Count > 0 ? (IReadOnlyList<MetaShopCategory>)categories : DefaultCategories;
+
+    /// <summary>The category an item is shown in: the server's, or its kind's usual one.</summary>
+    public static string CategoryOf(MetaItem item)
+    {
+        if (!string.IsNullOrEmpty(item.Category)) return item.Category;
+        switch (item.Kind)
+        {
+            case ItemKind.Avatar: return "avatars";
+            case ItemKind.Pose: return "poses";
+            case ItemKind.Weapon:
+            case ItemKind.Ammo: return "weapons";
+            case ItemKind.Shoes: return "shoes";
+            default: return "extras";
+        }
+    }
 
     /// <summary>
-    /// The bullet type to shoot online, kept between rounds. The server only takes a special type
-    /// while some of it is left, and falls back to default bullets when it runs out.
+    /// The items of a category in the server's order. Bullet types are no longer sold to players
+    /// (their numbers moved to the weapons), so an old catalog's bullets are left out.
     /// </summary>
-    public static BulletType PreferredBullet
+    public static List<MetaItem> ItemsIn(string categoryId)
     {
-        get
+        var list = new List<MetaItem>();
+        foreach (MetaItem item in ordered)
+            if (item.Kind != ItemKind.Bullets && CategoryOf(item) == categoryId) list.Add(item);
+
+        // The standard shoes are everyone's and never sold, but they are worn from the shop too
+        // (to take a faster pair off): their card goes first wherever the shoes are.
+        if (list.Exists(i => i.Kind == ItemKind.Shoes) && !list.Exists(i => i.Kind == ItemKind.Shoes && i.GameId == ShoeSpecs.Standard))
+            list.Insert(list.FindIndex(i => i.Kind == ItemKind.Shoes), StandardShoes);
+        return list;
+    }
+
+    private static readonly MetaItem StandardShoes = new MetaItem
+    {
+        Id = "shoes-standard", Kind = ItemKind.Shoes, GameId = ShoeSpecs.Standard, Owned = true, MaxQuantity = 1,
+        Category = "shoes", Name = "Standard Shoes", Description = "Everyone's pair: the usual speed.", Image = "builtin:shoes-0",
+    };
+
+    /// <summary>The coin packs on sale, in the server's order (none without a wallet provider).</summary>
+    public static IReadOnlyList<MetaTopUpPackage> Packages => orderedPackages;
+
+    public static bool TryItem(string id, out MetaItem item)
+    {
+        if (id == StandardShoes.Id) { item = StandardShoes; return true; }
+        return listing.TryGetValue(id ?? "", out item);
+    }
+
+    /// <summary>The weapon item for a weapon id, or false.</summary>
+    public static bool TryWeapon(int weaponId, out MetaItem weapon)
+    {
+        foreach (MetaItem item in ordered)
+            if (item.Kind == ItemKind.Weapon && (int)item.GameId == weaponId) { weapon = item; return true; }
+        weapon = default;
+        return false;
+    }
+
+    /// <summary>A weapon's numbers as the server sells it (the game's own for one it does not list).</summary>
+    public static WeaponSpec SpecOf(MetaItem weapon) =>
+        weapon.CooldownMillis > 0 ? WeaponSpec.FromWire(weapon.CooldownMillis, weapon.RadiusPercent) : WeaponSpecs.DefaultOf((int)weapon.GameId);
+
+    /// <summary>Whether an item is owned: bought, the standard weapon, a free one, or the standard shoes.</summary>
+    public static bool IsOwned(MetaItem item) =>
+        item.Owned || (item.Kind == ItemKind.Weapon && item.GameId == WeaponSpecs.Standard) ||
+        (item.Kind == ItemKind.Shoes && item.GameId == ShoeSpecs.Standard);
+
+    /// <summary>Things one keeps equipped (characters, weapons, shoes) as against things simply owned.</summary>
+    public static bool CanEquip(MetaItem item) =>
+        item.Kind == ItemKind.Avatar || item.Kind == ItemKind.Weapon || item.Kind == ItemKind.Shoes;
+
+    public static bool IsEquipped(MetaItem item)
+    {
+        if (!CanEquip(item) || !IsOwned(item)) return false;
+        switch (item.Kind)
         {
-            int v = UtilGame.GetDataInt(PreferredBulletKey, 0, Category);
-            return v >= 0 && BulletSpecs.IsKnown((uint)v) ? (BulletType)v : BulletType.Default;
+            case ItemKind.Avatar: return CurrentAvatar() == (int)item.GameId;
+            case ItemKind.Shoes: return Shoes.Equipped == (int)item.GameId;
+            default: return EquippedWeaponId == (int)item.GameId;
         }
-        set => UtilGame.SetDataInt(PreferredBulletKey, (int)value, Category);
+    }
+
+    /// <summary>
+    /// Equips an owned character, weapon or pair of shoes. done gets (worked, text for the
+    /// player); shoes are the server's to confirm (Shoes.Equip).
+    /// </summary>
+    public static void Equip(MetaItem item, Action<bool, string> done)
+    {
+        if (!CanEquip(item) || !IsOwned(item))
+        {
+            done?.Invoke(false, "Buy it first.");
+            return;
+        }
+
+        string name = string.IsNullOrEmpty(item.Name) ? item.Id : item.Name;
+        switch (item.Kind)
+        {
+            case ItemKind.Avatar:
+                if (OnlineRound.Active)
+                {
+                    done?.Invoke(false, "Change your character after this match.");
+                    return;
+                }
+                CharacterSelect characters = UnityEngine.Object.FindAnyObjectByType<CharacterSelect>();
+                if (characters != null) characters.Select((int)item.GameId);
+                Changed?.Invoke();
+                done?.Invoke(true, L.F("{0} equipped", name));
+                return;
+
+            case ItemKind.Shoes:
+                Shoes.Equip((int)item.GameId, (worn, message) => done?.Invoke(worn, message));
+                return;
+
+            default:
+                UtilGame.SetDataInt(EquippedWeaponKey, (int)item.GameId, Category);
+                Changed?.Invoke();
+                done?.Invoke(true, L.F("{0} equipped", name));
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Buys an item on the server: <paramref name="quantity"/> packs of ammo, one of anything
+    /// else. done gets (bought, the server's status, text for the player).
+    /// </summary>
+    public static void Purchase(MetaItem item, uint quantity, Action<bool, PurchaseStatus, string> done)
+    {
+        MetaClient meta = MetaClient.Instance;
+        if (meta == null || !SignedIn)
+        {
+            done?.Invoke(false, PurchaseStatus.Unavailable, "Sign in to use the shop.");
+            return;
+        }
+
+        quantity = item.Kind == ItemKind.Ammo ? Math.Max(1u, quantity) : 1u;
+        var lines = new[] { new MetaPurchaseLine { ItemId = item.Id, Quantity = quantity } };
+        meta.Purchase(lines, receipt =>
+        {
+            if (receipt.TimedOut)
+            {
+                Refresh(null);
+                done?.Invoke(false, PurchaseStatus.Unavailable, "No answer from the server. Check your coins before trying again.");
+                return;
+            }
+
+            if (receipt.Error != MetaError.None)
+            {
+                done?.Invoke(false, PurchaseStatus.Unavailable, receipt.Error == MetaError.ShopUnavailable
+                    ? "The shop is turned off on this server."
+                    : ErrorText(receipt.Error, false));
+                return;
+            }
+
+            bool bought = receipt.Status == PurchaseStatus.Completed || receipt.Status == PurchaseStatus.AlreadyCompleted;
+
+            // Owned from this moment on every screen: the refresh below confirms it a round trip later.
+            if ((bought || receipt.Status == PurchaseStatus.AlreadyOwned) && item.Kind != ItemKind.Ammo &&
+                listing.TryGetValue(item.Id, out MetaItem owned))
+            {
+                owned.Owned = true;
+                listing[item.Id] = owned;
+                int at = ordered.FindIndex(i => i.Id == item.Id);
+                if (at >= 0) ordered[at] = owned;
+                Changed?.Invoke();
+            }
+
+            // A weapon just bought is the one carried into the next shot.
+            if (bought && item.Kind == ItemKind.Weapon) SetEquippedWeapon((int)item.GameId);
+
+            Refresh(null);   // ownership, rounds and the balance as the server now has them
+            done?.Invoke(bought, receipt.Status, PurchaseText(receipt.Status, item, quantity));
+        });
+    }
+
+    private static string PurchaseText(PurchaseStatus status, MetaItem item, uint quantity)
+    {
+        string name = string.IsNullOrEmpty(item.Name) ? item.Id : item.Name;
+        switch (status)
+        {
+            case PurchaseStatus.Completed:
+            case PurchaseStatus.AlreadyCompleted:
+                return item.Kind == ItemKind.Ammo
+                    ? L.F("+{0} rounds for {1}", Math.Max(1, item.Ammo) * (int)quantity, WeaponName((int)item.GameId))
+                    : L.F("{0} unlocked!", name);
+            case PurchaseStatus.NeedsWeapon: return L.F("Buy the {0} first: ammo goes with its weapon.", WeaponName((int)item.GameId));
+            case PurchaseStatus.AmmoFull: return "That is more rounds than the weapon holds.";
+            default: return PurchaseText(status, new ShopItem { displayName = name });
+        }
     }
 
     // ================= Equipping =================
@@ -545,18 +775,15 @@ public static class ShopInventory
             bool bought = receipt.Status == PurchaseStatus.Completed || receipt.Status == PurchaseStatus.AlreadyCompleted;
 
             // Owned from this moment on every card: the refresh below only confirms it, a round trip later.
-            if ((bought || receipt.Status == PurchaseStatus.AlreadyOwned) && item.category != ShopCategory.Bullets &&
+            if ((bought || receipt.Status == PurchaseStatus.AlreadyOwned) &&
                 listing.TryGetValue(listed.Id, out MetaItem owned))
             {
                 owned.Owned = true;
                 listing[listed.Id] = owned;
+                int at = ordered.FindIndex(i => i.Id == listed.Id);
+                if (at >= 0) ordered[at] = owned;
                 Changed?.Invoke();
             }
-
-            // Special bullets just bought are the ones the next online match shoots; the bullet
-            // button in the round switches back to default bullets whenever the player likes.
-            if (bought && item.category == ShopCategory.Bullets && BulletSpecs.IsSpecial((BulletType)item.gameId))
-                PreferredBullet = (BulletType)item.gameId;
 
             Refresh(null);   // ownership and the balance as the server now has them
             done?.Invoke(bought, PurchaseText(receipt.Status, item));
@@ -569,15 +796,14 @@ public static class ShopInventory
         {
             case PurchaseStatus.Completed:
             case PurchaseStatus.AlreadyCompleted:
-                return item.category == ShopCategory.Bullets
-                    ? $"+{item.quantity} special bullet {item.gameId}" + (item.gameId >= 1 && item.gameId <= BulletSpecs.SpecialCount
-                        ? $" (you have {SpecialBullets((BulletType)item.gameId)})" : "")
-                    : item.displayName + " unlocked!";
+                return item.displayName + " unlocked!";
             case PurchaseStatus.NotEnoughCoins: return "Not enough coins";
             case PurchaseStatus.AlreadyOwned: return "You already own that";
             case PurchaseStatus.UnknownItem: return "That item is no longer for sale";
             case PurchaseStatus.BadQuantity: return "That amount can't be bought";
             case PurchaseStatus.Unavailable: return "The store failed. You were not charged";
+            case PurchaseStatus.NeedsWeapon: return "Buy its weapon first";
+            case PurchaseStatus.AmmoFull: return "That is more rounds than the weapon holds.";
             default: return "The purchase was refused (" + status + ")";
         }
     }

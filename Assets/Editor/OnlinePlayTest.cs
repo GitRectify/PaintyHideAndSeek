@@ -24,11 +24,12 @@ using Object = UnityEngine.Object;
 //             -playtestRole seeker|hider -playtestSeats 8 -playtestReport <file>
 //             [-playtestMap <0-4>]
 //
-// The flow: Multiplayer sign-in (first-run name if the server asks) -> special bullets bought in
-// the shop -> the play setup (PlaySetupUI: side, character, room and map on one screen, in the mode
-// chosen on Home, then FIND MATCH) -> matchmaking -> the round (seeker: shoots and switches bullet
-// type; hider: presses Start and paints) -> the result popup -> Home (wallet refreshed) -> match
-// history -> the shop's bullet cards. Bots or headless clients fill the lobby.
+// The flow: Multiplayer sign-in (first-run name if the server asks) -> a weapon and its ammo bought
+// in the shop -> the play setup (PlaySetupUI: side, character, room and map on one screen, in the
+// mode chosen on Home, then FIND MATCH) -> matchmaking -> the round (seeker: switches weapon with
+// the weapon dock and shoots its rounds; hider: presses Start and paints) -> the result popup ->
+// Home (wallet refreshed) -> match history -> the shop's weapon cards. Bots or headless clients
+// fill the lobby.
 //
 // Play mode reloads scripts, so the driver keeps its state in SessionState and re-attaches itself
 // on load ([InitializeOnLoad]).
@@ -157,14 +158,16 @@ public static class OnlinePlayTest
     private static int remoteShots, loadoutAnswers, phaseChanges, shotsFired, eliminations;
     private static int sawPhaseSeek;
     private static bool chosenSpecial, specialSpent, pressedStart, painted, sawStartButton;
-    private static float bulletTapAt = -1f;
+    private static float weaponTapAt = -1f;
+    private const int TestWeapon = 2;            // the roller: 2 s, bullets half as big again
 
     // A finger's tap on this button: the topmost UI under its centre gets the click, as on a
     // phone. Returns what was hit (null for nothing).
     private static GameObject TapAt(Button button)
     {
         if (button == null || EventSystem.current == null) return null;
-        Vector2 screen = RectTransformUtility.WorldToScreenPoint(null, ((RectTransform)button.transform).position);
+        var rect = (RectTransform)button.transform;
+        Vector2 screen = RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(rect.rect.center));   // its middle, wherever its pivot is
         var pointer = new PointerEventData(EventSystem.current) { position = screen, button = PointerEventData.InputButton.Left };
         var hits = new List<RaycastResult>();
         EventSystem.current.RaycastAll(pointer, hits);
@@ -175,7 +178,7 @@ public static class OnlinePlayTest
         return top;
     }
     private static int remoteViews, remoteAnimators, matchEnds;
-    private static BulletStock stockBeforeRound;
+    private static int ammoBeforeRound = -1;
 
     private static string[] Settings => SessionState.GetString(ArgsKey, "").Split('\n');
     private static string Host => Settings[0];
@@ -301,13 +304,18 @@ public static class OnlinePlayTest
                 if (nextAction == 0f)
                 {
                     nextAction = 1f;
-                    // A few special bullets of type 2, through the same purchase the shop makes.
-                    Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "bullets-2", Quantity = 3 } }, receipt =>
+                    // The roller (kept from an earlier run) and a pack of its ammo, through the same
+                    // purchase the shop makes: a weapon comes with 10 rounds, a pack adds 10.
+                    Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "weapon-roller", Quantity = 1 } }, weapon =>
                     {
-                        bought = receipt.Status == PurchaseStatus.Completed;
-                        Check(bought, $"bought 3 x special bullet 2 ({receipt.Status}, {receipt.Error}); stock {receipt.Bullets}");
-                        stockBeforeRound = receipt.Bullets;
-                        boughtAnswered = true;
+                        Check(weapon.Status == PurchaseStatus.Completed || weapon.Status == PurchaseStatus.AlreadyOwned,
+                              $"bought the roller, or had it ({weapon.Status}, {weapon.Error})");
+                        Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "ammo-roller", Quantity = 1 } }, ammo =>
+                        {
+                            bought = ammo.Status == PurchaseStatus.Completed || ammo.Status == PurchaseStatus.AmmoFull;
+                            Check(bought, $"bought a pack of its ammo, or it is full ({ammo.Status}, {ammo.Error})");
+                            boughtAnswered = true;   // its rounds are read from the match's loadout (no extra request: the meta service limits them)
+                        });
                     });
                     if (Pair)
                     {
@@ -381,9 +389,9 @@ public static class OnlinePlayTest
                           "Multiplayer opens the play setup, over Single Play's side screen");
                     Check(FindByName("RoleShopBtn") is { activeInHierarchy: true } && roleCanvas.transform.Find("AdBtn") == null,
                           "its Ad button is a Shop button in Multiplayer");
-                    Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } rolePill && rolePill.transform.Find("CoinIcon") != null
+                    Check(FindByName("GlobalCoinPill") is { activeInHierarchy: true } rolePill && rolePill.GetComponentInChildren<CoinLabel>(true) != null
                           && roleCanvas.transform.Find("CoinPanel") is not { gameObject: { activeSelf: true } },
-                          "and the coin balance is Home's pill (the side screen's own coin panel is hidden)");
+                          "and the coin balance is design B's pill (the side screen's own coin panel is hidden)");
                     Check(FindByName("PlayNowBtn") is not { activeInHierarchy: true } && FindByName("SeekerBtn") is not { activeInHierarchy: true },
                           "the side screen's old Hider / Seeker buttons give way to the setup's");
                     Shot("role_online");
@@ -399,7 +407,7 @@ public static class OnlinePlayTest
                 GameModeManager modes = Object.FindAnyObjectByType<GameModeManager>();
                 Text setupTitle = FindByName("SetupTitle")?.GetComponent<Text>();
                 Check(modes != null && !modes.RoundActive && OnlineLobby.InSetup != null && FindByName("PlaySetupExtras") is { activeInHierarchy: true }
-                      && setupTitle != null && setupTitle.text == L.T("MULTIPLAYER") && SetupButton("SinglePlayTab") == null && SetupButton("MultiplayerTab") == null,
+                      && setupTitle != null && setupTitle.text == L.T("Multiplayer") && SetupButton("SinglePlayTab") == null && SetupButton("MultiplayerTab") == null,
                       $"the setup keeps the mode chosen on Home: Multiplayer, with no mode buttons of its own ('{setupTitle?.text}')");
                 Check(FindByName("LoadingCanvas") is not { activeInHierarchy: true }, "and picking the side started no Single Play round");
                 SetupButton(Seeker ? "SeekerChoice" : "HiderChoice")?.onClick.Invoke();
@@ -636,8 +644,8 @@ public static class OnlinePlayTest
                     Check(!ShopInventory.MapLocked(MapIndex + 1) && mapCoinsBefore - Net.CoinCents >= 50000,
                           $"the map bought before the match is owned now, paid once ({mapCoinsBefore} -> {Net.CoinCents} cents)");
                 if (Seeker && !Chase && !Pair && !Kills)
-                    Check(ShopInventory.SpecialBullets(BulletType.Special2) < stockBeforeRound.Special2,
-                          $"special bullets spent in the round are gone from the wallet ({stockBeforeRound.Special2} -> {ShopInventory.SpecialBullets(BulletType.Special2)})");
+                    Check(ShopInventory.AmmoOf(TestWeapon) < ammoBeforeRound,
+                          $"the roller's rounds shot in the round are gone from the account ({ammoBeforeRound} -> {ShopInventory.AmmoOf(TestWeapon)})");
                 Go(Step.Language);
                 return;
 
@@ -681,49 +689,56 @@ public static class OnlinePlayTest
             }
 
             case Step.ShopCards:
-                ShopUI shop = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
                 if (nextAction == 0f)
                 {
-                    // Two more of type 2, so its cards have a count to show.
+                    // The shop on its Weapons tab, as the Shop button opens it.
                     nextAction = 1f;
-                    Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "bullets-2", Quantity = 2 } },
-                                  _ => reboughtAnswered = true);
-                    return;
-                }
-                if (!reboughtAnswered) return;
-                if (nextAction == 1f && shop != null)
-                {
-                    shop.Open();
-                    shop.SelectTab((int)ShopCategory.Bullets);   // the Bullets tab, as a player taps it
-                    nextAction = 2f;
+                    ShopScreen.Open(null, "weapons");
                     stepStarted = Time.realtimeSinceStartup;
                     return;
                 }
                 if (InStep < 3f) return;
-                ShopCatalog catalog = Resources.FindObjectsOfTypeAll<ShopCatalog>().FirstOrDefault();
-                int owned = ShopInventory.SpecialBullets(BulletType.Special2);
-                var badges = Object.FindObjectsByType<ShopItemCard>(FindObjectsInactive.Include)
-                    .Where(c => c.Item != null && c.Item.category == ShopCategory.Bullets && c.Item.gameId == 2)
-                    .Select(c => c.GetComponentsInChildren<Text>(true).Select(t => t.text).FirstOrDefault(t => t.StartsWith("Own ")))
-                    .ToList();
-                Check(owned > 0 && badges.Any(b => b == $"Own {owned}"),
-                      $"shop's special bullet 2 cards show the owned count (owned {owned}; ribbons: {string.Join(", ", badges.Select(b => b ?? "-"))}; catalog {(catalog != null ? "loaded" : "missing")})");
-                if (NextPlayerTest && shop != null)
+                if (nextAction == 1f)
                 {
-                    // The Extras tab, added under the scene's five, sells Next Player: owned by now.
-                    Button[] tabs = Get<Button[]>(shop, "tabButtons");
-                    shop.SelectTab((int)ShopCategory.Extras);
-                    ShopItemCard card = Object.FindObjectsByType<ShopItemCard>(FindObjectsInactive.Exclude)
-                        .FirstOrDefault(c => c.Item != null && c.Item.category == ShopCategory.Extras);
-                    string cardText = card != null ? string.Join(" | ", card.GetComponentsInChildren<Text>(true).Where(t => t.gameObject.activeInHierarchy).Select(t => t.text)) : "none";
-                    Check(tabs != null && tabs.Length == 6 && tabs[5] != null && tabs[5].name == "Tab_Extras" && tabs[5].transform.parent == tabs[4].transform.parent,
-                          $"the shop has an Extras tab under the other five ({(tabs != null ? string.Join(", ", tabs.Select(t => t != null ? t.name : "-")) : "none")})");
-                    // Owned by the player who bought it when knocked out; priced for one who was not.
+                    nextAction = 2f;
+                    GameObject card = FindByName("Item_weapon-roller");
+                    string cardText = card != null ? string.Join(" | ", card.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "none";
+                    int left = ShopInventory.AmmoOf(TestWeapon);
+                    Check(ShopScreen.IsOpen && ShopScreen.CurrentCategory == "weapons" && card != null && cardText.Contains("Roller") && cardText.Contains($"{left} rounds"),
+                          $"the shop's Weapons tab shows the roller with its rounds left ({cardText})");
+                    Check(FindByName("Filter_Weapons") is { activeInHierarchy: true } && FindByName("Filter_Ammo") is { activeInHierarchy: true },
+                          "and filters for weapons and their ammo");
+                    Shot("shop_weapons");
+                    ShopScreen.ShowItem("weapon-roller");
+                    return;
+                }
+                if (nextAction == 2f && InStep > 4f)
+                {
+                    nextAction = 3f;
+                    GameObject detail = FindByName("Detail");
+                    string all = detail != null ? string.Join(" | ", detail.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "none";
+                    Check(detail is { activeInHierarchy: true } && all.Contains("Cooldown") && all.Contains("2 s") && all.Contains("\u00d71.5"),
+                          $"its page shows the roller's own cooldown and bullet size ({(all.Length > 240 ? all.Substring(0, 240) + "..." : all)})");
+                    Shot("shop_weapon_detail");
+                    if (NextPlayerTest)
+                    {
+                        ShopScreen.CloseIfOpen();
+                        ShopScreen.Open(null, "extras");
+                    }
+                    return;
+                }
+                if (InStep < 5f) return;
+                if (NextPlayerTest)
+                {
+                    // The More tab sells Next Player: owned by now for a player who bought it when knocked out.
+                    GameObject card = FindByName("Item_next-player");
+                    string cardText = card != null ? string.Join(" | ", card.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "none";
                     bool ownsIt = ShopInventory.OwnsFeature(GameFeatures.NextPlayer);
                     Check(card != null && cardText.Contains("Next Player") && cardText.Contains(ownsIt ? "Owned" : "100"),
                           $"its Next Player card shows it {(ownsIt ? "owned" : "for sale at 100 coins")} ({cardText})");
                     Shot("shop_extras");
                 }
+                ShopScreen.CloseIfOpen();
                 Go(Again ? Step.Again : SinglePlay ? Step.SinglePlay : Step.Done);
                 return;
 
@@ -1512,8 +1527,9 @@ public static class OnlinePlayTest
     }
 
     // The coin balance over Multiple Play's screens (OnlineMatches' copy of Home's pill).
+    // Design B's balance pill (2026-11-24): its label is the one bound to the server's balance.
     private static Text GlobalCoinLabel() =>
-        FindByName("GlobalCoinPill") is GameObject pill ? pill.transform.Find("CoinText")?.GetComponent<Text>() : null;
+        FindByName("GlobalCoinPill") is GameObject pill ? pill.GetComponentsInChildren<Text>(true).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null) : null;
 
     private static int languageStage;
     private static Text languageLabel;
@@ -1777,15 +1793,14 @@ public static class OnlinePlayTest
 
             case 1:
                 if (now < awayAt) return;
-                ShopUI shopUi = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
-                Canvas shopCanvas = shopUi != null ? shopUi.GetComponentInParent<Canvas>(true) : null;
-                Check(shopUi != null && shopUi.gameObject.activeInHierarchy && shopCanvas != null && shopCanvas.sortingOrder > 39,
+                Canvas shopCanvas = FindByName("ShopScreenCanvas")?.GetComponent<Canvas>();
+                Check(ShopScreen.IsOpen && shopCanvas != null && shopCanvas.sortingOrder > 39,
                       $"it opens the shop over the round (canvas order {(shopCanvas != null ? shopCanvas.sortingOrder : -1)})");
                 if (!Seeker)
                     Check(Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include) is { DrawingActive: false },
                           "the paint panel, open when the shop opened, is put away (it would cover the shop's tabs)");
                 Shot("shop_in_round");
-                shopUi?.Close();
+                ShopScreen.CloseIfOpen();
                 Check(FindByName("HomeCanvas") is not { activeInHierarchy: true } && OnlineRound.Active, "closing it goes back to the round, not Home");
 
                 // The paint panel above the round's Exit, ready list and notifications.
@@ -2187,10 +2202,10 @@ public static class OnlinePlayTest
             c.worldCamera = cam;
             c.planeDistance = cam.nearClipPlane + 0.05f + 0.001f * (100 - Mathf.Clamp(c.sortingOrder, -100, 100));
         }
-        Canvas.ForceUpdateCanvases();
         var rt = new RenderTexture(1280, 720, 24);
         RenderTexture before = cam.targetTexture;
         cam.targetTexture = rt;
+        Canvas.ForceUpdateCanvases();   // laid out for the picture's own size (16:9), not the batch screen's
         cam.Render();
         RenderTexture.active = rt;
         var tex = new Texture2D(1280, 720, TextureFormat.RGB24, false);
@@ -2202,6 +2217,7 @@ public static class OnlinePlayTest
         Object.DestroyImmediate(tex);
         rt.Release();
         foreach (Canvas c in overlays) { c.renderMode = RenderMode.ScreenSpaceOverlay; c.worldCamera = null; }
+        Canvas.ForceUpdateCanvases();   // back in place before anything is tapped this frame
     }
     private static int nextStage;
     private static float nextAt;
@@ -2339,29 +2355,34 @@ public static class OnlinePlayTest
         {
             if (Net.Phase != MatchPhase.Seek || Time.realtimeSinceStartup < nextAction) return;
 
-            // Switch to special bullet 2 once with the bullet button, tapped where a finger would
-            // tap it (whatever is on top there gets the tap), then keep shooting.
-            if (!chosenSpecial && Net.SpecialBullets.Special2 > 0)
+            // Switch to the roller once with the weapon dock, tapped where a finger would tap it
+            // (whatever is on top there gets the tap), then keep shooting its rounds.
+            if (!chosenSpecial && Net.Weapons.Any(w => w.WeaponId == TestWeapon && w.Ammo > 0))
             {
                 chosenSpecial = true;
-                Button bullets = FindByName("BulletSwitch")?.GetComponent<Button>();
-                string before = bullets != null ? bullets.GetComponentInChildren<Text>(true).text.Replace("\n", " / ") : "none";
-                GameObject hit = TapAt(bullets);
-                Check(bullets != null && bullets.gameObject.activeInHierarchy && before.Contains("Default bullets") && before.Contains("Tap to switch"),
-                      $"the seeker has a bullet button showing default bullets and that it switches ('{before}')");
-                Check(hit != null && hit.transform.IsChildOf(bullets.transform), $"a tap on it reaches it, nothing covers it (hit {(hit != null ? hit.name : "nothing")})");
+                ammoBeforeRound = Net.Weapons.First(w => w.WeaponId == TestWeapon).Ammo;
+                Check(ammoBeforeRound >= 20, $"the match starts with the roller's rounds: its 10 and the pack's 10 at least ({ammoBeforeRound})");
+                Button dock = FindByName("WeaponSwitch")?.GetComponent<Button>();
+                string before = DockText(dock);
+                if (Net.WeaponId != TestWeapon)
+                {
+                    GameObject hit = TapAt(dock);
+                    Check(dock != null && dock.gameObject.activeInHierarchy && before.Contains("Tap to switch weapon"),
+                          $"the seeker has a weapon dock showing the weapon held and that it switches ('{before}')");
+                    Check(hit != null && hit.transform.IsChildOf(dock.transform), $"a tap on it reaches it, nothing covers it (hit {(hit != null ? hit.name : "nothing")})");
+                }
                 nextAction = Time.realtimeSinceStartup + 0.6f;
-                bulletTapAt = Time.realtimeSinceStartup;
+                weaponTapAt = Time.realtimeSinceStartup;
                 return;
             }
-            if (chosenSpecial && bulletTapAt > 0f && Time.realtimeSinceStartup > bulletTapAt + 0.5f)
+            if (chosenSpecial && weaponTapAt > 0f && Time.realtimeSinceStartup > weaponTapAt + 0.5f)
             {
-                bulletTapAt = -1f;
-                Button bullets = FindByName("BulletSwitch")?.GetComponent<Button>();
-                string after = bullets != null ? bullets.GetComponentInChildren<Text>(true).text.Replace("\n", " / ") : "none";
-                Check(Net.ChosenBullet == BulletType.Special2 && after.Contains("Special bullet 2"),
-                      $"the tap switched to special bullet 2, and the button says so ('{after}', server: {Net.ChosenBullet})");
-                Shot("bullet_button");
+                weaponTapAt = -1f;
+                string after = DockText(FindByName("WeaponSwitch")?.GetComponent<Button>());
+                Check(Net.WeaponId == TestWeapon && after.Contains(ShopInventory.WeaponName(TestWeapon)) && after.Contains("left"),
+                      $"the tap switched to the roller, and the dock says so with its rounds ('{after}', server: weapon {Net.WeaponId})");
+                Check(Mathf.Abs(Net.CooldownAfterShot - 2f) < 0.01f, $"and the roller's own cooldown applies ({Net.CooldownAfterShot} s)");
+                Shot("weapon_dock");
             }
 
             // The Shoot button held down, as a finger holds it: the gun fires again each time the
@@ -2384,7 +2405,7 @@ public static class OnlinePlayTest
                     break;
             }
             nextAction = now + 0.1f;
-            if (Net.SpecialBullets.Special2 < stockBeforeRound.Special2) specialSpent = true;
+            if (Net.Weapons.Any(w => w.WeaponId == TestWeapon && w.Ammo >= 0 && w.Ammo < ammoBeforeRound)) specialSpent = true;
         }
         else
         {
@@ -3677,12 +3698,12 @@ public static class OnlinePlayTest
             Check(shotsFired > 0 && loadoutAnswers > 0, $"shots fired through the gun were answered by the server ({shotsFired} fired, {loadoutAnswers} loadout answers)");
             if (fireHold >= 2)
             {
-                // Special bullet 2 waits 2 s, a default one 3 s, a catch none: in 12 s held, 4 at the least.
+                // The roller waits 2 s, the standard weapon 3 s, a catch none: in 12 s held, 4 at the least.
                 Check(shotsWhileHeld >= 4, $"holding the Shoot button kept the gun firing after each cooldown ({shotsWhileHeld} shots in 12 s held)");
                 Check(shotsAfterLetGo == 0, $"letting go of it stopped the firing at once ({shotsAfterLetGo} shots in the 5 s after)");
             }
             else report.Add($"INFO  the seek ended before the held Shoot button could be judged (stage {fireHold}, {shotsWhileHeld} shots held)");
-            Check(chosenSpecial && specialSpent, "switched to special bullet 2 by the bullet label and spent it");
+            Check(chosenSpecial && specialSpent, "switched to the roller with the weapon dock and shot its rounds");
         }
         else
         {
@@ -3768,68 +3789,77 @@ public static class OnlinePlayTest
     }
 
     // ================= -playtestShopTabs: the shop's tabs and purchases, tapped =================
+    //
+    // Design B's shop (ShopScreen, 2026-11-24): the server's categories as tabs, the server's items
+    // as cards, an item's page, the confirmation and the receipt, all tapped where a finger would.
 
     private static int shopStage;
     private static float shopAt;
     private static int tabMismatches, comingSoonToasts;
     private static readonly List<string> tabProblems = new List<string>();
-    private static string purchaseCard;
     private static float purchaseTappedAt;
+    private static int ammoBeforeBuy;
 
-    private static ShopUI ShopScreen => Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+    private static Button ShopButton(string name) => FindByName(name) is { activeInHierarchy: true } go ? go.GetComponent<Button>() : null;
 
-    private static Button ShopTab(ShopCategory category)
+    private static IEnumerable<GameObject> ShownItemCards() =>
+        Resources.FindObjectsOfTypeAll<GameObject>().Where(g => g.activeInHierarchy && g.name.StartsWith("Item_") && g.GetComponent<Button>() != null);
+
+    private static string CardText(GameObject card) =>
+        card != null ? string.Join(" | ", card.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "none";
+
+    // Every card shown is of the tab picked, and that tab is the one picked.
+    private static void VerifyTab(string category, string when)
     {
-        Button[] tabs = Get<Button[]>(ShopScreen, "tabButtons");
-        return tabs != null && (int)category < tabs.Length ? tabs[(int)category] : null;
-    }
-
-    private static string ShopToast()
-    {
-        Text toast = Get<Text>(ShopScreen, "toastText");
-        return toast != null && toast.gameObject.activeInHierarchy ? toast.text : "";
-    }
-
-    private static IEnumerable<ShopItemCard> ShownCards() =>
-        Object.FindObjectsByType<ShopItemCard>(FindObjectsInactive.Exclude).Where(c => c.Item != null);
-
-    private static string CardAction(ShopItemCard card) =>
-        card.GetComponentsInChildren<Text>(false).FirstOrDefault(t => t.name == "Label" && t.transform.parent != null && t.transform.parent.name == "Content")?.text ?? "";
-
-    // Every card shown is of this tab, its name is the one on it, and this tab is the one lit.
-    private static void VerifyTab(ShopCategory category, string when)
-    {
-        ShopUI shop = ShopScreen;
-        Image[] backgrounds = Get<Image[]>(shop, "tabBackgrounds");
-        Sprite active = shop.GetType().GetField("tabActiveSprite", Any)?.GetValue(shop) as Sprite;
         var problems = new List<string>();
-        foreach (ShopItemCard card in ShownCards())
+        if (ShopScreen.CurrentCategory != category) problems.Add($"showing {ShopScreen.CurrentCategory}");
+        int cards = 0;
+        foreach (GameObject card in ShownItemCards())
         {
-            if (card.Item.category != category) problems.Add($"{card.name} holds {card.Item.category} '{card.Item.displayName}'");
-            if (category == ShopCategory.Coins) continue;
-            Text[] labels = card.GetComponentsInChildren<Text>(false).Where(t => t.name == "TopLabel" || t.name == "BottomLabel").ToArray();
-            if (!labels.Any(t => t.text == card.Item.displayName)) problems.Add($"{card.name} reads '{string.Join("/", labels.Select(t => t.text))}' for '{card.Item.displayName}'");
+            cards++;
+            string id = card.name.Substring(5);
+            if (!ShopInventory.TryItem(id, out MetaItem item)) problems.Add($"{id} is not the server's");
+            else if (ShopInventory.CategoryOf(item) != category) problems.Add($"{id} is in {ShopInventory.CategoryOf(item)}");
         }
-        if (backgrounds != null && active != null)
-        {
-            for (int i = 0; i < backgrounds.Length; i++)
-                if (backgrounds[i] != null && (backgrounds[i].sprite == active) != (i == (int)category)) problems.Add($"tab {i} lit wrongly");
-        }
-        int shown = ShownCards().Count();
-        if (shown == 0) problems.Add("no cards");
+        bool coins = category == "coins";
+        int packs = Resources.FindObjectsOfTypeAll<GameObject>().Count(g => g.activeInHierarchy && g.name.StartsWith("Pack_"));
+        if (coins && packs != ShopInventory.Packages.Count) problems.Add($"{packs} pack cards for {ShopInventory.Packages.Count} packs");
+        if (!coins && cards != ShopInventory.ItemsIn(category).Count) problems.Add($"{cards} cards for {ShopInventory.ItemsIn(category).Count} items");
         if (problems.Count > 0) { tabMismatches++; tabProblems.Add($"{when}: {string.Join("; ", problems)}"); }
     }
 
-    private static ShopItemCard CardFor(string serverId) => ShownCards().FirstOrDefault(c => c.Item.serverId == serverId);
+    // Through an item's page: its Buy (or a quantity's), the confirmation, then the receipt's Done.
+    private static bool TapBuyOnPage(string action)
+    {
+        Button buy = ShopButton("Action_" + action);
+        return buy != null && buy.interactable && TapAt(buy) != null;
+    }
+
+    private static string tapLater;
+    private static float tapLaterAt;
+
+    // Taps a shop button a moment from now (after the picture just taken), as a finger would.
+    private static void TapLater(string name)
+    {
+        tapLater = name;
+        tapLaterAt = Time.realtimeSinceStartup + 0.3f;
+    }
 
     private static void PlayShopTabs()
     {
         float now = Time.realtimeSinceStartup;
+        if (tapLater != null)
+        {
+            if (now < tapLaterAt) return;
+            GameObject target = FindByName(tapLater);
+            Button button = target is { activeInHierarchy: true } ? target.GetComponent<Button>() : null;
+            if (TapAt(button) == null) Check(false, $"{tapLater} is there to tap, and a tap reaches it");
+            tapLater = null;
+            shopAt = Mathf.Max(shopAt, now + 0.5f);
+            return;
+        }
         if (now < shopAt) return;
-        ShopUI shop = ShopScreen;
-
-        // A "Coming soon" toast on a card that was for sale is the bug this looks for.
-        if (ShopToast() == "Coming soon") comingSoonToasts++;
+        if (Notices.Visible.Contains("Coming soon")) comingSoonToasts++;
 
         switch (shopStage)
         {
@@ -3837,212 +3867,240 @@ public static class OnlinePlayTest
                 Button homeShop = FindByName("HomeCanvas")?.GetComponentsInChildren<Button>(false)
                     .FirstOrDefault(b => b.GetComponentsInChildren<Text>(true).Any(t => t.text == "Shop"));
                 Check(homeShop != null && TapAt(homeShop) != null, "Home's Shop button is tapped");
-                shopAt = now + 2f;
+                shopAt = now + 2.5f;
                 shopStage = 1;
                 return;
 
             case 1:
-                Check(shop != null && Get<GameObject>(shop, "root") is { activeInHierarchy: true }, "the shop opens");
-                TapAt(ShopTab(ShopCategory.Avatars));
+            {
+                string tabs = string.Join(", ", ShopInventory.Categories.Select(c => c.Id));
+                bool all = ShopInventory.Categories.All(c => ShopButton("Tab_" + c.Id) != null);
+                Check(ShopScreen.IsOpen && all && ShopInventory.Categories.Count >= 5,
+                      $"the shop opens with a tab for each of the server's categories ({tabs})");
+                Shot("shop_open");
+                TapLater("Tab_avatars");
                 shopAt = now + 0.5f;
                 shopStage = 2;
                 return;
+            }
 
             case 2:
-                VerifyTab(ShopCategory.Avatars, "Avatars");
-                TapAt(ShopTab(ShopCategory.Coins));
-                shopAt = now + 0.5f;
+                VerifyTab("avatars", "Characters");
+                TapAt(ShopButton("Tab_coins"));
+                shopAt = now + 0.6f;
                 shopStage = 3;
                 return;
 
             case 3:
-                VerifyTab(ShopCategory.Coins, "Coins after Avatars");
-                TapAt(ShopTab(ShopCategory.Bullets));
-                shopAt = now + 0.5f;
+                VerifyTab("coins", "Coins after Characters");
+                Shot("shop_coins");
+                TapLater("Tab_weapons");
+                shopAt = now + 0.6f;
                 shopStage = 4;
                 return;
 
             case 4:
-                VerifyTab(ShopCategory.Bullets, "Bullets after Coins");
-                {
-                    // Buy a pack of special bullet 2: a tap on its card's button.
-                    ShopItemCard card = CardFor("bullets-2");
-                    purchaseCard = "bullets-2";
-                    purchaseTappedAt = now;
-                    Button buy = card != null ? card.GetComponentsInChildren<Button>(false).FirstOrDefault() : null;
-                    Check(buy != null && buy.interactable && TapAt(buy) != null, $"a special bullet 2 pack is for sale and tapped ({(card != null ? CardAction(card) : "no card")})");
-                }
-                shopAt = now + 0.05f;
+            {
+                VerifyTab("weapons", "Weapons after Coins");
+                bool filters = ShopButton("Filter_All") != null && ShopButton("Filter_Weapons") != null && ShopButton("Filter_Ammo") != null;
+                Check(filters, "the Weapons tab has filters for All, Weapons and Ammo");
+                Shot("shop_weapons");
+                TapLater("Filter_Ammo");
+                shopAt = now + 0.5f;
                 shopStage = 5;
                 return;
+            }
 
-            case 5:     // the confirmation, as soon as the server answers
-                {
-                    string toast = ShopToast();
-                    bool confirmed = toast.StartsWith("+");
-                    if (!confirmed && now - purchaseTappedAt < 3f) return;
-                    Check(confirmed && now - purchaseTappedAt < 1.5f, $"the purchase says so at once ('{toast}' after {(now - purchaseTappedAt) * 1000f:F0} ms)");
-                    Image banner = Get<Image>(ShopScreen, "toastBackground");
-                    if (banner != null && FindByName("Grid") is GameObject grid)
-                    {
-                        var bannerCorners = new Vector3[4];
-                        var gridCorners = new Vector3[4];
-                        ((RectTransform)banner.transform).GetWorldCorners(bannerCorners);
-                        ((RectTransform)grid.transform).GetWorldCorners(gridCorners);
-                        Check(bannerCorners[0].y >= gridCorners[1].y - 2f,
-                              $"in the shop's header, above the cards (banner bottom {bannerCorners[0].y:F0}, cards top {gridCorners[1].y:F0})");
-                    }
-                    Check(banner != null && banner.color.a > 0.9f && banner.color.g > banner.color.r && banner.transform.GetSiblingIndex() == banner.transform.parent.childCount - 1,
-                          $"as an opaque green banner over the cards ({(banner != null ? banner.color.ToString() : "none")})");
-                    ShopItemCard card = CardFor(purchaseCard);
-                    string ribbon = card != null ? card.GetComponentsInChildren<Text>(false).Select(t => t.text).FirstOrDefault(t => t.StartsWith("Own ")) : null;
-                    Check(ribbon != null && ribbon == $"Own {ShopInventory.SpecialBullets(BulletType.Special2)}",
-                          $"and its card shows the new count with it ('{ribbon}', {ShopInventory.SpecialBullets(BulletType.Special2)})");
-                    Shot("shop_bought");
-                }
-                TapAt(ShopTab(ShopCategory.Avatars));
+            case 5:
+            {
+                List<GameObject> cards = ShownItemCards().ToList();
+                bool onlyAmmo = cards.Count > 0 && cards.All(c => ShopInventory.TryItem(c.name.Substring(5), out MetaItem i) && i.Kind == ItemKind.Ammo);
+                Check(onlyAmmo, $"Ammo shows the ammo packs only ({string.Join(", ", cards.Select(c => c.name))})");
+                TapAt(ShopButton("Filter_All"));
                 shopAt = now + 0.5f;
                 shopStage = 6;
                 return;
+            }
 
             case 6:
-                VerifyTab(ShopCategory.Avatars, "Avatars after buying bullets");
-                {
-                    // Buy the second character, then equip it: two taps on its card.
-                    ShopItemCard card = ShownCards().FirstOrDefault(c => c.Item.gameId == 1 && !string.IsNullOrEmpty(c.Item.serverId));
-                    purchaseCard = card?.Item.serverId;
-                    purchaseTappedAt = now;
-                    Button buy = card != null ? card.GetComponentsInChildren<Button>(false).FirstOrDefault() : null;
-                    Check(buy != null && buy.interactable && TapAt(buy) != null, $"the second character is for sale and tapped ({(card != null ? CardAction(card) : "no card")})");
-                }
-                shopAt = now + 0.05f;
+            {
+                // The roller's page: bought there when it is not owned yet.
+                GameObject card = FindByName("Item_weapon-roller");
+                Check(card != null && TapAt(card.GetComponent<Button>()) != null, $"the roller's card is tapped ({CardText(card)})");
+                shopAt = now + 0.5f;
                 shopStage = 7;
                 return;
+            }
 
             case 7:
+            {
+                string page = CardText(FindByName("Detail"));
+                Check(FindByName("Detail") is { activeInHierarchy: true } && page.Contains("Cooldown") && page.Contains("Bullet size") && page.Contains("Rounds with it"),
+                      $"its page shows how it shoots and the rounds it comes with ({(page.Length > 200 ? page.Substring(0, 200) + "..." : page)})");
+                Shot("shop_detail");
+                ammoBeforeBuy = ShopInventory.AmmoOf(TestWeapon);
+                if (ShopButton("Action_Buy item") != null)
                 {
-                    string toast = ShopToast();
-                    bool confirmed = toast.EndsWith("unlocked!");
-                    if (!confirmed && now - purchaseTappedAt < 3f) return;
-                    ShopItemCard card = CardFor(purchaseCard);
-                    // A bought character is the one played at once (2026-11-19): its card says Equipped.
-                    Check(confirmed && now - purchaseTappedAt < 1.5f && card != null && CardAction(card) == "Equipped",
-                          $"buying a character says so at once and puts it on ('{toast}', '{(card != null ? CardAction(card) : "-")}', {(now - purchaseTappedAt) * 1000f:F0} ms)");
-                    // The first character again: an Equip tap on its card.
-                    ShopItemCard first = ShownCards().FirstOrDefault(c => c.Item.category == ShopCategory.Avatars && c.Item.gameId == 0);
-                    TapAt(first?.GetComponentsInChildren<Button>(false).FirstOrDefault());
+                    TapLater("Action_Buy item");
+                    shopAt = now + 0.4f;
+                    shopStage = 8;
+                    return;
                 }
-                shopAt = now + 0.6f;
-                shopStage = 8;
+                // Owned already (bought before the match): straight to its ammo.
+                Check(ShopButton("Action_Buy ammo") != null, "an owned weapon offers its ammo");
+                TapLater("Action_Buy ammo");
+                shopAt = now + 0.5f;
+                shopStage = 10;
                 return;
+            }
 
-            case 8:
-                Check(ShopToast().EndsWith("equipped"), $"Equip says so ('{ShopToast()}')");
-                TapAt(ShopTab(ShopCategory.Coins));
-                shopAt = now + 0.4f;
+            case 8:     // the confirmation, then the server's answer
+            {
+                Button confirm = ShopButton("ConfirmPurchase");
+                string dialog = CardText(FindByName("Confirm purchase"));
+                Check(confirm != null && dialog.Contains("Current balance") && dialog.Contains("Remaining balance"),
+                      $"buying asks first, with the balance before and after ({dialog})");
+                Shot("shop_confirm");
+                purchaseTappedAt = now + 0.3f;
+                TapLater("ConfirmPurchase");
+                shopAt = now + 0.05f;
                 shopStage = 9;
                 return;
+            }
 
             case 9:
-                VerifyTab(ShopCategory.Coins, "Coins after equipping");
-                TapAt(ShopTab(ShopCategory.Bullets));
-                shopAt = now + 0.4f;
+            {
+                Button done = ShopButton("ReceiptDone");
+                if (done == null && now - purchaseTappedAt < 4f) return;
+                Check(done != null && now - purchaseTappedAt < 2f, $"the receipt follows at once ({(now - purchaseTappedAt) * 1000f:F0} ms: {CardText(FindByName("Receipt"))})");
+                Shot("shop_receipt");
+                TapLater("ReceiptDone");
+                shopAt = now + 1.5f;    // the listing refreshed: the weapon's rounds
+                shopStage = 91;
+                return;
+            }
+
+            case 91:
+                Check(ShopInventory.AmmoOf(TestWeapon) == 10, $"a weapon bought comes with 10 rounds ({ShopInventory.AmmoOf(TestWeapon)})");
+                ammoBeforeBuy = ShopInventory.AmmoOf(TestWeapon);
+                Check(ShopButton("Action_Buy ammo") != null && TapBuyOnPage("Buy ammo"), "its page now offers its ammo, and Buy ammo is tapped");
+                shopAt = now + 0.5f;
                 shopStage = 10;
                 return;
 
-            case 10:
-                VerifyTab(ShopCategory.Bullets, "Bullets after Coins again");
-                // Quick taps, one frame each, ending on Coins.
-                foreach (ShopCategory c in new[] { ShopCategory.Poses, ShopCategory.Extras, ShopCategory.Avatars, ShopCategory.Weapons, ShopCategory.Coins })
-                    TapAt(ShopTab(c));
-                shopAt = now + 0.4f;
+            case 10:    // the ammo's page: two packs, bought
+            {
+                Button more = FindByName("Actions")?.GetComponentsInChildren<Button>(false).FirstOrDefault(b => b.GetComponentsInChildren<Image>(true).Any(i => i.sprite != null && i.sprite.name == "Plus"));
+                if (more != null && more.interactable) TapAt(more);
+                shopAt = now + 0.3f;
                 shopStage = 11;
                 return;
+            }
 
             case 11:
-                VerifyTab(ShopCategory.Coins, "Coins after quick taps");
-                Shot("shop_coins");
-                {
-                    // The Shoes tab (2026-11-24): in the column under Bullets, tapped as a finger does.
-                    Button shoesTab = ShopTab(ShopCategory.Shoes);
-                    Button bulletsTab = ShopTab(ShopCategory.Bullets);
-                    Check(shoesTab != null && shoesTab.gameObject.activeInHierarchy && OnlineUI.GetAnyText(shoesTab.gameObject) == "Shoes"
-                          && bulletsTab != null && shoesTab.transform.GetSiblingIndex() == bulletsTab.transform.GetSiblingIndex() + 1,
-                          $"the shop has a Shoes tab under Bullets ('{(shoesTab != null ? OnlineUI.GetAnyText(shoesTab.gameObject) : "none")}')");
-                }
-                shopAt = now + 0.3f;     // a frame of its own: the picture moves the canvases for a moment
-                shopStage = 20;
-                return;
-
-            case 20:
-                Check(TapAt(ShopTab(ShopCategory.Shoes)) != null, "and a tap reaches it");
-                shopAt = now + 0.5f;
+                if (!TapBuyOnPage("Buy ammo")) { Check(false, "the ammo page has Buy ammo"); shopStage = 13; return; }
+                shopAt = now + 0.4f;
                 shopStage = 12;
                 return;
 
             case 12:
+            {
+                Button confirm = ShopButton("ConfirmPurchase");
+                if (confirm == null) { Check(false, $"buying ammo asks first ({CardText(FindByName("Modal"))})"); shopStage = 13; return; }
+                purchaseTappedAt = now;
+                TapAt(confirm);
+                shopAt = now + 0.05f;
+                shopStage = 121;
+                return;
+            }
+
+            case 121:
+            {
+                Button done = ShopButton("ReceiptDone");
+                if (done == null && now - purchaseTappedAt < 4f) return;
+                Check(done != null, $"the ammo is bought ({CardText(FindByName("Receipt"))})");
+                TapAt(done);
+                shopAt = now + 1.5f;
+                shopStage = 122;
+                return;
+            }
+
+            case 122:
+                Check(ShopInventory.AmmoOf(TestWeapon) == ammoBeforeBuy + 20, $"two packs add 20 rounds to the weapon ({ammoBeforeBuy} -> {ShopInventory.AmmoOf(TestWeapon)})");
+                Check(Notices.ShownCount > 0, $"every purchase said so in a notice ('{Notices.Visible.Replace("\n", " / ")}')");
+                Shot("shop_ammo_bought");
+                TapLater("Back");      // the page, back to the cards
+                shopAt = now + 0.4f;
+                shopStage = 13;
+                return;
+
+            case 13:
+                TapAt(ShopButton("Tab_shoes"));
+                shopAt = now + 0.6f;
+                shopStage = 14;
+                return;
+
+            case 14:
+                VerifyTab("shoes", "Shoes");
                 if (Shoes.Equipped != ShoeSpecs.Standard)
                 {
                     // Worn from an earlier run: the standard pair first, so the sneakers can be put on by a tap.
                     if (purchaseTappedAt < shopAt) { purchaseTappedAt = now; Shoes.Equip(ShoeSpecs.Standard, null); }
                     if (now - purchaseTappedAt < 5f) return;
                 }
-                VerifyTab(ShopCategory.Shoes, "Shoes");
-                {
-                    List<ShopItemCard> cards = ShownCards().ToList();
-                    string names = string.Join(", ", cards.Select(c => $"{c.Item.displayName} {c.Item.badge} [{CardAction(c)}]"));
-                    Check(cards.Count == ShoeSpecs.Count && cards.All(c => c.Item.icon != null), $"every pair of shoes has a card with its picture ({names})");
-                    ShopItemCard standard = cards.FirstOrDefault(c => c.Item.gameId == ShoeSpecs.Standard);
-                    Check(standard != null && (CardAction(standard) == "Equipped" || CardAction(standard) == "Equip"), $"the standard pair is everyone's ({(standard != null ? CardAction(standard) : "-")})");
-                    Shot("shop_shoes");
-                }
-                shopAt = now + 0.3f;
-                shopStage = 21;
+                Shot("shop_shoes");
+                TapLater("Item_shoes-sneakers");
+                shopAt = now + 0.5f;
+                shopStage = 15;
                 return;
 
-            case 21:
-                {
-                    // Buy the sneakers (or put them on, when owned): one tap on their card.
-                    ShopItemCard sneakers = ShownCards().FirstOrDefault(c => c.Item.category == ShopCategory.Shoes && c.Item.gameId == 1);
-                    Button buy = sneakers != null ? sneakers.GetComponentsInChildren<Button>(false).FirstOrDefault() : null;
-                    purchaseTappedAt = now;
-                    Check(buy != null && buy.interactable && TapAt(buy) != null, $"the sneakers are for sale (or owned) and tapped ({(sneakers != null ? CardAction(sneakers) : "no card")})");
-                }
+            case 15:
+                // Their page: Buy (then Wear now on the receipt) or Wear.
+                if (TapBuyOnPage("Buy item")) { shopAt = now + 0.4f; shopStage = 16; return; }
+                Check(TapBuyOnPage("Wear") || ShopButton("Action_Worn") != null, "owned sneakers can be worn from their page");
+                purchaseTappedAt = now;
                 shopAt = now + 0.05f;
-                shopStage = 13;
+                shopStage = 18;
                 return;
 
-            case 13:
-                {
-                    ShopItemCard sneakers = ShownCards().FirstOrDefault(c => c.Item.category == ShopCategory.Shoes && c.Item.gameId == 1);
-                    bool worn = Shoes.Equipped == 1 && sneakers != null && CardAction(sneakers) == "Equipped";
-                    if (!worn && now - purchaseTappedAt < 5f) return;
-                    Check(worn, $"bought (or owned), they are put on at once: the card says Equipped and the account wears them ('{(sneakers != null ? CardAction(sneakers) : "-")}', worn {Shoes.Equipped}, '{ShopToast().Replace("\n", " / ")}')");
-                    JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
-                    Check(mover != null && Mathf.Abs(mover.RunSpeed - mover.moveSpeed * 1.1f) < 0.01f, $"and the player runs 10% faster in them ({mover?.RunSpeed:F1})");
-                    Shot("shop_shoes_bought");
-                }
-                shopAt = now + 0.3f;
-                shopStage = 22;
-                return;
-
-            case 22:
-                {
-                    // Back to the standard pair: a tap on its card.
-                    ShopItemCard standard = ShownCards().FirstOrDefault(c => c.Item.category == ShopCategory.Shoes && c.Item.gameId == ShoeSpecs.Standard);
-                    Check(TapAt(standard?.GetComponentsInChildren<Button>(false).FirstOrDefault()) != null, "the standard pair's card is tapped");
-                    purchaseTappedAt = now;
-                }
+            case 16:
+                purchaseTappedAt = now;
+                TapAt(ShopButton("ConfirmPurchase"));
                 shopAt = now + 0.05f;
-                shopStage = 14;
+                shopStage = 17;
                 return;
 
-            case 14:
+            case 17:
+            {
+                Button wear = FindByName("Receipt")?.GetComponentsInChildren<Button>(false).FirstOrDefault(b => CardText(b.gameObject).Contains("Wear now"));
+                if (wear == null && now - purchaseTappedAt < 4f) return;
+                Check(wear != null && TapAt(wear) != null, "the sneakers are bought, and Wear now is tapped on the receipt");
+                purchaseTappedAt = now;
+                shopAt = now + 0.05f;
+                shopStage = 18;
+                return;
+            }
+
+            case 18:
+            {
+                if (Shoes.Equipped != 1 && now - purchaseTappedAt < 5f) return;
+                Check(Shoes.Equipped == 1, $"the account wears them ({Shoes.Equipped}, '{Notices.Visible.Replace("\n", " / ")}')");
+                JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+                Check(mover != null && Mathf.Abs(mover.RunSpeed - mover.moveSpeed * 1.1f) < 0.01f, $"and the player runs 10% faster in them ({mover?.RunSpeed:F1})");
+                Shot("shop_shoes_bought");
+                purchaseTappedAt = now;
+                Shoes.Equip(ShoeSpecs.Standard, null);   // as found
+                shopAt = now + 0.05f;
+                shopStage = 19;
+                return;
+            }
+
+            case 19:
                 if (Shoes.Equipped != ShoeSpecs.Standard && now - purchaseTappedAt < 5f) return;
-                Check(Shoes.Equipped == ShoeSpecs.Standard, $"tapping the standard pair puts it back on ({Shoes.Equipped})");
                 Check(tabMismatches == 0, $"every tab shows its own cards ({(tabProblems.Count == 0 ? "all right" : string.Join(" | ", tabProblems))})");
                 Check(comingSoonToasts == 0, $"no 'Coming soon' for an item on sale ({comingSoonToasts})");
-                shop.Close();
+                ShopScreen.CloseIfOpen();
+                Check(!ShopScreen.IsOpen && FindByName("HomeCanvas") is { activeInHierarchy: true }, "closing the shop goes back to Home");
                 Go(Step.Done);
                 return;
         }
@@ -4118,8 +4176,11 @@ public static class OnlinePlayTest
     private static string WalletAfterText => CoinBalance.Format(walletAfterPurchase);
     private static readonly System.Net.Http.HttpClient walletHttp = new System.Net.Http.HttpClient();
 
+    // Home's balance: design B's pill on Home (2026-11-24), the scene's own label before it is built.
     private static Text HomeCoinLabel()
     {
+        Text pill = FindByName("HomeBalance")?.GetComponentsInChildren<Text>(true).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null);
+        if (pill != null) return pill;
         HomeMenuUI menu = Object.FindAnyObjectByType<HomeMenuUI>(FindObjectsInactive.Include);
         return menu != null ? Get<Text>(menu, "coinText") : null;
     }
@@ -4294,10 +4355,10 @@ public static class OnlinePlayTest
 
             case 11:
                 // A purchase made elsewhere in the game while the wallet and its history are open.
-                Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "bullets-2", Quantity = 3 } }, receipt =>
+                Meta.Purchase(new List<MetaPurchaseLine> { new MetaPurchaseLine { ItemId = "next-player", Quantity = 1 } }, receipt =>
                 {
                     bool done = !receipt.TimedOut && receipt.Error == MetaError.None && receipt.Status == PurchaseStatus.Completed;
-                    Check(done, $"bought 3 special bullets ({(receipt.Error == MetaError.None ? receipt.Status.ToString() : receipt.Error.ToString())})");
+                    Check(done, $"bought Next Player ({(receipt.Error == MetaError.None ? receipt.Status.ToString() : receipt.Error.ToString())})");
                     walletAfterPurchase = receipt.CoinCents;
                     walletBought = true;
                 });
@@ -4311,7 +4372,7 @@ public static class OnlinePlayTest
 
             case 23:
             {
-                if (!Awaited(HistoryShown().Contains("Shop: bullets-2"), 10f, "the open history lists the purchase as it happens")) return;
+                if (!Awaited(HistoryShown().Contains("Shop: next-player"), 10f, "the open history lists the purchase as it happens")) return;
                 Check(walletAfterPurchase >= 0 && walletAfterPurchase < 55000 && Net.CoinCents == walletAfterPurchase,
                       $"the purchase took its price ({Net.CoinCents}, the receipt says {walletAfterPurchase})");
                 Button closeHistory = FindButton("HistoryScreen", "CLOSE");
@@ -4351,26 +4412,25 @@ public static class OnlinePlayTest
                 if (menu != null) menu.ShowHome();
 
                 ShopUI shop = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
-                if (shop != null) shop.Open();
+                if (shop != null) shop.OpenFrom(null, "coins");
                 walletStage = 15;
                 return;
             }
 
             case 15:
             {
-                ShopUI shop = Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
-                if (!Awaited(shop != null && ShopInventory.TopUpsLoaded && ShopInventory.Loaded && InStep > 1f, 10f, "the shop loaded its listing")) return;
+                if (!Awaited(ShopScreen.IsOpen && ShopInventory.TopUpsLoaded && ShopInventory.Loaded && InStep > 1f, 10f, "the shop loaded its listing")) return;
 
-                Text shopCoins = shop != null ? Get<Text>(shop, "coinText") : null;
+                Text shopCoins = FindByName("ShopScreenCanvas")?.GetComponentsInChildren<Text>(false).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null);
                 Check(shopCoins != null && shopCoins.text == WalletAfterText, $"the shop shows it ('{shopCoins?.text}')");
                 Check(shopCoins != null && shopCoins.GetComponent<Button>() != null, "and its balance opens the wallet too");
 
-                // The coin pack cards: the server's amounts or nothing, never the card's own number.
-                ShopItemCard[] cards = shop != null ? shop.GetComponentsInChildren<ShopItemCard>(false) : new ShopItemCard[0];
-                var amounts = cards.Select(c => Get<Text>(c, "bottomLabel")?.text ?? "").ToList();
-                Check(amounts.Count > 0 && amounts.All(a => a == "" || a == "100" || a == "550" || a == "1 200"),
+                // The coin pack cards: the server's amounts, as the server lists its packs.
+                var amounts = Resources.FindObjectsOfTypeAll<GameObject>().Where(g => g.activeInHierarchy && g.name.StartsWith("Pack_"))
+                    .Select(g => g.GetComponentsInChildren<Text>(false).Select(t => t.text).FirstOrDefault(t => t.EndsWith("coins")) ?? "").ToList();
+                Check(amounts.Count == ShopInventory.Packages.Count && amounts.All(a => a == "100 coins" || a == "550 coins" || a == "1 200 coins"),
                       $"coin pack cards show the server's amounts only ({string.Join(", ", amounts.Select(a => a == "" ? "(none)" : a))})");
-                if (shop != null) shop.Close();
+                ShopScreen.CloseIfOpen();
 
                 MatchmakingUI matchmaking = Object.FindAnyObjectByType<MatchmakingUI>(FindObjectsInactive.Include);
                 if (matchmaking != null)
@@ -4388,7 +4448,8 @@ public static class OnlinePlayTest
 
                 // Nothing left on any screen with the number the scene was saved with.
                 var stale = Resources.FindObjectsOfTypeAll<Text>()
-                    .Where(t => t.gameObject.scene.IsValid() && t.gameObject.name == "CoinText" && t.GetComponent<CoinLabel>() == null)
+                    .Where(t => t.gameObject.scene.IsValid() && t.gameObject.name == "CoinText" && t.GetComponent<CoinLabel>() == null
+                                && t.GetComponentInParent<ShopUI>(true) == null)   // the scene's old shop panel, never shown since design B's shop
                     .Select(t => UiFind.PathOf(t.transform)).ToList();
                 Check(stale.Count == 0, $"every coin pill in the scene follows the server's balance ({(stale.Count == 0 ? "none left out" : string.Join(", ", stale))})");
 
@@ -4412,7 +4473,7 @@ public static class OnlinePlayTest
         SessionState.SetBool(ActiveKey, false);
         EditorApplication.update -= Tick;
         Application.logMessageReceived -= CountErrors;
-        ShopInventory.PreferredBullet = BulletType.Default;   // leave the editor's preference as found
+        ShopInventory.SetEquippedWeapon(0);                   // leave the editor's weapon as found
         PlayerPrefs.SetInt(CharacterPrefsKey, SessionState.GetInt(CharacterKey, 0));   // and its character
         PlayerPrefs.Save();
         if (Lan) OnlineConfig.SaveHostOverride("");             // the LAN search remembered what it found
@@ -4449,6 +4510,9 @@ public static class OnlinePlayTest
 
     private static void Call(object target, string method) =>
         target.GetType().GetMethod(method, Any, null, Type.EmptyTypes, null).Invoke(target, null);
+
+    private static string DockText(Button dock) =>
+        dock != null ? string.Join(" / ", dock.GetComponentsInChildren<Text>(true).Select(t => t.text)) : "none";
 
     private static GameObject FindByName(string name) =>
         Resources.FindObjectsOfTypeAll<GameObject>().FirstOrDefault(g => g.name == name && g.scene.IsValid());

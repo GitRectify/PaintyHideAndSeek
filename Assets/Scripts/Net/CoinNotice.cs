@@ -1,36 +1,30 @@
-using System.Collections;
 using Meccha.Shared.Game;
 using UnityEngine;
-using UnityEngine.UI;
 
-// The confirmation a player gets when bought coins reach their account: a card at the top of the
-// screen, over whatever is showing (Home, the shop, the wallet, a lobby), saying how many coins
-// were added and what the balance is now. It appears when the server says the top-up is
-// credited (PendingTopUp.Settled), never on the phone's own guess, and the balance it shows is the
-// server's. It goes by itself after a few seconds, or on OK; it never blocks the screen under it.
-// A failed or expired payment is still told by the screen the player is on.
+// The confirmation a player gets when bought coins reach their account, over whatever is showing
+// (Home, the shop, the wallet, a lobby): how many coins were added and what the balance is now.
+// It appears when the server says the top-up is credited (PendingTopUp.Settled), never on the
+// phone's own guess, and the balance it shows is the server's. Since 2026-11-24 it is one of the
+// game's notices (Notices, a reward), gone by itself; a failed or expired payment is still told by
+// the screen the player is on.
 public sealed class CoinNotice : MonoBehaviour
 {
-    private const float ShowSeconds = 6f;
-    private const float FadeSeconds = 0.3f;
-    private const float CardHeight = 150f;
-    private static readonly Vector2 Home = new Vector2(OnlineUI.NoticeRight, OnlineUI.NoticeTop);
-
     private static CoinNotice instance;
-
-    private GameObject card;
-    private CanvasGroup group;
-    private Text title, amount, balance;
-    private Coroutine showing;
 
     /// <summary>How many times a credit was confirmed this session (the play test reads it).</summary>
     public static int Shown { get; private set; }
 
-    /// <summary>The text the card shows now, or "" when it is hidden (the play test reads it).</summary>
-    public static string Visible =>
-        instance != null && instance.card != null && instance.card.activeInHierarchy
-            ? instance.title.text + "\n" + instance.amount.text + "\n" + instance.balance.text
-            : "";
+    /// <summary>The confirmation on screen now, or "" (the play test reads it).</summary>
+    public static string Visible
+    {
+        get
+        {
+            string all = Notices.Visible;
+            foreach (string line in all.Split('\n'))
+                if (line.StartsWith(L.T("Purchase complete"), System.StringComparison.Ordinal)) return line;
+            return "";
+        }
+    }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Create()
@@ -39,12 +33,6 @@ public sealed class CoinNotice : MonoBehaviour
         var go = new GameObject("CoinNotice");
         DontDestroyOnLoad(go);
         instance = go.AddComponent<CoinNotice>();
-    }
-
-    private void Awake()
-    {
-        Build();
-        card.SetActive(false);
     }
 
     private void OnEnable() => PendingTopUp.Settled += HandleSettled;
@@ -59,92 +47,10 @@ public sealed class CoinNotice : MonoBehaviour
     /// <summary>Confirms coins added to the account: shown at once, over everything.</summary>
     public static void Show(long coinCents)
     {
-        if (instance == null) Create();
-        instance.Present(coinCents);
-    }
-
-    private void Present(long coinCents)
-    {
         Shown++;
-        title.text = "Purchase complete";
-        amount.text = $"{CoinBalance.Format(coinCents)} coins have been added to your account.";
-        balance.text = CoinBalance.Known ? $"Balance: {CoinBalance.Text} coins" : "";
-
-        UiTranslator.Track(title);
-        UiTranslator.Track(amount);
-        UiTranslator.Track(balance);
-        AudioManager.ButtonTap();
-
-        if (showing != null) StopCoroutine(showing);
-        showing = StartCoroutine(ShowFor(ShowSeconds));
-    }
-
-    private IEnumerator ShowFor(float seconds)
-    {
-        card.SetActive(true);
-        card.transform.SetAsLastSibling();
-        var rt = (RectTransform)card.transform;
-        for (float t = 0f; t < FadeSeconds; t += Time.unscaledDeltaTime)
-        {
-            OnlineUI.SlideNotice(rt, group, Home, t / FadeSeconds);
-            yield return null;
-        }
-        OnlineUI.SlideNotice(rt, group, Home, 1f);
-
-        yield return new WaitForSecondsRealtime(seconds);
-        yield return Hide();
-    }
-
-    private IEnumerator Hide()
-    {
-        var rt = (RectTransform)card.transform;
-        for (float t = FadeSeconds; t > 0f; t -= Time.unscaledDeltaTime)
-        {
-            OnlineUI.SlideNotice(rt, group, Home, t / FadeSeconds);
-            yield return null;
-        }
-
-        card.SetActive(false);
-        showing = null;
-    }
-
-    private void Close()
-    {
-        AudioManager.ButtonTap();
-        if (showing != null) StopCoroutine(showing);
-        showing = StartCoroutine(Hide());
-    }
-
-    // Kept the balance current while it is up (a purchase right after, say).
-    private void Update()
-    {
-        if (card.activeSelf && CoinBalance.Known) balance.text = $"Balance: {CoinBalance.Text} coins";
-    }
-
-    private void Build()
-    {
-        Transform canvas = OnlineUI.CreateCanvas("CoinNoticeCanvas", transform, 90).transform;
-
-        // The notice slot (top right, under the coin balance), like every other notice (2026-11-13).
-        Image bg = OnlineUI.NewImage("CoinNoticeCard", canvas, new Color(0.10f, 0.32f, 0.17f, 0.97f));
-        RectTransform rt = bg.rectTransform;
-        OnlineUI.PlaceNotice(rt, CardHeight, keepWidth: true);
-        card = bg.gameObject;
-        group = card.AddComponent<CanvasGroup>();
-
-        Outline outline = card.AddComponent<Outline>();
-        outline.effectColor = new Color(0.49f, 0.99f, 0.6f, 0.9f);
-        outline.effectDistance = new Vector2(3f, -3f);
-
-        title = OnlineUI.NewLabel(card.transform, "", 34, new Vector2(-60f, 46f), new Vector2(460f, 48f), TextAnchor.MiddleLeft, true);
-        title.color = new Color(0.49f, 0.99f, 0.6f, 1f);
-        amount = OnlineUI.NewLabel(card.transform, "", 27, new Vector2(-60f, 2f), new Vector2(460f, 40f), TextAnchor.MiddleLeft);
-        amount.resizeTextForBestFit = true;
-        amount.resizeTextMinSize = 16;
-        amount.resizeTextMaxSize = 27;
-        balance = OnlineUI.NewLabel(card.transform, "", 24, new Vector2(-60f, -42f), new Vector2(460f, 36f), TextAnchor.MiddleLeft);
-        balance.color = OnlineUI.Muted;
-
-        OnlineUI.NewButton(card.transform, "OK", new Vector2(240f, 0f), new Vector2(110f, 96f), OnlineUI.Green, Close);
+        string balance = CoinBalance.Known ? L.F("Balance: {0} coins", CoinBalance.Text) : "";
+        Notices.Show(NoticeKind.Reward, L.T("Purchase complete"),
+                     L.F("{0} coins have been added to your account.", CoinBalance.Format(coinCents)) + (balance.Length > 0 ? " " + balance : ""),
+                     6f);
     }
 }

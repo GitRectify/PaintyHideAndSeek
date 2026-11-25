@@ -8,20 +8,21 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
 
-// Small builder for the online screens, in the same runtime-built style as MatchmakingUI and
-// MatchHUD (legacy uGUI Text, UIFont.Default, a 1920x1080 reference canvas matched on height).
-// Flat colours for now; the screens only use these helpers, so reskinning them with the game's
-// sprites later is a change in one place.
+// Small builder for the online screens (legacy uGUI Text, a 1920x1080 reference canvas matched on
+// height). Since 2026-11-24 it draws design B, "Paintbox" (Paintbox.cs): paper panels with an ink
+// outline and a hard shadow, yellow for the main action, violet for what is picked, Rubik type.
+// The screens only use these helpers, so they all took the new look from this one place; the
+// colour names below are the roles the screens ask for, in the new palette.
 public static class OnlineUI
 {
-    public static readonly Color Dim = new Color(0f, 0f, 0f, 0.6f);
-    public static readonly Color PanelColor = new Color(0.12f, 0.14f, 0.20f, 0.97f);
-    public static readonly Color Green = new Color(0.20f, 0.60f, 0.32f, 0.97f);
-    public static readonly Color Blue = new Color(0.20f, 0.42f, 0.75f, 0.97f);
-    public static readonly Color Gray = new Color(0.30f, 0.32f, 0.38f, 0.95f);
-    public static readonly Color Red = new Color(0.75f, 0.25f, 0.22f, 0.97f);
-    public static readonly Color Muted = new Color(1f, 1f, 1f, 0.65f);
-    public static readonly Color Warning = new Color(1f, 0.78f, 0.35f, 1f);
+    public static readonly Color Dim = Paintbox.Dim;
+    public static readonly Color PanelColor = Paintbox.Paper;
+    public static readonly Color Green = Paintbox.Yellow;      // the main action
+    public static readonly Color Blue = Paintbox.Violet;       // picked / secondary
+    public static readonly Color Gray = Paintbox.Paper;        // neutral
+    public static readonly Color Red = Paintbox.Bad;
+    public static readonly Color Muted = Paintbox.Muted;
+    public static readonly Color Warning = Paintbox.Hex(0x9a4f12);
 
     public static Canvas CreateCanvas(string name, Transform parent, int sortingOrder)
     {
@@ -41,7 +42,7 @@ public static class OnlineUI
         return canvas;
     }
 
-    /// <summary>A full-screen dimmer with a centred panel; returns the panel.</summary>
+    /// <summary>A full-screen dimmer with a centred panel (paper, ink outline, a hard shadow); returns the panel.</summary>
     public static RectTransform Modal(Transform canvas, string name, Vector2 panelSize)
     {
         Image dim = NewImage(name, canvas, Dim);
@@ -49,6 +50,7 @@ public static class OnlineUI
 
         Image panel = NewImage("Panel", dim.transform, PanelColor);
         Place(panel.rectTransform, Vector2.zero, panelSize);
+        Chunky(panel, Paintbox.RadiusLarge, Paintbox.PanelLine, 8f);
         return panel.rectTransform;
     }
 
@@ -57,8 +59,55 @@ public static class OnlineUI
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         Image image = go.AddComponent<Image>();
-        image.color = color;
+        image.color = Adapt(color);
         return image;
+    }
+
+    /// <summary>
+    /// A colour asked for by a screen made before design B, in design B: dark surfaces become
+    /// paper, the faint white rows of a dark panel become the quiet tab colour, an orange call to
+    /// action the hot yellow. Design B's own colours come back as they are.
+    /// </summary>
+    public static Color Adapt(Color c)
+    {
+        if (c.a <= 0.01f) return c;
+        float lum = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+        if (c.r > 0.95f && c.g > 0.95f && c.b > 0.95f && c.a < 0.25f) return Paintbox.Tab;          // a row on a dark panel
+        if (c == Paintbox.Dim) return c;
+        if (lum < 0.08f && c.a >= 0.3f && c.a <= 0.8f) return Paintbox.Dim;                           // a black dimmer behind a dialog
+        if (lum < 0.22f && c.a > 0.8f) return new Color(Paintbox.Paper.r, Paintbox.Paper.g, Paintbox.Paper.b, Mathf.Max(c.a, 0.97f));
+        if (Mathf.Abs(c.r - 0.85f) < 0.03f && Mathf.Abs(c.g - 0.52f) < 0.03f && Mathf.Abs(c.b - 0.12f) < 0.03f) return Paintbox.Hot;
+        return c;
+    }
+
+    /// <summary>The ink or white that reads on a fill.</summary>
+    public static Color InkOn(Color fill)
+    {
+        if (fill.a < 0.3f) return Paintbox.Ink;
+        float lum = 0.299f * fill.r + 0.587f * fill.g + 0.114f * fill.b;
+        return lum > 0.5f ? Paintbox.Ink : Color.white;
+    }
+
+    /// <summary>
+    /// Gives a plain Image design B's shape: rounded corners, an outline and a hard drop shadow
+    /// (mesh effects, so the Image stays the object's only graphic and its colour stays its fill).
+    /// </summary>
+    public static void Chunky(Image image, float radius, Color edge, float shadow)
+    {
+        UiArt.Apply(image, UiArt.Rounded, radius);
+        Outline outline = image.GetComponent<Outline>() ?? image.gameObject.AddComponent<Outline>();
+        outline.effectColor = edge;
+        outline.effectDistance = new Vector2(Paintbox.Border, -Paintbox.Border);
+        outline.useGraphicAlpha = true;
+        if (shadow > 0f)
+        {
+            Shadow drop = null;
+            foreach (Shadow s in image.GetComponents<Shadow>()) if (!(s is Outline)) drop = s;
+            if (drop == null) drop = image.gameObject.AddComponent<Shadow>();
+            drop.effectColor = Paintbox.Ink;
+            drop.effectDistance = new Vector2(0f, -shadow);
+            drop.useGraphicAlpha = true;
+        }
     }
 
     public static Text NewLabel(Transform parent, string text, int size, Vector2 pos, Vector2 box,
@@ -68,12 +117,12 @@ public static class OnlineUI
         go.transform.SetParent(parent, false);
 
         Text label = go.AddComponent<Text>();
-        label.font = UIFont.Default;
+        label.font = bold ? Paintbox.Bold : Paintbox.Regular;
         label.text = text;
         label.fontSize = size;
-        label.color = Color.white;
+        label.color = Paintbox.Ink;
         label.alignment = anchor;
-        label.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
+        label.fontStyle = FontStyle.Normal;
         label.supportRichText = true;
         label.raycastTarget = false;
         label.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -88,28 +137,38 @@ public static class OnlineUI
     {
         Image bg = NewImage("Button", parent, color);
         Place(bg.rectTransform, pos, box);
+        Chunky(bg, Mathf.Min(Paintbox.Radius, box.y * 0.36f), Paintbox.Ink, Paintbox.Shadow);
 
         Button button = bg.gameObject.AddComponent<Button>();
         button.targetGraphic = bg;
+        Navigation none = button.navigation;
+        none.mode = Navigation.Mode.None;
+        button.navigation = none;
         if (onClick != null) button.onClick.AddListener(onClick);
 
         Text label = NewLabel(bg.transform, text, 36, Vector2.zero, box, TextAnchor.MiddleCenter, true);
         Stretch(label.rectTransform);
+        label.rectTransform.offsetMin = new Vector2(12f, 2f);
+        label.rectTransform.offsetMax = new Vector2(-12f, -2f);
+        label.color = InkOn(bg.color);
+        bg.gameObject.AddComponent<PaintboxInk>();
+        bg.gameObject.AddComponent<PaintboxPressFlat>();
         return button;
     }
 
     public static InputField NewInput(Transform parent, string placeholder, Vector2 pos, Vector2 box)
     {
-        Image bg = NewImage("Input", parent, new Color(1f, 1f, 1f, 0.95f));
+        Image bg = NewImage("Input", parent, Color.white);
         Place(bg.rectTransform, pos, box);
+        Chunky(bg, 20f, Paintbox.Line, 0f);
 
         Text hint = NewLabel(bg.transform, placeholder, 34, Vector2.zero, box, TextAnchor.MiddleLeft);
-        hint.color = new Color(0f, 0f, 0f, 0.4f);
+        hint.color = new Color(Paintbox.Muted.r, Paintbox.Muted.g, Paintbox.Muted.b, 0.6f);
         hint.fontStyle = FontStyle.Italic;
         Inset(hint.rectTransform, 20f);
 
         Text text = NewLabel(bg.transform, "", 34, Vector2.zero, box, TextAnchor.MiddleLeft);
-        text.color = Color.black;
+        text.color = Paintbox.Ink;
         text.supportRichText = false;   // a user id is shown as typed, never as markup
         text.horizontalOverflow = HorizontalWrapMode.Overflow;
         Inset(text.rectTransform, 20f);

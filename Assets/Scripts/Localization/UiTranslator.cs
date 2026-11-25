@@ -52,6 +52,26 @@ public sealed class UiTranslator : MonoBehaviour
         instance.Visit(text);
     }
 
+    /// <summary>
+    /// Gives a text a new font of its own (design B's restyle of the scene's labels): drawn in it
+    /// at once, unless its words need the wide font, which then stays until they no longer do.
+    /// </summary>
+    public static void Restyle(Text text, Font font)
+    {
+        if (text == null || font == null) return;
+        if (instance != null && instance.seen.TryGetValue(text, out Seen entry))
+        {
+            entry.OwnFont = font;
+            if (entry.Swapped) { FitFont(entry, text.text, L.Current); return; }
+            text.font = font;
+            FitFont(entry, text.text, L.Current);
+            return;
+        }
+        if (text.font == WideFont && !CanDraw(font, text.text ?? "")) return;
+        text.font = font;
+        Track(text);
+    }
+
     /// <summary>The font every language can be drawn in: built in, dynamic, with the system's fonts behind it.</summary>
     public static Font WideFont
     {

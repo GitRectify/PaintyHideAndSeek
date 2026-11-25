@@ -295,7 +295,7 @@ public partial class OnlineRound
         if (home != null) home.SetGameplayUIVisible(false);
         if (paint != null) paint.CloseDrawingNow();
         if (results != null) results.HideAll();
-        bulletButton.gameObject.SetActive(false);
+        weaponButton.gameObject.SetActive(false);
         CloseNextPlayerOffer();
         if (won) AudioManager.Win(); else AudioManager.Lose();
         ShowBanner(won ? "You won!" : "You lost.", 4f);

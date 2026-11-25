@@ -19,10 +19,10 @@ using UnityEngine.UI;
 //               server doesn't have
 //   YOUR MATCH  what Play starts, and PLAY / FIND MATCH
 //
-// The look: deep navy rounded panel and cards (UiArt shapes, UiGradient), one way of showing a
-// choice everywhere (a gold ring and check badge that pop in), a dark veil with a lock and price on
-// what is not owned, a raised green Play button; the panel slides in when it opens, buttons sink
-// when pressed (UiPress).
+// The look (design B, "Paintbox", 2026-11-24): a paper panel and cards with ink outlines, one way
+// of showing a choice everywhere (violet, an ink ring and a yellow check badge that pop in), a veil
+// with a lock and price on what is not owned, a yellow Play button on a hard ink shadow; the panel
+// slides in when it opens, buttons sink when pressed (UiPress).
 //
 // Nothing about a match changes: Single Play goes on as it did after the map picker
 // (HomeUI.PlaySingle), Multiple Play through the same checks as before (OnlineLobby.FindFromSetup:
@@ -47,25 +47,26 @@ public class PlaySetupUI : MonoBehaviour
     private const float FooterHeight = 120f;
 
     // Colours.
-    private static readonly Color PanelTop = Hex(0x1E2D52, 0.97f);
-    private static readonly Color PanelBottom = Hex(0x0F182E, 0.97f);
-    private static readonly Color PanelEdge = Hex(0x4C6CAA, 0.45f);
-    private static readonly Color CardTop = Hex(0x1D2A4A);
-    private static readonly Color CardBottom = Hex(0x172240);
-    private static readonly Color CardEdge = Hex(0x34497A, 0.9f);
-    private static readonly Color PickedTop = Hex(0x2C5097);
-    private static readonly Color PickedBottom = Hex(0x1D3A72);
-    private static readonly Color HiderTop = Hex(0x3FCF7D);
-    private static readonly Color HiderBottom = Hex(0x1E9A55);
-    private static readonly Color SeekerTop = Hex(0x4D9BFF);
-    private static readonly Color SeekerBottom = Hex(0x2A62D8);
-    private static readonly Color Gold = Hex(0xFFD24A);
-    private static readonly Color Ink = Hex(0x14203A);
-    private static readonly Color Muted = Hex(0x8FA4CE);
-    private static readonly Color Warning = Hex(0xFFC759);
-    private static readonly Color PlayTop = Hex(0x47DE86);
-    private static readonly Color PlayBottom = Hex(0x1FA65A);
-    private static readonly Color PlayLip = Hex(0x157A40);
+    // Design B's palette (Paintbox): paper, ink, violet for what is picked, yellow for Play.
+    private static readonly Color PanelTop = Paintbox.Paper;
+    private static readonly Color PanelBottom = Paintbox.Paper;
+    private static readonly Color PanelEdge = Paintbox.PanelLine;
+    private static readonly Color CardTop = Paintbox.Paper;
+    private static readonly Color CardBottom = Paintbox.Paper;
+    private static readonly Color CardEdge = Paintbox.Ink;
+    private static readonly Color PickedTop = Paintbox.Violet;
+    private static readonly Color PickedBottom = Paintbox.Violet;
+    private static readonly Color HiderTop = Paintbox.Violet;
+    private static readonly Color HiderBottom = Paintbox.Violet;
+    private static readonly Color SeekerTop = Paintbox.Violet;
+    private static readonly Color SeekerBottom = Paintbox.Violet;
+    private static readonly Color Gold = Paintbox.Yellow;
+    private static readonly Color Ink = Paintbox.Ink;
+    private static readonly Color Muted = Paintbox.Muted;
+    private static readonly Color Warning = Paintbox.Bad;
+    private static readonly Color PlayTop = Paintbox.Yellow;
+    private static readonly Color PlayBottom = Paintbox.Yellow;
+    private static readonly Color PlayLip = Paintbox.Ink;
 
     public static PlaySetupUI Instance { get; private set; }
 
@@ -449,7 +450,7 @@ public class PlaySetupUI : MonoBehaviour
     {
         if (root == null) return;
 
-        title.text = Online ? "MULTIPLAYER" : "SINGLE PLAY";
+        title.text = Online ? "Multiplayer" : "Single Player";
         extras.SetActive(Online);
 
         SetPicked(hiderCard, side == 2, HiderTop, HiderBottom);
@@ -498,7 +499,7 @@ public class PlaySetupUI : MonoBehaviour
             summaryCaption.text = "YOUR MATCH";
             summaryCaption.color = Muted;
             summary.text = Summary();
-            summary.color = Color.white;
+            summary.color = Paintbox.Ink;
         }
         else
         {
@@ -601,7 +602,7 @@ public class PlaySetupUI : MonoBehaviour
         Stretch((RectTransform)root.transform, 0f);
         panelGroup = root.AddComponent<CanvasGroup>();
 
-        Image shadow = Shape("PlaySetupShadow", root.transform, UiArt.Shadow, 30f, new Color(0f, 0f, 0f, 0.55f));
+        Image shadow = Shape("PlaySetupShadow", root.transform, UiArt.Shadow, 30f, new Color(0.22f, 0.137f, 0.263f, 0.35f));
         shadowRect = shadow.rectTransform;
         shadowRect.anchorMin = shadowRect.anchorMax = shadowRect.pivot = new Vector2(1f, 0f);
 
@@ -612,14 +613,15 @@ public class PlaySetupUI : MonoBehaviour
         panelRect = bg.rectTransform;
         panelRect.anchorMin = panelRect.anchorMax = panelRect.pivot = new Vector2(1f, 0f);
         panelRect.anchoredPosition = new Vector2(-RightMargin, BottomMargin);
-        Stretch(Shape("Edge", panelRect, UiArt.RingThin, 30f, PanelEdge).rectTransform, 0f);
+        Stretch(Shape("Edge", panelRect, UiArt.RingBold, 30f, PanelEdge).rectTransform, 0f);
         Transform p = panel.transform;
 
         // The mode, as chosen on Home.
         title = OnlineUI.NewLabel(p, "", 46, Vector2.zero, new Vector2(Inner, 54f), TextAnchor.MiddleLeft, true);
         title.name = "SetupTitle";
         Place(title.rectTransform, Pad, 24f, Inner, 54f);
-        Shadowed(title, 0.45f);
+        UiTranslator.Restyle(title, Paintbox.Title);
+        title.color = Paintbox.Ink;
 
         // Multiplayer's other places, small, under the title: they open over this screen.
         extras = new GameObject("PlaySetupExtras", typeof(RectTransform));
@@ -681,7 +683,7 @@ public class PlaySetupUI : MonoBehaviour
         s.Label = OnlineUI.NewLabel(parent, label, 22, Vector2.zero, new Vector2(Inner, 26f), TextAnchor.MiddleLeft, true);
         s.Label.color = Muted;
         s.Label.horizontalOverflow = HorizontalWrapMode.Overflow;
-        s.Line = Shape("Line", parent, null, 0f, new Color(Muted.r, Muted.g, Muted.b, 0.22f));
+        s.Line = Shape("Line", parent, null, 0f, Paintbox.Line);
         var row = new GameObject(rowName, typeof(RectTransform));
         row.transform.SetParent(parent, false);
         s.Row = (RectTransform)row.transform;
@@ -693,7 +695,7 @@ public class PlaySetupUI : MonoBehaviour
     {
         footer = (RectTransform)new GameObject("SetupFooter", typeof(RectTransform)).transform;
         footer.SetParent(p, false);
-        Image line = Shape("Line", footer, null, 0f, new Color(Muted.r, Muted.g, Muted.b, 0.22f));
+        Image line = Shape("Line", footer, null, 0f, Paintbox.Line);
         Place(line.rectTransform, Pad, 0f, Inner, 2f);
 
         summaryCaption = OnlineUI.NewLabel(footer, "YOUR MATCH", 20, Vector2.zero, new Vector2(420f, 26f), TextAnchor.MiddleLeft, true);
@@ -710,9 +712,12 @@ public class PlaySetupUI : MonoBehaviour
         Image face = Shape("SetupPlay", footer, UiArt.Rounded, 24f, Color.white);
         face.raycastTarget = true;
         face.gameObject.AddComponent<UiGradient>().Set(PlayTop, PlayBottom);
+        Outline rim = face.gameObject.AddComponent<Outline>();
+        rim.effectColor = Paintbox.Ink;
+        rim.effectDistance = new Vector2(Paintbox.Border, -Paintbox.Border);
         Shadow lip = face.gameObject.AddComponent<Shadow>();
         lip.effectColor = PlayLip;
-        lip.effectDistance = new Vector2(0f, -6f);
+        lip.effectDistance = new Vector2(0f, -Paintbox.Shadow);
         RectTransform frt = face.rectTransform;
         frt.anchorMin = frt.anchorMax = frt.pivot = new Vector2(1f, 1f);
         frt.anchoredPosition = new Vector2(-Pad, -18f);
@@ -722,7 +727,7 @@ public class PlaySetupUI : MonoBehaviour
         playButton.onClick.AddListener(Play);
         face.gameObject.AddComponent<UiPress>();
 
-        Image icon = Shape("Icon", frt, UiArt.Play, 0f, Color.white);
+        Image icon = Shape("Icon", frt, UiArt.Play, 0f, Paintbox.OnYellow);
         icon.type = Image.Type.Simple;
         icon.preserveAspect = true;
         RectTransform irt = icon.rectTransform;
@@ -739,7 +744,7 @@ public class PlaySetupUI : MonoBehaviour
         playLabel.resizeTextForBestFit = true;
         playLabel.resizeTextMinSize = 22;
         playLabel.resizeTextMaxSize = 38;
-        Shadowed(playLabel, 0.3f);
+        playLabel.color = Paintbox.OnYellow;
 
         playDetail = OnlineUI.NewLabel(frt, "", 20, Vector2.zero, Vector2.zero, TextAnchor.UpperLeft, true);
         RectTransform drt = playDetail.rectTransform;
@@ -747,25 +752,25 @@ public class PlaySetupUI : MonoBehaviour
         drt.anchorMax = new Vector2(1f, 0.38f);
         drt.offsetMin = new Vector2(86f, 6f);
         drt.offsetMax = new Vector2(-16f, 0f);
-        playDetail.color = new Color(1f, 1f, 1f, 0.9f);
+        playDetail.color = Paintbox.OnYellow;
     }
 
     private void Extra(string text, int column, float width, Action tap)
     {
-        Image face = Shape("Extra_" + text, extras.transform, UiArt.Rounded, 22f, Hex(0x22355E, 0.95f));
+        Image face = Shape("Extra_" + text, extras.transform, UiArt.Rounded, 22f, Paintbox.Paper);
         face.raycastTarget = true;
         RectTransform rt = face.rectTransform;
         rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 1f);
         rt.anchoredPosition = new Vector2(column * (width + 12f), 0f);
         rt.sizeDelta = new Vector2(width, 44f);
-        Stretch(Shape("Edge", rt, UiArt.RingThin, 22f, PanelEdge).rectTransform, 0f);
+        Stretch(Shape("Edge", rt, UiArt.RingBold, 22f, Paintbox.Ink).rectTransform, 0f);
         Button b = face.gameObject.AddComponent<Button>();
         b.targetGraphic = face;
         b.onClick.AddListener(() => tap());
         face.gameObject.AddComponent<UiPress>();
         Text label = OnlineUI.NewLabel(rt, text, 22, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
         OnlineUI.Stretch(label.rectTransform);
-        label.color = new Color(1f, 1f, 1f, 0.92f);
+        label.color = Paintbox.Ink;
         label.resizeTextForBestFit = true;
         label.resizeTextMinSize = 14;
         label.resizeTextMaxSize = 22;
@@ -785,7 +790,7 @@ public class PlaySetupUI : MonoBehaviour
         rt.sizeDelta = new Vector2(width, height);
         var c = new Card { Fill = face.gameObject.AddComponent<UiGradient>() };
         c.Fill.Set(CardTop, CardBottom);
-        Stretch(Shape("Edge", rt, UiArt.RingThin, CardRadius, CardEdge).rectTransform, 0f);
+        Stretch(Shape("Edge", rt, UiArt.RingBold, CardRadius, CardEdge).rectTransform, 0f);
 
         c.Button = face.gameObject.AddComponent<Button>();
         c.Button.targetGraphic = face;
@@ -799,7 +804,7 @@ public class PlaySetupUI : MonoBehaviour
     {
         Transform t = c.Button.transform;
 
-        Image veil = Shape("Lock", t, UiArt.Rounded, CardRadius, new Color(0.03f, 0.05f, 0.11f, 0.62f));
+        Image veil = Shape("Lock", t, UiArt.Rounded, CardRadius, new Color(Paintbox.Ink.r, Paintbox.Ink.g, Paintbox.Ink.b, 0.6f));
         Stretch(veil.rectTransform, 0f);
         c.Veil = veil.gameObject;
         Image lockIcon = Shape("Icon", veil.transform, null, 0f, Color.white);
@@ -827,15 +832,15 @@ public class PlaySetupUI : MonoBehaviour
         if (withPill)
         {
             // The price of what is locked, on a gold pill at the bottom.
-            Image pill = Shape("Price", veil.transform, UiArt.Rounded, 12f, Hex(0x3B2D0A, 0.95f));
+            Image pill = Shape("Price", veil.transform, UiArt.Rounded, 12f, Paintbox.Hot);
             RectTransform prt = pill.rectTransform;
             prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0f);
             prt.anchoredPosition = new Vector2(0f, 34f);
             prt.sizeDelta = new Vector2(132f, 26f);
-            Stretch(Shape("Edge", prt, UiArt.RingThin, 12f, new Color(Gold.r, Gold.g, Gold.b, 0.7f)).rectTransform, 0f);
+            Stretch(Shape("Edge", prt, UiArt.RingThin, 12f, Paintbox.Ink).rectTransform, 0f);
             c.PillText = OnlineUI.NewLabel(prt, "", 17, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
             OnlineUI.Stretch(c.PillText.rectTransform);
-            c.PillText.color = Gold;
+            c.PillText.color = Paintbox.HotInk;
             c.PillText.resizeTextForBestFit = true;
             c.PillText.resizeTextMinSize = 11;
             c.PillText.resizeTextMaxSize = 17;
@@ -844,7 +849,7 @@ public class PlaySetupUI : MonoBehaviour
             c.Pill.SetActive(false);
         }
 
-        c.Ring = Shape("Ring", t, UiArt.RingBold, CardRadius + 3f, Gold);
+        c.Ring = Shape("Ring", t, UiArt.RingBold, CardRadius + 3f, Paintbox.Ink);
         Stretch(c.Ring.rectTransform, -4f);
         c.Ring.gameObject.SetActive(false);
 
@@ -870,7 +875,7 @@ public class PlaySetupUI : MonoBehaviour
         float textLeft = 24f;
         if (icon != null)
         {
-            Image disc = Shape("IconDisc", t, UiArt.Circle, 0f, new Color(0f, 0f, 0f, 0.22f));
+            Image disc = Shape("IconDisc", t, UiArt.Circle, 0f, Paintbox.Card);
             disc.type = Image.Type.Simple;
             RectTransform drt = disc.rectTransform;
             drt.anchorMin = drt.anchorMax = drt.pivot = new Vector2(0f, 0.5f);
@@ -889,7 +894,7 @@ public class PlaySetupUI : MonoBehaviour
         Shadowed(c.Title, 0.3f);
         c.Detail = OnlineUI.NewLabel(t, line, 20, Vector2.zero, Vector2.zero, TextAnchor.UpperLeft, false);
         Band(c.Detail.rectTransform, textLeft, 0f, 0.46f, 2f);
-        c.Detail.color = new Color(1f, 1f, 1f, 0.82f);
+        c.Detail.color = Paintbox.Muted;
         c.Detail.resizeTextForBestFit = true;
         c.Detail.resizeTextMinSize = 14;
         c.Detail.resizeTextMaxSize = 20;
@@ -902,7 +907,7 @@ public class PlaySetupUI : MonoBehaviour
         Card c = NewCard(row, "Character", x, 150f, 140f, tap);
         Transform t = c.Button.transform;
 
-        Image glow = Shape("Stage", t, UiArt.Circle, 0f, new Color(0.45f, 0.62f, 1f, 0.16f));
+        Image glow = Shape("Stage", t, UiArt.Circle, 0f, Paintbox.Wash);
         glow.type = Image.Type.Simple;
         RectTransform grt = glow.rectTransform;
         grt.anchorMin = grt.anchorMax = grt.pivot = new Vector2(0.5f, 1f);
@@ -979,6 +984,7 @@ public class PlaySetupUI : MonoBehaviour
         c.Title.resizeTextForBestFit = true;
         c.Title.resizeTextMinSize = 13;
         c.Title.resizeTextMaxSize = 20;
+        c.Title.color = Color.white;
         Shadowed(c.Title, 0.5f);
 
         FinishCard(c, true);
@@ -1009,17 +1015,17 @@ public class PlaySetupUI : MonoBehaviour
             c.Detail = OnlineUI.NewLabel(t, free ? "Bots fill empty seats" : "Real players only", 19, Vector2.zero, Vector2.zero, TextAnchor.UpperLeft);
             Band(c.Detail.rectTransform, 22f, 0f, 0.46f, 2f);
             c.Detail.rectTransform.offsetMax = new Vector2(-130f, 2f);
-            c.Detail.color = new Color(1f, 1f, 1f, 0.8f);
+            c.Detail.color = Paintbox.Muted;
 
-            Image pill = Shape("Price", t, UiArt.Rounded, 14f, free ? Hex(0x2FB86B) : Hex(0x3B2D0A, 0.95f));
+            Image pill = Shape("Price", t, UiArt.Rounded, 14f, free ? Paintbox.GoodWash : Paintbox.Hot);
             RectTransform prt = pill.rectTransform;
             prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(1f, 0.5f);
             prt.anchoredPosition = new Vector2(-18f, 0f);
             prt.sizeDelta = new Vector2(104f, 34f);
-            if (!free) Stretch(Shape("Edge", prt, UiArt.RingThin, 14f, new Color(Gold.r, Gold.g, Gold.b, 0.7f)).rectTransform, 0f);
+            Stretch(Shape("Edge", prt, UiArt.RingThin, 14f, Paintbox.Ink).rectTransform, 0f);
             Text price = OnlineUI.NewLabel(prt, free ? "FREE" : OnlineUI.CoinsText(r.EntryCents), 19, Vector2.zero, Vector2.zero, TextAnchor.MiddleCenter, true);
             OnlineUI.Stretch(price.rectTransform);
-            price.color = free ? Color.white : Gold;
+            price.color = free ? Paintbox.Good : Paintbox.HotInk;
             price.resizeTextForBestFit = true;
             price.resizeTextMinSize = 11;
             price.resizeTextMaxSize = 19;
@@ -1071,6 +1077,7 @@ public class PlaySetupUI : MonoBehaviour
 
     private static void Shadowed(Text text, float alpha)
     {
+        if (text.color.r < 0.7f) return;   // ink on paper (design B) wants no shadow; white on a picture does
         Shadow s = text.gameObject.AddComponent<Shadow>();
         s.effectColor = new Color(0f, 0f, 0f, alpha);
         s.effectDistance = new Vector2(0f, -2f);

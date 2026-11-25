@@ -26,7 +26,7 @@ public enum GameAction
     FreeCamera,
     StartRound,
     Settings,
-    SwitchBullet,
+    SwitchWeapon,
 }
 
 /// <summary>
@@ -61,7 +61,7 @@ public static class KeyBindings
         { GameAction.FreeCamera, Key.V },
         { GameAction.StartRound, Key.Enter },
         { GameAction.Settings, Key.Escape },
-        { GameAction.SwitchBullet, Key.B },
+        { GameAction.SwitchWeapon, Key.B },
     };
 
     // English names: the key of the translation table (L), so they show in the player's language.
@@ -85,7 +85,7 @@ public static class KeyBindings
         { GameAction.FreeCamera, "Free camera" },
         { GameAction.StartRound, "Start (end hiding)" },
         { GameAction.Settings, "Settings" },
-        { GameAction.SwitchBullet, "Switch bullet" },
+        { GameAction.SwitchWeapon, "Switch weapon" },
     };
 
     private static Dictionary<GameAction, Key> current;
@@ -219,6 +219,7 @@ public static class KeyBindings
         foreach (GameAction action in All)
         {
             int saved = PlayerPrefs.GetInt(PrefsPrefix + action, -1);
+            if (saved < 0 && action == GameAction.SwitchWeapon) saved = PlayerPrefs.GetInt(PrefsPrefix + "SwitchBullet", -1);   // its name until 2026-11-24
             current[action] = saved > 0 && Enum.IsDefined(typeof(Key), saved) ? (Key)saved : Defaults[action];
         }
     }

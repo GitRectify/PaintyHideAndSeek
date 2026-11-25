@@ -49,11 +49,10 @@ public class OnlineMatches : MonoBehaviour
     private Canvas overlayCanvas, screenCanvas;
     private GameObject coinPill, chip, listScreen, resultsScreen;
     private Text chipText, listTitle, listPage, resultsTitle, resultsHeading, resultsExtraHint;
-    private RectTransform listRows, toastStack, resultsRows;
+    private RectTransform listRows, resultsRows;
     private Button resultsNext, resultsHome, resultsClose, resultsExtra;
     private Action onResultsNext, onResultsHome, onResultsClose, onResultsExtra;
     private int page;
-    private readonly List<(GameObject Go, CanvasGroup Group, float Until, uint MatchId)> toasts = new List<(GameObject, CanvasGroup, float, uint)>();
 
     /// <summary>Matches this player left that are still running (rejoinable).</summary>
     public static int AwayCount
@@ -134,17 +133,22 @@ public class OnlineMatches : MonoBehaviour
             if (go.activeSelf != online) go.SetActive(online);
         }
 
-        // The side screen's own coin panel is another design: Multiple Play shows Home's pill
+        // The side screen's own coin panel is another design: Multiple Play shows design B's pill
         // instead (coinPill), and Single Play no balance at all.
+        if (roleCoinPanel == null && Time.unscaledTime >= nextPillLook)
+        {
+            nextPillLook = Time.unscaledTime + 1f;
+            GameObject role = SceneObject("RoleSelectCanvas");
+            roleCoinPanel = role != null ? role.transform.Find("CoinPanel")?.gameObject : null;
+        }
         if (roleCoinPanel != null && roleCoinPanel.activeSelf) roleCoinPanel.SetActive(false);
     }
 
+    private GameObject roleCoinPanel;
+    private float nextPillLook;
+
     /// <summary>A short notice in the notice slot (top right), gone by itself; a tap dismisses it.</summary>
-    public static void Notify(string text)
-    {
-        if (instance == null) Create();
-        instance.Toast(text, 0, false);
-    }
+    public static void Notify(string text) => Notices.Show(NoticeKind.Info, text, 4f);
 
     /// <summary>Opens the list of the player's matches (in progress and ended).</summary>
     public static void ShowList()
@@ -206,8 +210,6 @@ public class OnlineMatches : MonoBehaviour
         Hook();
         UpdateModeObjects();
         bool quiet = InSinglePlay;
-        bool hideToasts = quiet || LoadingScreen.Holding || listScreen.activeSelf || resultsScreen.activeSelf;
-        if (toastStack.gameObject.activeSelf == hideToasts) toastStack.gameObject.SetActive(!hideToasts);
 
         // Nothing is asked of the server during Single Play.
         if (!quiet && Net != null && Net.IsConnected && !string.IsNullOrEmpty(Net.SessionToken) && Time.unscaledTime >= nextPollAt)
@@ -224,7 +226,6 @@ public class OnlineMatches : MonoBehaviour
         }
 
         if (listScreen.activeSelf) RefreshListTimes();
-        UpdateToasts();
     }
 
     private void Hook()
@@ -276,7 +277,7 @@ public class OnlineMatches : MonoBehaviour
             seenEnded.Add((m.MatchId, endedAt));
             announced = true;
             balanceDirty = true;
-            string coins = m.CoinCents > 0 ? $" <color=#FFD24A>+{OnlineUI.CoinsText(m.CoinCents)}</color>" : "";
+            string coins = m.CoinCents > 0 ? $" <color=#2C684C>+{OnlineUI.CoinsText(m.CoinCents)}</color>" : "";
             Toast($"Your match in {RoomTitle(m.RoomId)} ended: {(m.Won ? "you won" : "you lost")}.{coins} Tap for the results.", m.MatchId, false);
         }
         if (announced) SaveSeen();
@@ -348,85 +349,17 @@ public class OnlineMatches : MonoBehaviour
 
     // ================= Coin balance everywhere =================
 
-    // Home's coin pill, the same on every Multiple Play screen (2026-11-13): shown there unless a
-    // pill of that design is already up (Home's, the shop's), never over the loading screen, and
-    // never in Single Play, which has no coins.
-    private float nextPillLook;
+    // The coin pill, the same on every Multiple Play screen (2026-11-13; design B's since
+    // 2026-11-24): shown there unless Home or the shop shows the balance itself, never over the
+    // loading screen, and never in Single Play, which has no coins.
 
     private void UpdateCoinPill()
     {
-        // Home's pill is copied once Home is loaded (this overlay is made during the Loading scene).
-        if (homePill == null && Time.unscaledTime >= nextPillLook)
-        {
-            nextPillLook = Time.unscaledTime + 1f;
-            GameObject copy = BuildHomePill();
-            if (copy != null)
-            {
-                if (coinPill != null) Destroy(coinPill);
-                coinPill = copy;
-                coinPill.SetActive(false);
-            }
-        }
-
-        bool other = (homePill != null && homePill.activeInHierarchy) || (shopPill != null && shopPill.activeInHierarchy);
+        // Home and the shop show the balance themselves.
+        bool other = HomeShowing || ShopScreen.IsOpen;
         GameObject loading = GameObject.Find("LoadingCanvas");
         bool show = OnlineLobby.InMultiplayer && !other && (loading == null || !loading.activeInHierarchy);
         if (coinPill.activeSelf != show) coinPill.SetActive(show);
-        if (show) MatchHomePill();
-    }
-
-    private GameObject homePill, shopPill, roleCoinPanel;
-    private RectTransform pillSource;
-
-    // A copy of Home's pill, so its look is Home's exactly. Home's canvas scales by another
-    // reference size than this overlay, so the copy is scaled to stand where and as large as Home's.
-    private GameObject BuildHomePill()
-    {
-        homePill = SceneObject("HomeCoinPill");
-        shopPill = SceneObject("ShopCoinPill");
-        GameObject role = SceneObject("RoleSelectCanvas");
-        roleCoinPanel = role != null ? role.transform.Find("CoinPanel")?.gameObject : null;
-        if (homePill == null) return null;
-
-        GameObject copy = Instantiate(homePill, overlayCanvas.transform, false);
-        copy.name = "GlobalCoinPill";
-        copy.SetActive(true);
-        pillSource = (RectTransform)homePill.transform;
-
-        // The label: the server's balance, and a tap opens the wallet, as on Home.
-        Text text = copy.transform.Find("CoinText")?.GetComponent<Text>();
-        if (text != null)
-        {
-            Button copiedButton = text.GetComponent<Button>();
-            if (copiedButton != null) DestroyImmediate(copiedButton);
-            CoinBalance.Bind(text);
-            OnlineWallet.MakeOpener(text);
-        }
-        return copy;
-    }
-
-    private void MatchHomePill()
-    {
-        if (pillSource == null) return;
-        var rt = (RectTransform)coinPill.transform;
-        float ratio = ScaleOf(pillSource.GetComponentInParent<CanvasScaler>(true)) / Mathf.Max(0.0001f, ScaleOf(overlayCanvas.GetComponent<CanvasScaler>()));
-        rt.anchorMin = pillSource.anchorMin;
-        rt.anchorMax = pillSource.anchorMax;
-        rt.pivot = pillSource.pivot;
-        rt.sizeDelta = pillSource.sizeDelta;
-        rt.anchoredPosition = pillSource.anchoredPosition * ratio;
-        rt.localScale = Vector3.one * ratio;
-    }
-
-    // A canvas's scale for this screen, from its scaler's settings (right even while it is hidden).
-    private static float ScaleOf(CanvasScaler scaler)
-    {
-        if (scaler == null) return 1f;
-        if (scaler.uiScaleMode != CanvasScaler.ScaleMode.ScaleWithScreenSize) return scaler.scaleFactor;
-        Vector2 reference = scaler.referenceResolution;
-        float logWidth = Mathf.Log(Screen.width / Mathf.Max(1f, reference.x), 2f);
-        float logHeight = Mathf.Log(Screen.height / Mathf.Max(1f, reference.y), 2f);
-        return Mathf.Pow(2f, Mathf.Lerp(logWidth, logHeight, scaler.matchWidthOrHeight));
     }
 
     // ================= The chip: matches in progress =================
@@ -441,82 +374,16 @@ public class OnlineMatches : MonoBehaviour
         if (show) chipText.text = away == 1 ? "1 match in progress: VIEW" : $"{away} matches in progress: VIEW";
     }
 
-    // ================= Toasts =================
+    // ================= Notices =================
 
-    // Top centre, under the round's banner during a round; a tap opens the results (or the list).
+    // A match's news goes to the game's notices (Notices: top right, gone by itself); a tap opens
+    // the results (or the list).
     private void Toast(string text, uint matchId, bool openList)
     {
-        // Two at most: the oldest goes.
-        while (toasts.Count >= 2)
-        {
-            Destroy(toasts[0].Go);
-            toasts.RemoveAt(0);
-        }
-
-        // Opaque with an edge, so it reads as a card over whatever screen is under it; in the notice
-        // slot (top right, under the coin balance), two lines at most.
-        Button b = OnlineUI.NewButton(toastStack, text, Vector2.zero, new Vector2(OnlineUI.NoticeWidth, ToastHeight), new Color(0.10f, 0.12f, 0.18f, 1f), null);
-        b.name = "Toast";
-        Outline edge = b.gameObject.AddComponent<Outline>();
-        edge.effectColor = new Color(0.85f, 0.52f, 0.12f, 1f);
-        edge.effectDistance = new Vector2(3f, -3f);
-        Text label = b.GetComponentInChildren<Text>();
-        var labelRect = (RectTransform)label.transform;      // the card's width less a margin, whatever that width is
-        labelRect.anchorMin = Vector2.zero;
-        labelRect.anchorMax = Vector2.one;
-        labelRect.offsetMin = new Vector2(18f, 6f);
-        labelRect.offsetMax = new Vector2(-18f, -6f);
-        label.fontSize = 26;
-        label.resizeTextForBestFit = true;
-        label.resizeTextMinSize = 18;
-        label.resizeTextMaxSize = 26;
-        CanvasGroup group = b.gameObject.AddComponent<CanvasGroup>();
-        group.alpha = 0f;
-        GameObject go = b.gameObject;
-        b.onClick.AddListener(() =>
-        {
-            AudioManager.ButtonTap();
-            RemoveToast(go);
-            if (matchId != 0) AskResults(matchId);
-            else if (openList) OpenList();
-        });
-        toasts.Add((go, group, Time.unscaledTime + ToastSeconds, matchId));
-        LayoutToasts();
-    }
-
-    private void RemoveToast(GameObject go)
-    {
-        int i = toasts.FindIndex(t => t.Go == go);
-        if (i < 0) return;
-        Destroy(toasts[i].Go);
-        toasts.RemoveAt(i);
-        LayoutToasts();
-    }
-
-    private const float ToastHeight = 92f;
-
-    // The newest on top of the notice slot, older ones under it.
-    private void LayoutToasts()
-    {
-        for (int i = 0; i < toasts.Count; i++)
-            OnlineUI.PlaceNotice((RectTransform)toasts[i].Go.transform, ToastHeight, (toasts.Count - 1 - i) * (ToastHeight + 12f));
-    }
-
-    private void UpdateToasts()
-    {
-        float now = Time.unscaledTime;
-        for (int i = toasts.Count - 1; i >= 0; i--)
-        {
-            var t = toasts[i];
-            if (t.Go == null) { toasts.RemoveAt(i); continue; }
-            float left = t.Until - now;
-            if (left <= 0f) { RemoveToast(t.Go); continue; }
-            // Slides in from the right as it fades in, and out the same way: nothing jumps.
-            float age = ToastSeconds - left;
-            var rt = (RectTransform)t.Go.transform;
-            Vector2 home = new Vector2(OnlineUI.NoticeRight, OnlineUI.NoticeTop - (toasts.Count - 1 - i) * (ToastHeight + 12f));
-            OnlineUI.SlideNotice(rt, t.Group, home, Mathf.Min(age / 0.3f, left / 0.4f));
-        }
+        Action onTap = null;
+        if (matchId != 0) onTap = () => AskResults(matchId);
+        else if (openList) onTap = OpenList;
+        Notices.Show(NoticeKind.Match, text, null, ToastSeconds, onTap);
     }
 
     // ================= The list =================
@@ -601,7 +468,7 @@ public class OnlineMatches : MonoBehaviour
         string where = $"<b>{RoomTitle(m.RoomId)}</b>  {MapTitle(m.Map)}  ·  {side}";
         if (m.State == MyMatchState.Ended)
         {
-            string coins = m.CoinCents > 0 ? $"  <color=#FFD24A>+{OnlineUI.CoinsText(m.CoinCents)}</color>" : "";
+            string coins = m.CoinCents > 0 ? $"  <color=#2C684C>+{OnlineUI.CoinsText(m.CoinCents)}</color>" : "";
             return $"{where}\n<size=26>{(m.Won ? "Ended: you won" : "Ended: you lost")}  ·  #{m.Rank}  ·  " +
                    $"{ScoreText(m.Role, m.SurvivedSeconds, m.SeekSeconds, m.Catches, m.PointsHundredths)}</size>{coins}";
         }
@@ -627,8 +494,8 @@ public class OnlineMatches : MonoBehaviour
 
         // The player's own match says how it went, in the heading (won in green).
         resultsHeading.text = string.IsNullOrEmpty(buttons.Heading) ? "Match results" : buttons.Heading;
-        resultsHeading.color = string.IsNullOrEmpty(buttons.Heading) ? Color.white
-                             : buttons.Won ? new Color(0.49f, 0.95f, 0.6f, 1f) : new Color(1f, 0.66f, 0.45f, 1f);
+        resultsHeading.color = string.IsNullOrEmpty(buttons.Heading) ? Paintbox.Ink
+                             : buttons.Won ? Paintbox.Good : Paintbox.Bad;
 
         string outcome = table.Outcome == MatchOutcome.HidersWin ? "Hiders win"
                        : table.Outcome == MatchOutcome.SeekersWin ? "Seekers win" : "No winner";
@@ -657,7 +524,7 @@ public class OnlineMatches : MonoBehaviour
             ResultRow(y, p.Rank > 0 ? "#" + p.Rank : "-", Clip(name, 22), p.Role == Role.Hunter ? "Seeker" : "Hider",
                       ScoreText(p.Role, p.SurvivedSeconds, table.SeekSeconds, p.Catches, p.PointsHundredths, p.CaughtBy),
                       p.CoinCents > 0 ? "+" + CoinBalance.Format(p.CoinCents) : "0",
-                      mine ? new Color(0.49f, 0.95f, 0.6f, 1f) : Color.white, mine);
+                      mine ? Paintbox.Good : Paintbox.Ink, mine);
         }
 
         resultsScreen.SetActive(true);
@@ -691,16 +558,14 @@ public class OnlineMatches : MonoBehaviour
         // The coin balance, top right, left of the HUD's Settings column: Home's own pill once Home
         // is loaded (UpdateCoinPill), a plain one until then.
         {
-            Image pill = OnlineUI.NewImage("GlobalCoinPill", overlayCanvas.transform, new Color(0.08f, 0.09f, 0.13f, 0.82f));
-            RectTransform prt = pill.rectTransform;
-            prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(1f, 1f);
-            prt.anchoredPosition = new Vector2(-170f, -46f);
-            prt.sizeDelta = new Vector2(240f, 64f);
-            pill.raycastTarget = false;
-            Text coins = OnlineUI.NewLabel(pill.transform, "", 32, Vector2.zero, new Vector2(220f, 60f), TextAnchor.MiddleCenter, true);
+            // Design B's balance pill (2026-11-24): the same on Home, in the shop and here.
+            Text coins = Paintbox.CoinPill(overlayCanvas.transform, out RectTransform prt);
             coins.name = "CoinText";
-            CoinBalance.Bind(coins);
-            coinPill = pill.gameObject;
+            prt.name = "GlobalCoinPill";
+            prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(1f, 1f);
+            prt.anchoredPosition = new Vector2(-160f, -30f);
+            prt.sizeDelta = new Vector2(240f, 76f);
+            coinPill = prt.gameObject;
         }
         coinPill.SetActive(false);
 
@@ -715,9 +580,6 @@ public class OnlineMatches : MonoBehaviour
         chip = chipButton.gameObject;
         chip.SetActive(false);
 
-        toastStack = (RectTransform)new GameObject("Toasts", typeof(RectTransform)).transform;
-        toastStack.SetParent(overlayCanvas.transform, false);
-        OnlineUI.Stretch(toastStack);
 
         // The list.
         RectTransform p = OnlineUI.Modal(screenCanvas.transform, "MyMatchesScreen", new Vector2(1320f, 860f));
@@ -780,7 +642,7 @@ public class OnlineMatches : MonoBehaviour
         extraText.fontSize = 30;
         extraText.lineSpacing = 0.9f;
         resultsExtraHint = OnlineUI.NewLabel(p, "See where each hider hid with Next Player.", 28, new Vector2(0f, -352f), new Vector2(1400f, 40f));
-        resultsExtraHint.color = new Color(1f, 0.78f, 0.35f, 1f);
+        resultsExtraHint.color = OnlineUI.Warning;
         LayoutResultButtons(false);
         resultsScreen.SetActive(false);
     }

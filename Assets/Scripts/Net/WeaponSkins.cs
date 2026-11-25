@@ -1,7 +1,7 @@
 using UnityEngine;
 
-// What a weapon looks like online. Weapons are cosmetic on the server (every one shoots the
-// same) and the game ships a single gun model, so a weapon id is a colour skin on that gun:
+// What a weapon looks like online. How it shoots is the server's (its cooldown, bullet size and
+// rounds: Net.Weapons); the game ships a single gun model, so a weapon id is a colour skin on that gun:
 // 0 is the gun as modelled, 1-6 the shop's weapons (ShopCatalog gameId, server.json GameId).
 // When real per-weapon models exist, this is the one place that changes. Adapted from the SDK
 // sample's WeaponSkins.

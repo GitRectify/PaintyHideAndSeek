@@ -398,8 +398,7 @@ public class MatchmakingUI : MonoBehaviour
     private void SetSlot(Slot s, string name, bool highlight)
     {
         s.label.text = name;
-        s.bg.sprite = highlight ? slotFilledSprite : slotEmptySprite;
-        s.label.color = Color.white;
+        PaintboxSkin.Seat(s.bg, s.label, highlight);   // design B (2026-11-24)
     }
 
     private void Reveal(int target)
@@ -430,8 +429,8 @@ public class MatchmakingUI : MonoBehaviour
         }
 
         counterText.text = onlineCountdown > 0
-            ? string.Format("Match starts in {0}", $"<color=#3FC522><size=44>{onlineCountdown}</size></color>")
-            : $"<color=#3FC522>{joined}</color>/{totalPlayers} Player";
+            ? string.Format("Match starts in {0}", $"<color=#2C684C><size=44>{onlineCountdown}</size></color>")
+            : $"<color=#2C684C>{joined}</color>/{totalPlayers} Player";
     }
 
     private void Update()

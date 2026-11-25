@@ -34,7 +34,7 @@ public partial class OnlineRound
             resumeDeadline = 0f;
             ShowBanner(now - offlineSince > offerLeaveAfterSeconds
                 ? "Still reconnecting... Tap Home to leave."
-                : "Connection lost. Reconnecting...", 0.5f);
+                : "Connection lost. Reconnecting...", 0.5f, NoticeKind.Error);
             return;
         }
 

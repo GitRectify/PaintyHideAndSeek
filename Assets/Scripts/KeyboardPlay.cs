@@ -28,7 +28,7 @@ public sealed class KeyboardPlay : MonoBehaviour
         { GameAction.Poses, "Btn_DoiDang" },
         { GameAction.FreeCamera, "ButtonCamera" },
         { GameAction.StartRound, "ButtonStart" },
-        { GameAction.SwitchBullet, "BulletSwitch" },     // online seekers (OnlineRound)
+        { GameAction.SwitchWeapon, "WeaponSwitch" },     // online seekers' weapon dock (OnlineRound)
     };
 
     // Held buttons: down while the key is, up when it is let go. Fire too: held, the gun keeps

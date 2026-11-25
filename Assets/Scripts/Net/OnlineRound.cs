@@ -19,13 +19,15 @@ using UnityEngine.UI;
 //     stream); every other player is the character they chose (Resources/Players), and a bot the
 //     Bot prefab, placed by interpolation.
 //     NetBodyAnimator plays their prone and climbing from the replicated flags, and each remote
-//     shot (OnRemoteShot: real aim and bullet type) its gun animation, sound and a visual-only
-//     tracer.
+//     shot (OnRemoteShot: real aim and the size the shooter's weapon gives it) its gun
+//     animation, sound and a visual-only tracer.
 //   * The gun calls TryFire/Fire below, with its muzzle, instead of its local aim-assisted kill; the
-//     server judges the hit. A seeker always has bullets: the chosen special bullet type (bought,
-//     counted per type) while any is left, then default bullets, which never run out. Each type
-//     has its own cooldown and radius (BulletSpecs, shared with the server); tapping the bullet
-//     label switches type, and the choice is remembered (ShopInventory.PreferredBullet). ChameleonPaint sends its strokes,
+//     server judges the hit. The weapon decides how a seeker shoots (2026-11-24): each has its own
+//     cooldown, bullet size and rounds (Net.Weapons, from the server, which judges by the same
+//     numbers). The standard weapon never runs out; a bought one comes with rounds of its own,
+//     and when they run out the server hands back the standard one. The weapon dock at the bottom
+//     shows the weapon held and its rounds, and a tap (or its key) switches to the next weapon
+//     with rounds left; the choice is kept as the equipped weapon. ChameleonPaint sends its strokes,
 //     fills, resets and metallic / roughness sliders through SendStroke/SendFill/SendPaintReset/
 //     SendPaintMaterial, and other painters' canvases and sliders are rebuilt here from what the
 //     server relays.
@@ -41,8 +43,8 @@ using UnityEngine.UI;
 //     shop feature bought once (OnlineRound.NextPlayer.cs); with it a seeker the hiders beat sees
 //     where they hid, after the match (OnlineRound.Reveal.cs, with the match's end and its results).
 //   * Poses and weapons are the shop's: PoseSelectorUI sends a pick through SendPose (owned poses
-//     only), the equipped weapon is selected at the start (SelectWeapon), and snapshots show every
-//     other player's pose and gun skin. There is no in-round weapon picker, as offline.
+//     only), the equipped weapon is selected at the start (SelectWeapon) and switched with the
+//     weapon dock, and snapshots show every other player's pose and gun skin.
 //   * Eliminations, round end and match end come from the server; nothing here decides a hit, a
 //     catch or a winner.
 //   * A dropped connection is ridden out: the SDK reconnects by itself and the server holds the
@@ -73,8 +75,9 @@ public partial class OnlineRound : MonoBehaviour
     [Tooltip("Spacing (texels) of that grid of dabs; smaller covers more evenly but sends more.")]
     [SerializeField] private int fillSpacing = 64;
 
-    [Tooltip("Bottom-centre offset of the seeker's bullet button (what the next shot uses; tap to switch).")]
-    [SerializeField] private Vector2 bulletsOffset = new Vector2(0f, 24f);
+    [Tooltip("Bottom-centre offset of the seeker's weapon dock (the weapon held and its rounds; tap to switch).")]
+    [UnityEngine.Serialization.FormerlySerializedAs("bulletsOffset")]
+    [SerializeField] private Vector2 weaponDockOffset = new Vector2(0f, 24f);
 
     [Tooltip("Seconds after being caught before the camera starts following the players still in (BotSeekController.caughtPopupDelay offline).")]
     [SerializeField] private float spectateDelaySeconds = 3f;
@@ -114,9 +117,12 @@ public partial class OnlineRound : MonoBehaviour
 
     private Text banner;
     private float bannerUntil;
-    private Button bulletButton;   // the seeker's bullet: what the next shot uses, tap to switch
-    private BulletType lastChosen = BulletType.Default;
-    private BulletType firedBullet = BulletType.Default;   // the bullet the last shot used, for its size
+    private Button weaponButton;   // the seeker's weapon dock: the weapon held and its rounds, tap to switch
+    private Text weaponTitle, weaponHint;
+    private Image weaponBadge;
+    private int lastWeapon;                     // the weapon held at the last LoadoutState
+    private float firedCooldown = WeaponSpecs.StandardSpec.CooldownSeconds;   // the wait after the last shot
+    private float firedRadiusScale = 1f;        // the size of the last shot's bullet
 
     private CameraController camCtrl;
     private bool startPressed;         // this hider pressed Start in this match's hide phase
@@ -129,8 +135,8 @@ public partial class OnlineRound : MonoBehaviour
 
     /// <summary>
     /// Asked by the gun before it shoots (animation, sound, bullet effect): false while the
-    /// player is out or inside the cooldown of the bullet fired last, whose extra shots the
-    /// server would drop anyway. Never for want of bullets: default bullets are unlimited.
+    /// player is out or inside the cooldown of the weapon fired last, whose extra shots the
+    /// server would drop anyway. Never for want of rounds: the standard weapon never runs out.
     /// </summary>
     public static bool TryFire()
     {
@@ -155,7 +161,7 @@ public partial class OnlineRound : MonoBehaviour
         if (!Active) return false;
         OnlineRound round = _instance;
         left = round.nextFireAt - Time.unscaledTime;
-        total = Mathf.Max(0.1f, MecchaNetClient.CooldownAfter(round.firedBullet));
+        total = Mathf.Max(0.1f, round.firedCooldown);
         return round.hunter && !round.localOut && !round.resultShown && left > 0.05f;
     }
 
@@ -170,7 +176,7 @@ public partial class OnlineRound : MonoBehaviour
         // bullet stops short of it (Combat.Fly), however squarely it is in the sights.
         distance = BulletReach;
         return Active && _instance.hunter &&
-               _instance.NearestHider(origin, direction, BulletSpecs.Of(Net.NextBullet).Radius, 0f, ref distance);
+               _instance.NearestHider(origin, direction, GameTuning.BulletRadius * HeldRadiusScale(), 0f, ref distance);
     }
 
     /// <summary>
@@ -188,8 +194,12 @@ public partial class OnlineRound : MonoBehaviour
     /// <summary>How far a bullet flies before it is spent (GameTuning.BulletSpeed for BulletLifeSeconds).</summary>
     public const float BulletReach = GameTuning.BulletSpeed * GameTuning.BulletLifeSeconds;
 
-    /// <summary>The drawn bullet's size against the default one: the type the last shot used (1 offline).</summary>
-    public static float ShotRadiusScale => Active ? BulletSpecs.Of(_instance.firedBullet).RadiusScale : 1f;
+    /// <summary>The drawn bullet's size against the standard one: as the last shot's weapon made it (1 offline).</summary>
+    public static float ShotRadiusScale => Active ? _instance.firedRadiusScale : 1f;
+
+    // The held weapon's bullet size, as the server judges it (an older server: the chosen bullet's).
+    private static float HeldRadiusScale() =>
+        Net.Weapons.Count > 0 ? Net.CurrentWeapon.Spec.RadiusScale : BulletSpecs.Of(Net.NextBullet).RadiusScale;
 
     /// <summary>The gun's shot from its muzzle, in the direction drawn on screen this frame.</summary>
     public static void Fire(Vector3 worldOrigin, Vector3 worldDirection)
@@ -333,8 +343,9 @@ public partial class OnlineRound : MonoBehaviour
         eliminated.Clear();
         nameTags.Clear();
         nextFireAt = 0f;
-        lastChosen = BulletType.Default;
-        firedBullet = BulletType.Default;
+        lastWeapon = WeaponSpecs.Standard;
+        firedCooldown = WeaponSpecs.StandardSpec.CooldownSeconds;
+        firedRadiusScale = 1f;
         startPressed = false;
         spotter = null;
         spectateAt = -1f;
@@ -381,13 +392,11 @@ public partial class OnlineRound : MonoBehaviour
         RefreshCounters();
         ShowBanner(hunter ? "You are a SEEKER. Wait for the hiders to hide..." : "You are a HIDER. Paint yourself and hide!", 4f);
 
-        bulletButton.gameObject.SetActive(hunter);
-        RefreshBullets();
+        weaponButton.gameObject.SetActive(hunter);
+        RefreshWeapons();
 
-        // Carry the equipped weapon and the preferred bullet, and fetch pose/weapon ownership as
-        // the server has it now.
+        // Carry the equipped weapon, and fetch pose/weapon ownership as the server has it now.
         SelectEquippedWeapon();
-        SelectPreferredBullet();
         ApplyLocalWeapon();
         ShopInventory.Refresh(_ =>
         {
@@ -407,8 +416,8 @@ public partial class OnlineRound : MonoBehaviour
         ResetReveal();
         active = false;
 
-        // The round may have spent special bullets and paid coins: fetch the wallet as the
-        // server has it now, so Home and the shop do not show the counts from before it.
+        // The round may have spent rounds and paid coins: fetch the wallet as the server has it
+        // now, so Home and the shop do not show the counts from before it.
         ShopInventory.Refresh(null);
 
         if (Net != null)
@@ -461,7 +470,7 @@ public partial class OnlineRound : MonoBehaviour
         if (results != null) results.HideAll();
         if (gmm != null) gmm.EndNetworkRound();
         banner.gameObject.SetActive(false);
-        bulletButton.gameObject.SetActive(false);
+        weaponButton.gameObject.SetActive(false);
         HideMatchControls();
     }
 
@@ -629,7 +638,7 @@ public partial class OnlineRound : MonoBehaviour
     }
 
     // Another player's (or a bot's) shot: the gun animation, the sound and the bullet along the
-    // shot's real aim, sized by its bullet type. The server flies the real bullet and says who it
+    // shot's real aim, as big as the shooter's weapon makes it. The server flies the real bullet and says who it
     // reaches. This one is drawn from where that one has got to (it left the gun at a tick this
     // screen may already be past), so it reaches a hider here when the server says it did.
     private void HandleRemoteShot(MecchaNetClient.RemoteShot shot)
@@ -647,8 +656,8 @@ public partial class OnlineRound : MonoBehaviour
         float flown = GameTuning.BulletSpeed * shot.Age;
         if (flown >= path.magnitude) return;        // it has landed already
 
-        gun.SpawnRemoteBullet(shot.Origin, path, view != null ? view.transform : null,
-                              BulletSpecs.Of(shot.Bullet).RadiusScale, flown);
+        float size = shot.RadiusScale > 0f ? shot.RadiusScale : BulletSpecs.Of(shot.Bullet).RadiusScale;
+        gun.SpawnRemoteBullet(shot.Origin, path, view != null ? view.transform : null, size, flown);
     }
 
     // ================= What the server cannot judge: spawns and walls =================
@@ -756,10 +765,12 @@ public partial class OnlineRound : MonoBehaviour
     {
         if (!FireReady()) return false;
 
-        // No bullet check: with none of the chosen special type left the seeker shoots default
-        // bullets. The wait that follows is this bullet's cooldown, as the server counts it.
-        firedBullet = Net.NextBullet;
-        nextFireAt = Time.unscaledTime + MecchaNetClient.CooldownAfter(firedBullet);
+        // No rounds check: a weapon with none left is swapped for the standard one by the server,
+        // which never runs out. The wait that follows is the held weapon's cooldown, as the
+        // server counts it, and the bullet drawn is as big as that weapon makes it.
+        firedCooldown = Net.CooldownAfterShot;
+        firedRadiusScale = HeldRadiusScale();
+        nextFireAt = Time.unscaledTime + firedCooldown;
         return true;
     }
 
@@ -812,61 +823,55 @@ public partial class OnlineRound : MonoBehaviour
         fireReleaseAt = Time.unscaledTime + 0.2f;
     }
 
-    // The bullet the next shot uses and, for a special type, how many are left; the button says
-    // when there is another type to switch to. When the chosen special type runs out the server
-    // goes back to default bullets, which never run out.
-    private void RefreshBullets()
+    // The weapon dock: the weapon held and its rounds (unlimited for the standard one), and
+    // whether a tap has another weapon with rounds left to switch to. When the weapon held runs
+    // out the server hands back the standard one, and the dock says so.
+    private void RefreshWeapons()
     {
-        if (bulletButton == null || Net == null) return;
+        if (weaponButton == null || Net == null) return;
 
-        BulletType next = Net.NextBullet;
-        bool others = false;
-        for (int t = 1; t <= BulletSpecs.SpecialCount; t++)
-            if ((BulletType)t != next && Net.SpecialBullets[(BulletType)t] > 0) others = true;
-        if (next != BulletType.Default) others = true;   // default bullets are always there to go back to
+        WeaponState held = Net.CurrentWeapon;
+        int others = 0;
+        foreach (WeaponState w in Net.Weapons)
+            if (w.WeaponId != held.WeaponId && w.CanFire) others++;
 
-        string what = next == BulletType.Default
-            ? "Default bullets: unlimited"
-            : $"{BulletName(next)}: {Net.SpecialBullets[next]} left";
-        OnlineUI.SetButtonText(bulletButton, others ? $"{what}\n<size=24>Tap to switch</size>" : what);
-        bulletButton.targetGraphic.color = next == BulletType.Default ? OnlineUI.Gray : new Color(0.85f, 0.52f, 0.12f, 0.97f);
+        string name = ShopInventory.WeaponName(held.WeaponId);
+        weaponTitle.text = held.Unlimited ? $"{name} \u00b7 \u221e" : $"{name} \u00b7 {L.F("{0} left", held.Ammo)}";
+        weaponHint.text = others > 0 ? "Tap to switch weapon" : held.Unlimited ? "Standard weapon" : "Buy more rounds in the Shop";
+        weaponBadge.color = !held.Unlimited && held.Ammo <= 3 ? Paintbox.Bad : held.Unlimited ? Paintbox.Glass : Paintbox.Hot;
+        weaponTitle.color = !held.Unlimited && held.Ammo <= 3 ? Paintbox.Hex(0xffb4a8) : Color.white;
 
-        BulletType chosen = Net.ChosenBullet;
-        if (hunter && BulletSpecs.IsSpecial(lastChosen) && chosen == BulletType.Default && Net.SpecialBullets[lastChosen] == 0)
-            ShowBanner($"Out of {BulletName(lastChosen)}: back to default bullets.", 2.5f);
-        lastChosen = chosen;
+        if (hunter && lastWeapon != WeaponSpecs.Standard && held.WeaponId == WeaponSpecs.Standard)
+        {
+            int left = -1;
+            foreach (WeaponState w in Net.Weapons) if (w.WeaponId == lastWeapon) left = w.Ammo;
+            if (left == 0)
+                Notices.Show(NoticeKind.Error, L.F("Out of ammo for {0}", ShopInventory.WeaponName(lastWeapon)),
+                             "Back to the standard weapon. Buy more rounds in the Shop.", 3.5f);
+        }
+        lastWeapon = held.WeaponId;
     }
 
-    private static string BulletName(BulletType type) =>
-        type == BulletType.Default ? "Default bullets" : $"Special bullet {(int)type}";
-
-    // The bullet button (or its key): the next type the player has (default bullets always), as
-    // the server decides; the choice is kept for the next match.
-    private void CycleBullet()
+    // The dock (or its key): the next weapon the player has with rounds left, in the server's
+    // order (the standard one always), held at once and kept as the equipped weapon.
+    private void CycleWeapon()
     {
         if (!active || !hunter || localOut || Net == null) return;
         AudioManager.ButtonTap();
 
-        BulletType current = Net.ChosenBullet;
-        for (int step = 1; step <= BulletSpecs.SpecialCount + 1; step++)
+        IReadOnlyList<WeaponState> weapons = Net.Weapons;
+        if (weapons.Count < 2) return;
+
+        int at = 0;
+        for (int i = 0; i < weapons.Count; i++) if (weapons[i].WeaponId == Net.WeaponId) at = i;
+        for (int step = 1; step < weapons.Count; step++)
         {
-            var candidate = (BulletType)(((int)current + step) % (BulletSpecs.SpecialCount + 1));
-            if (candidate != BulletType.Default && Net.SpecialBullets[candidate] <= 0) continue;
-            ShopInventory.PreferredBullet = candidate;
-            Net.SelectBullet(candidate);   // answered with LoadoutState
-            ShowBanner(candidate == BulletType.Default ? "Default bullets" : $"{BulletName(candidate)}: {Net.SpecialBullets[candidate]} left", 1.5f);
+            WeaponState candidate = weapons[(at + step) % weapons.Count];
+            if (!candidate.CanFire) continue;
+            ShopInventory.SetEquippedWeapon(candidate.WeaponId);
+            Net.SelectWeapon(candidate.WeaponId);   // answered with LoadoutState
             return;
         }
-    }
-
-    // At the start: the type picked last time, while some of it is left.
-    private void SelectPreferredBullet()
-    {
-        if (!hunter || Net == null) return;
-        BulletType wanted = ShopInventory.PreferredBullet;
-        if (wanted == Net.ChosenBullet) return;
-        if (wanted != BulletType.Default && Net.SpecialBullets[wanted] <= 0) return;
-        Net.SelectBullet(wanted);
     }
 
     // ================= The hiders' Start button =================
@@ -995,14 +1000,14 @@ public partial class OnlineRound : MonoBehaviour
             ClearSpot();
             spectateAt = Time.unscaledTime + spectateDelaySeconds;
             ShowBanner(cause == EliminationCause.Shot ? "You were shot! Watch the rest of the round."
-                                                      : "You were caught! Watch the rest of the round.", 5f);
+                                                      : "You were caught! Watch the rest of the round.", 5f, NoticeKind.Error);
         }
         else if (by == Net.LocalSlot)
         {
             // A hit that took someone out asks no wait of the next shot; the server has lifted it too.
             if (cause == EliminationCause.Shot) nextFireAt = 0f;
 
-            ShowBanner($"You got {NameOf(victim)}!", 2.5f);
+            ShowBanner($"You got {NameOf(victim)}!", 2.5f, NoticeKind.Reward);
         }
         else
         {
@@ -1090,7 +1095,7 @@ public partial class OnlineRound : MonoBehaviour
 
     private void HandleIdleWarning(int seconds)
     {
-        ShowBanner($"Move or you will be removed for being idle in {seconds}s.", 4f);
+        ShowBanner($"Move or you will be removed for being idle in {seconds}s.", 4f, NoticeKind.Error);
     }
 
     // ================= Results =================
@@ -1184,16 +1189,44 @@ public partial class OnlineRound : MonoBehaviour
 
         banner.gameObject.SetActive(false);
 
-        // Seeker's bullet, bottom centre, clear of the joystick, the fire buttons and the HUD
-        // column: online, special bullets are a server-counted stock. A tap switches between
-        // default bullets and the special types the player has (KeyBindings: Switch bullet).
-        bulletButton = OnlineUI.NewButton(canvas.transform, "", Vector2.zero, new Vector2(460f, 104f), OnlineUI.Gray, CycleBullet);
-        bulletButton.name = "BulletSwitch";
-        RectTransform brt = (RectTransform)bulletButton.transform;
-        brt.anchorMin = brt.anchorMax = brt.pivot = new Vector2(0.5f, 0f);
-        brt.anchoredPosition = bulletsOffset;
-        bulletButton.GetComponentInChildren<Text>().fontSize = 32;
-        bulletButton.gameObject.SetActive(false);
+        // Seeker's weapon dock, bottom centre, clear of the joystick, the fire buttons and the HUD
+        // column (design B's ammo dock): the weapon held and its rounds. A tap switches to the next
+        // weapon with rounds left (KeyBindings: Switch weapon).
+        weaponButton = Paintbox.Button(canvas.transform, "", Paintbox.Tone.Glass, null, CycleWeapon, 30f, 30f);
+        weaponButton.name = "WeaponSwitch";
+        RectTransform brt = (RectTransform)weaponButton.transform;
+        Paintbox.Pin(brt, new Vector2(0.5f, 0f), weaponDockOffset, new Vector2(520f, 104f));
+        PaintboxFrame dock = weaponButton.GetComponent<PaintboxFrame>();
+        Transform oldContent = dock.Body.Find("Content");
+        if (oldContent != null) DestroyImmediate(oldContent.gameObject);
+
+        weaponBadge = Paintbox.Rounded(dock.Body, "Badge", Paintbox.Hot, 20f);
+        Paintbox.Pin(weaponBadge.rectTransform, new Vector2(0f, 0.5f), new Vector2(14f, 0f), new Vector2(70f, 70f));
+        weaponBadge.rectTransform.pivot = new Vector2(0f, 0.5f);
+        Paintbox.IconImage(weaponBadge.rectTransform, "Crosshair", 42f, Paintbox.HotInk);
+
+        weaponTitle = Paintbox.Label(dock.Body, "", 30f, Color.white, Paintbox.Weight.Bold);
+        Paintbox.Fit(weaponTitle, 18);
+        RectTransform wt = weaponTitle.rectTransform;
+        wt.anchorMin = new Vector2(0f, 0.48f);
+        wt.anchorMax = new Vector2(1f, 1f);
+        wt.offsetMin = new Vector2(100f, 0f);
+        wt.offsetMax = new Vector2(-70f, -8f);
+        weaponTitle.alignment = TextAnchor.LowerLeft;
+
+        weaponHint = Paintbox.Label(dock.Body, "", 22f, new Color(1f, 1f, 1f, 0.75f));
+        Paintbox.Fit(weaponHint, 14);
+        RectTransform wh = weaponHint.rectTransform;
+        wh.anchorMin = new Vector2(0f, 0f);
+        wh.anchorMax = new Vector2(1f, 0.48f);
+        wh.offsetMin = new Vector2(100f, 8f);
+        wh.offsetMax = new Vector2(-70f, 0f);
+        weaponHint.alignment = TextAnchor.UpperLeft;
+
+        Image swap = Paintbox.IconImage(dock.Body, "ArrowLeftRight", 40f, Color.white);
+        Paintbox.Pin(swap.rectTransform, new Vector2(1f, 0.5f), new Vector2(-22f, 0f), new Vector2(40f, 40f));
+        swap.rectTransform.pivot = new Vector2(1f, 0.5f);
+        weaponButton.gameObject.SetActive(false);
 
         BuildMatchControls(canvas.transform);
 
@@ -1210,11 +1243,15 @@ public partial class OnlineRound : MonoBehaviour
         BuildWatchView(canvas.transform);
     }
 
-    private void ShowBanner(string text, float seconds)
+    // The round's news is one of the game's notices (Notices), like every other message: a match
+    // update unless the caller says otherwise.
+    private void ShowBanner(string text, float seconds) => ShowBanner(text, seconds, NoticeKind.Match);
+
+    private void ShowBanner(string text, float seconds, NoticeKind kind)
     {
-        banner.text = text;
-        banner.gameObject.SetActive(true);
+        banner.text = text;              // kept for the play tests, which read what was said last
         bannerUntil = Time.unscaledTime + seconds;
+        Notices.Show(kind, text, null, seconds + 0.5f);
     }
 
     private string NameOf(byte slot)

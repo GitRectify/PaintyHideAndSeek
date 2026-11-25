@@ -475,3 +475,95 @@ FREE	免费	БЕСПЛАТНО
 YOUR MATCH	你的比赛	ВАШ МАТЧ
 Not unlocked online. Pick another character, or get it in the Shop.	未在线解锁。请换一个角色，或在商店获取。	Не открыт онлайн. Выберите другого персонажа или купите в магазине.
 No room to stand up here.	这里没有空间站起来。	Здесь нет места, чтобы встать.
+# Design B: the shop, weapons, notices, Home (2026-11-24)
+Item detail	物品详情	Подробнее
+Loading the shop...	正在加载商店...	Загрузка магазина...
+Try again	重试	Повторить
+Coin packs aren't available on this server right now.	此服务器暂不提供金币包。	Наборы монет на этом сервере сейчас недоступны.
+Nothing here yet. Check back soon!	这里暂时还没有东西，稍后再来看看！	Здесь пока пусто. Загляните позже!
+{0} ITEM	{0} 件物品	{0} ТОВАР
+{0} ITEMS	{0} 件物品	ТОВАРОВ: {0}
+All	全部	Все
+Ammo	弹药	Патроны
+AMMO	弹药	ПАТРОНЫ
+Characters	角色	Персонажи
+Maps	地图	Карты
+Features	功能	Функции
+More	更多	Ещё
+{0} rounds	{0} 发	{0} выстр.
+x{0}	x{0}	x{0}
+Worn	已穿上	Надето
+Owned · tap to equip	已拥有 · 点击装备	Куплено · нажмите, чтобы надеть
+Free	免费	Бесплатно
+Online coin pack	在线金币包	Набор монет
+Waiting for payment · tap to reopen	等待付款 · 点击重新打开	Ожидание оплаты · нажмите, чтобы открыть
+PRICE	价格	ЦЕНА
+HOW TO USE	使用方法	КАК ПОЛЬЗОВАТЬСЯ
+Cooldown	冷却	Перезарядка
+{0} s	{0} 秒	{0} с
+Fire rate	射速	Скорострельность
+{0} / s	{0} / 秒	{0} / с
+Bullet size	子弹大小	Размер пули
+Rounds	弹药	Патроны
+Unlimited	无限	Без ограничений
+Rounds with it	附带弹药	Патронов в комплекте
+Holds up to	最多可装	Вмещает до
+Your rounds	你的弹药	Ваши патроны
+Rounds per pack	每包弹药	Патронов в наборе
+{0} / {1}	{0} / {1}	{0} / {1}
+For	适用于	Для
+Speed	速度	Скорость
+Buy ammo	购买弹药	Купить патроны
+Wear	穿上	Надеть
+Buy item	购买	Купить
+Get the {0} first	请先获得{0}	Сначала купите {0}
+Weapon full	弹药已满	Оружие заряжено полностью
+{0} x {1} rounds	{0} x {1} 发	{0} x {1} выстр.
+Confirm purchase	确认购买	Подтвердить покупку
+Quantity	数量	Количество
+Price	价格	Цена
+Current balance	当前余额	Текущий баланс
+You need	还需要	Не хватает
+{0} coins more	还差 {0} 金币	ещё {0} монет
+Remaining balance	剩余余额	Остаток
+Your item will be added to your online inventory.	物品将添加到你的在线物品栏。	Товар будет добавлен в ваш онлайн-инвентарь.
+Get coins	获取金币	Получить монеты
+Paid	已支付	Оплачено
+New balance	新余额	Новый баланс
+Wear now	立即穿上	Надеть сейчас
+Equip now	立即装备	Надеть сейчас
+Done	完成	Готово
+Equip it, then hold Fire in a Seeker round. Tap the weapon button to switch weapons during a match.	装备后，在寻找者回合按住开火。比赛中点击武器按钮切换武器。	Наденьте его и удерживайте «Огонь» в раунде ищущего. Кнопка оружия меняет оружие прямо в матче.
+The rounds go to the weapon straight away, in the middle of a match too.	弹药会立即加到武器上，比赛中也一样。	Патроны сразу добавляются к оружию, даже посреди матча.
+Strike it from the pose button while you hide in an online match.	在线比赛中躲藏时，用姿势按钮摆出它。	Принимайте эту позу кнопкой поз, прячась в онлайн-матче.
+Equip it to play as this character in online matches.	装备后即可在线上比赛中使用这个角色。	Наденьте, чтобы играть этим персонажем в онлайн-матчах.
+Wear them to run faster, online and in Single Play.	穿上后跑得更快，在线和单人模式都有效。	Наденьте, чтобы бегать быстрее — онлайн и в одиночной игре.
+Pick this map when you find an online match.	寻找在线比赛时可选择这张地图。	Выбирайте эту карту при поиске онлайн-матча.
+Once you are out of a match, switch between the players still in.	被淘汰后，可在仍在场上的玩家之间切换观看。	Выбыв из матча, переключайтесь между оставшимися игроками.
+Unlocked for good on your account.	已在你的账号上永久解锁。	Открыто на вашем аккаунте навсегда.
+Added to your online inventory.	已添加到你的在线物品栏。	Добавлено в ваш онлайн-инвентарь.
+Standard Gun	标准枪	Обычный пистолет
++{0} rounds for {1}	{1} +{0} 发弹药	+{0} патронов для {1}
+Buy the {0} first: ammo goes with its weapon.	请先购买{0}：弹药需配合其武器。	Сначала купите {0}: патроны идут к своему оружию.
+That is more rounds than the weapon holds.	超出了该武器可装的弹药数量。	Это больше патронов, чем вмещает оружие.
+Buy its weapon first	请先购买对应的武器	Сначала купите его оружие
+Buy it first.	请先购买。	Сначала купите.
+Everyone's pair: the usual speed.	人人都有的鞋子：正常速度。	Есть у всех: обычная скорость.
+{0} left	剩余 {0}	осталось {0}
+Tap to switch weapon	点击切换武器	Нажмите, чтобы сменить оружие
+Standard weapon	标准武器	Обычное оружие
+Buy more rounds in the Shop	在商店购买更多弹药	Купите патроны в магазине
+Out of ammo for {0}	{0}弹药已用完	Закончились патроны: {0}
+Back to the standard weapon. Buy more rounds in the Shop.	已换回标准武器。可在商店购买更多弹药。	Снова обычное оружие. Патроны можно купить в магазине.
+Switch weapon	切换武器	Сменить оружие
+Single Player	单人游戏	Одиночная игра
+Single Player · Offline	单人游戏 · 离线	Одиночная игра · офлайн
+Join an online match	加入在线比赛	Войти в онлайн-матч
+Rate us	给我们评分	Оцените нас
+Do you enjoy the game?	你喜欢这个游戏吗？	Вам нравится игра?
+Help us improve	帮助我们改进	Помогите нам стать лучше
+Submit	提交	Отправить
+Continue	继续	Продолжить
+You got caught!	你被抓住了！	Вас поймали!
+Time's up!	时间到！	Время вышло!
+Finding players...	正在寻找玩家...	Поиск игроков...

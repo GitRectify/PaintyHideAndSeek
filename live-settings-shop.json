@@ -1,0 +1,350 @@
+{
+  "ShopCategories": [
+    {
+      "Id": "coins",
+      "Name": "Coins",
+      "Icon": "coins",
+      "Special": "coins"
+    },
+    {
+      "Id": "avatars",
+      "Name": "Characters",
+      "Icon": "user"
+    },
+    {
+      "Id": "poses",
+      "Name": "Poses",
+      "Icon": "person"
+    },
+    {
+      "Id": "weapons",
+      "Name": "Weapons",
+      "Icon": "crosshair"
+    },
+    {
+      "Id": "shoes",
+      "Name": "Shoes",
+      "Icon": "footprints"
+    },
+    {
+      "Id": "extras",
+      "Name": "More",
+      "Icon": "sparkles"
+    }
+  ],
+  "Catalog": [
+    {
+      "Id": "avatar-player-2",
+      "Kind": "avatar",
+      "GameId": 1,
+      "Name": "Player 2",
+      "Price": 1000,
+      "MaxQuantity": 1000,
+      "Image": "builtin:avatar-1",
+      "Description": "The second character: the same moves, a look of its own."
+    },
+    {
+      "Id": "pose-wave",
+      "Kind": "pose",
+      "GameId": 3,
+      "Name": "Wave",
+      "Price": 500,
+      "MaxQuantity": 1000,
+      "Image": "builtin:pose-3",
+      "Description": "A friendly hiding pose."
+    },
+    {
+      "Id": "pose-laugh",
+      "Kind": "pose",
+      "GameId": 4,
+      "Name": "Laugh",
+      "Price": 800,
+      "MaxQuantity": 1000,
+      "Image": "builtin:pose-4",
+      "Description": "Hide in plain sight, laughing."
+    },
+    {
+      "Id": "pose-sneak",
+      "Kind": "pose",
+      "GameId": 5,
+      "Name": "Sneak",
+      "Price": 1200,
+      "MaxQuantity": 1000,
+      "Image": "builtin:pose-5",
+      "Description": "A low, sneaky silhouette."
+    },
+    {
+      "Id": "pose-victory",
+      "Kind": "pose",
+      "GameId": 6,
+      "Name": "Victory",
+      "Price": 1500,
+      "MaxQuantity": 1000,
+      "Image": "builtin:pose-6",
+      "Description": "Arms up, like a trophy on a shelf."
+    },
+    {
+      "Id": "pose-brush-dance",
+      "Kind": "pose",
+      "GameId": 7,
+      "Name": "Brush Dance",
+      "Price": 2000,
+      "MaxQuantity": 1000,
+      "Image": "builtin:pose-7",
+      "Description": "A painter's pose, brush in hand."
+    },
+    {
+      "Id": "pose-taunt",
+      "Kind": "pose",
+      "GameId": 8,
+      "Name": "Taunt",
+      "Price": 2500,
+      "MaxQuantity": 1000,
+      "Image": "builtin:pose-8",
+      "Description": "For hiders who like to be found last."
+    },
+    {
+      "Id": "weapon-standard",
+      "Kind": "weapon",
+      "GameId": 0,
+      "Name": "Standard Gun",
+      "Price": 0,
+      "Image": "builtin:weapon-0",
+      "Description": "Everyone's paint gun: unlimited ammo, a shot every 3 seconds."
+    },
+    {
+      "Id": "weapon-paint-brush",
+      "Kind": "weapon",
+      "GameId": 1,
+      "Name": "Paint Brush",
+      "Price": 500,
+      "MaxQuantity": 1000,
+      "CooldownSeconds": 1.0,
+      "RadiusScale": 0.8,
+      "Ammo": 10,
+      "AmmoCapacity": 100,
+      "Image": "builtin:weapon-1",
+      "Description": "Small, quick shots: one a second."
+    },
+    {
+      "Id": "weapon-roller",
+      "Kind": "weapon",
+      "GameId": 2,
+      "Name": "Roller",
+      "Price": 800,
+      "MaxQuantity": 1000,
+      "CooldownSeconds": 2.0,
+      "RadiusScale": 1.5,
+      "Ammo": 10,
+      "AmmoCapacity": 100,
+      "Image": "builtin:weapon-2",
+      "Description": "Big splashes, a shot every 2 seconds."
+    },
+    {
+      "Id": "weapon-spray-gun",
+      "Kind": "weapon",
+      "GameId": 3,
+      "Name": "Spray Gun",
+      "Price": 1200,
+      "MaxQuantity": 1000,
+      "CooldownSeconds": 1.2,
+      "RadiusScale": 1.0,
+      "Ammo": 10,
+      "AmmoCapacity": 100,
+      "Image": "builtin:weapon-3",
+      "Description": "Standard-size shots, more than twice as often."
+    },
+    {
+      "Id": "weapon-paint-blaster",
+      "Kind": "weapon",
+      "GameId": 4,
+      "Name": "Paint Blaster",
+      "Price": 1800,
+      "MaxQuantity": 1000,
+      "CooldownSeconds": 1.5,
+      "RadiusScale": 1.2,
+      "Ammo": 10,
+      "AmmoCapacity": 100,
+      "Image": "builtin:weapon-4",
+      "Description": "Wide shots every 1.5 seconds."
+    },
+    {
+      "Id": "weapon-splatter-cannon",
+      "Kind": "weapon",
+      "GameId": 5,
+      "Name": "Splatter Cannon",
+      "Price": 2500,
+      "MaxQuantity": 1000,
+      "CooldownSeconds": 2.5,
+      "RadiusScale": 1.8,
+      "Ammo": 10,
+      "AmmoCapacity": 100,
+      "Image": "builtin:weapon-5",
+      "Description": "The biggest splash in the game, slow to reload."
+    },
+    {
+      "Id": "weapon-precision-brush",
+      "Kind": "weapon",
+      "GameId": 6,
+      "Name": "Precision Brush",
+      "Price": 3000,
+      "MaxQuantity": 1000,
+      "CooldownSeconds": 0.8,
+      "RadiusScale": 0.7,
+      "Ammo": 10,
+      "AmmoCapacity": 100,
+      "Image": "builtin:weapon-6",
+      "Description": "The fastest shots, for steady aim."
+    },
+    {
+      "Id": "ammo-paint-brush",
+      "Kind": "ammo",
+      "GameId": 1,
+      "Name": "Paint Brush ammo",
+      "Price": 50,
+      "MaxQuantity": 10,
+      "Ammo": 10,
+      "Image": "builtin:ammo-1",
+      "Description": "10 rounds for the Paint Brush."
+    },
+    {
+      "Id": "ammo-roller",
+      "Kind": "ammo",
+      "GameId": 2,
+      "Name": "Roller ammo",
+      "Price": 60,
+      "MaxQuantity": 10,
+      "Ammo": 10,
+      "Image": "builtin:ammo-2",
+      "Description": "10 rounds for the Roller."
+    },
+    {
+      "Id": "ammo-spray-gun",
+      "Kind": "ammo",
+      "GameId": 3,
+      "Name": "Spray Gun ammo",
+      "Price": 70,
+      "MaxQuantity": 10,
+      "Ammo": 10,
+      "Image": "builtin:ammo-3",
+      "Description": "10 rounds for the Spray Gun."
+    },
+    {
+      "Id": "ammo-paint-blaster",
+      "Kind": "ammo",
+      "GameId": 4,
+      "Name": "Paint Blaster ammo",
+      "Price": 80,
+      "MaxQuantity": 10,
+      "Ammo": 10,
+      "Image": "builtin:ammo-4",
+      "Description": "10 rounds for the Paint Blaster."
+    },
+    {
+      "Id": "ammo-splatter-cannon",
+      "Kind": "ammo",
+      "GameId": 5,
+      "Name": "Splatter Cannon ammo",
+      "Price": 100,
+      "MaxQuantity": 10,
+      "Ammo": 10,
+      "Image": "builtin:ammo-5",
+      "Description": "10 rounds for the Splatter Cannon."
+    },
+    {
+      "Id": "ammo-precision-brush",
+      "Kind": "ammo",
+      "GameId": 6,
+      "Name": "Precision Brush ammo",
+      "Price": 120,
+      "MaxQuantity": 10,
+      "Ammo": 10,
+      "Image": "builtin:ammo-6",
+      "Description": "10 rounds for the Precision Brush."
+    },
+    {
+      "Id": "shoes-sneakers",
+      "Kind": "shoes",
+      "GameId": 1,
+      "Name": "Sneakers",
+      "Price": 300,
+      "MaxQuantity": 1000,
+      "Image": "builtin:shoes-1",
+      "Description": "Run 10% faster."
+    },
+    {
+      "Id": "shoes-running",
+      "Kind": "shoes",
+      "GameId": 2,
+      "Name": "Running Shoes",
+      "Price": 800,
+      "MaxQuantity": 1000,
+      "Image": "builtin:shoes-2",
+      "Description": "Run 20% faster."
+    },
+    {
+      "Id": "shoes-speed-boots",
+      "Kind": "shoes",
+      "GameId": 3,
+      "Name": "Speed Boots",
+      "Price": 1500,
+      "MaxQuantity": 1000,
+      "Image": "builtin:shoes-3",
+      "Description": "Run 30% faster."
+    },
+    {
+      "Id": "next-player",
+      "Kind": "feature",
+      "GameId": 1,
+      "Name": "Next Player",
+      "Price": 100,
+      "MaxQuantity": 1000,
+      "Image": "builtin:next-player",
+      "Description": "Out of a round? Watch any player still in, and switch between them."
+    },
+    {
+      "Id": "map-room-2",
+      "Kind": "map",
+      "GameId": 2,
+      "Map": "Room2",
+      "Name": "Room 2",
+      "Price": 500,
+      "MaxQuantity": 1000,
+      "Image": "builtin:map-2",
+      "Description": "Unlock Room 2 for online matches."
+    },
+    {
+      "Id": "map-room-3",
+      "Kind": "map",
+      "GameId": 3,
+      "Map": "Room3",
+      "Name": "Room 3",
+      "Price": 800,
+      "MaxQuantity": 1000,
+      "Image": "builtin:map-3",
+      "Description": "Unlock Room 3 for online matches."
+    },
+    {
+      "Id": "map-room-4",
+      "Kind": "map",
+      "GameId": 4,
+      "Map": "Room4",
+      "Name": "Room 4",
+      "Price": 1200,
+      "MaxQuantity": 1000,
+      "Image": "builtin:map-4",
+      "Description": "Unlock Room 4 for online matches."
+    },
+    {
+      "Id": "map-room-5",
+      "Kind": "map",
+      "GameId": 5,
+      "Map": "Room5",
+      "Name": "Room 5",
+      "Price": 1500,
+      "MaxQuantity": 1000,
+      "Image": "builtin:map-5",
+      "Description": "Unlock Room 5 for online matches."
+    }
+  ]
+}

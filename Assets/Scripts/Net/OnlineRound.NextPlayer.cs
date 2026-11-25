@@ -102,7 +102,7 @@ public partial class OnlineRound
             if (!bought)
             {
                 // Said in the panel, which stays open (Not now closes it).
-                if (nextOfferStatus != null) nextOfferStatus.text = $"<color=#FFC759>{message}</color>";
+                if (nextOfferStatus != null) nextOfferStatus.text = $"<color=#9A4F12>{message}</color>";
                 if (nextOfferBuy != null) nextOfferBuy.interactable = true;
                 return;
             }

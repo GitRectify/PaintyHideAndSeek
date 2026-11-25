@@ -74,11 +74,11 @@ public partial class OnlineRound
 
     // ================= The local player's loadout =================
 
-    // LoadoutState: the server's answer to every pose/weapon request, and its bullet count when
+    // LoadoutState: the server's answer to every pose/weapon request, and the weapons' rounds when
     // the match is found and after each accepted shot. A refused change comes back unchanged.
     private void HandleLoadoutChanged()
     {
-        RefreshBullets();
+        RefreshWeapons();
         ApplyLocalWeapon();
         SyncShownPose();
     }
@@ -106,18 +106,23 @@ public partial class OnlineRound
         if (!Net.IsConnected) return;
         ShowBanner(ShopInventory.OwnsPose(asked)
             ? "Changing poses too fast. Try again in a moment."
-            : "That pose isn't unlocked online. Get it in the Shop.", 2.5f);
+            : "That pose isn't unlocked online. Get it in the Shop.", 2.5f, NoticeKind.Error);
     }
 
     // ================= Weapons =================
 
     private Transform LocalGun() => gunHolder != null ? gunHolder.Gun : null;
 
+    // The equipped weapon, while it has rounds: one that ran out stays equipped, and is held
+    // again by itself once more rounds are bought (the shop's change calls this).
     private void SelectEquippedWeapon()
     {
         if (!hunter || Net == null) return;
         int wanted = ShopInventory.EquippedWeaponId;
-        if (wanted != Net.WeaponId) Net.SelectWeapon(wanted);   // answered with LoadoutState
+        if (wanted == Net.WeaponId) return;
+        foreach (WeaponState w in Net.Weapons)
+            if (w.WeaponId == wanted && !w.CanFire) return;
+        Net.SelectWeapon(wanted);   // answered with LoadoutState
     }
 
     private void ApplyLocalWeapon()

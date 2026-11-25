@@ -489,7 +489,7 @@ public class OnlineLobby : MonoBehaviour
         string fee = OnlineUI.CoinsText(room.EntryCents);
         if (CoinBalance.Known && CoinBalance.Cents < room.EntryCents)
         {
-            ShowSetup($"<color=#FFC759>Not enough coins for this room. The entry is {fee}; tap your coins to top up.</color>");
+            ShowSetup($"<color=#9A4F12>Not enough coins for this room. The entry is {fee}; tap your coins to top up.</color>");
             return;
         }
 
@@ -538,7 +538,7 @@ public class OnlineLobby : MonoBehaviour
         string map = levels.RoomNameAt(index) ?? levels.CurrentRoomName;
         if (!ServerHasMap(map))
         {
-            ShowSetup($"<color=#FFC759>{MapTitle(map)} isn't available online yet. Pick another map.</color>");
+            ShowSetup($"<color=#9A4F12>{MapTitle(map)} isn't available online yet. Pick another map.</color>");
             return;
         }
 
@@ -569,7 +569,7 @@ public class OnlineLobby : MonoBehaviour
         ShopItem item = ShopInventory.MapItem(MapNumber(map));
         if (item == null)
         {
-            ShowSetup($"<color=#FFC759>{FindMatchErrorText(FindMatchError.MapLocked)}</color>");
+            ShowSetup($"<color=#9A4F12>{FindMatchErrorText(FindMatchError.MapLocked)}</color>");
             return;
         }
 
@@ -588,7 +588,7 @@ public class OnlineLobby : MonoBehaviour
     {
         if (CoinBalance.Known && CoinBalance.Cents < ShopInventory.PriceCents(item))
         {
-            ShowSetup($"<color=#FFC759>Not enough coins for {MapTitle(map)}. Tap your coins to top up.</color>");
+            ShowSetup($"<color=#9A4F12>Not enough coins for {MapTitle(map)}. Tap your coins to top up.</color>");
             return;
         }
 
@@ -598,7 +598,7 @@ public class OnlineLobby : MonoBehaviour
             if (version != flowVersion) return;
             if (!bought)
             {
-                ShowSetup($"<color=#FFC759>{message}</color>");
+                ShowSetup($"<color=#9A4F12>{message}</color>");
                 return;
             }
 
@@ -712,7 +712,7 @@ public class OnlineLobby : MonoBehaviour
             return;
         }
 
-        ShowSetup($"<color=#FFC759>{FindMatchErrorText(error)}</color>");
+        ShowSetup($"<color=#9A4F12>{FindMatchErrorText(error)}</color>");
     }
 
     private void HandleMatchFound(MecchaNetClient.MatchFoundInfo info)
