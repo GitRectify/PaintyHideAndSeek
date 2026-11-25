@@ -13,10 +13,12 @@ using UnityEngine.UI;
 //                   still had them;
 //   MATCH HISTORY   the player's own match records (MetaClient.MatchHistory, reward rule §13): when,
 //                   which room, which side, how it went, the points, what the entry cost and what
-//                   came back, and the server's one-line explanation.
+//                   came back, and the server's one-line explanation. Matches that were played
+//                   only (2026-11-25: no cancelled or refunded ones), each with its Results: the
+//                   match's full table as it ended, kept by the server (MetaClient.MatchResults).
 // Every number is the server's; this only lays them out. Design B (2026-11-24): Multiplayer's History
 // tab, a page with the two kinds as sub-tabs over one table each (scrolling); opened from the hub's
-// tab and from the wallet screen.
+// tab.
 public class OnlineHistory : MonoBehaviour
 {
     public enum Tab { Wallet, Matches }
@@ -313,26 +315,71 @@ public class OnlineHistory : MonoBehaviour
 
         foreach (MetaMatchRecord r in records)
         {
+            if (!Played(r)) continue;   // an older server still lists cancelled and refunded ones
             RectTransform row = Row(matchList, "Record");
             Badge(row, r.Role == Role.Hunter ? "ScanEye" : "PaintRoller");
             string when = DateTimeOffset.FromUnixTimeSeconds(r.UnixSeconds).ToLocalTime().ToString("MMM d \u00b7 HH:mm", CultureInfo.InvariantCulture);
-            TwoLines(row, RoomTitle(r.RoomId), $"{when} \u00b7 {L.T(r.Role == Role.Hunter ? "Seeker" : "Hider")}", 0f, 0.4f);
+            TwoLines(row, RoomTitle(r.RoomId), $"{when} \u00b7 {L.T(r.Role == Role.Hunter ? "Seeker" : "Hider")}", 0f, 0.34f);
 
             bool won = r.TeamResult == TeamResult.Won;
             bool lost = r.TeamResult == TeamResult.Lost;
             RectTransform chip = Paintbox.Tag(row, won ? "Won" : lost ? "Lost" : StatusText(r.Status),
                                               won ? Paintbox.Wash : Paintbox.Card, won ? Paintbox.WashInk : Paintbox.Muted, won ? "Trophy" : "Flag", 22f);
-            chip.anchorMin = chip.anchorMax = chip.pivot = new Vector2(0.4f, 0.5f);
+            chip.anchorMin = chip.anchorMax = chip.pivot = new Vector2(0.34f, 0.5f);
             chip.pivot = new Vector2(0f, 0.5f);
             chip.anchoredPosition = new Vector2(20f, 0f);
 
             string detail = string.IsNullOrEmpty(r.Explanation) ? "" : r.Explanation;
-            PaintboxPage.Cell(row, detail, 0.56f, 0.74f, 21f, Paintbox.Muted, Paintbox.Weight.Regular, TextAnchor.MiddleLeft);
-            PaintboxPage.Cell(row, $"{r.PointsHundredths / 100f:0.00}", 0.74f, 0.86f, 26f, Paintbox.Ink, Paintbox.Weight.Regular, TextAnchor.MiddleRight);
+            PaintboxPage.Cell(row, detail, 0.5f, 0.66f, 21f, Paintbox.Muted, Paintbox.Weight.Regular, TextAnchor.MiddleLeft);
+            PaintboxPage.Cell(row, $"{r.PointsHundredths / 100f:0.00}", 0.66f, 0.76f, 26f, Paintbox.Ink, Paintbox.Weight.Regular, TextAnchor.MiddleRight);
             long net = r.PayoutCents - r.EntryCents;
             string coins = r.EntryCents == 0 && r.PayoutCents == 0 ? L.T("free") : (net >= 0 ? "+" : "\u2212") + CoinBalance.Format(Math.Abs(net));
-            PaintboxPage.Cell(row, coins, 0.86f, 1f, 28f, net > 0 ? Paintbox.Good : net < 0 ? Paintbox.Bad : Paintbox.Muted, Paintbox.Weight.Bold, TextAnchor.MiddleRight);
+            PaintboxPage.Cell(row, coins, 0.76f, 0.87f, 28f, net > 0 ? Paintbox.Good : net < 0 ? Paintbox.Bad : Paintbox.Muted, Paintbox.Weight.Bold, TextAnchor.MiddleRight);
+
+            // Its results, as the match ended: everyone's rank, score and coins.
+            string matchId = r.MatchId;
+            Button results = Paintbox.Button(row, "Results", Paintbox.Tone.Paper, "Trophy", () => OpenResults(matchId), 22f, 22f);
+            results.name = "RecordResults";
+            RectTransform rt = (RectTransform)results.transform;
+            rt.anchorMin = new Vector2(0.885f, 0.5f);
+            rt.anchorMax = new Vector2(1f, 0.5f);
+            rt.pivot = new Vector2(1f, 0.5f);
+            rt.anchoredPosition = new Vector2(-8f, 0f);
+            rt.sizeDelta = new Vector2(-8f, 60f);
         }
+    }
+
+    // Played: not refunded before the start, not cancelled (an older server still lists those).
+    private static bool Played(MetaMatchRecord r) =>
+        r.Status != MatchStatus.RefundedPreStart && r.Status != MatchStatus.VoidRefund && r.Status != MatchStatus.VoidForfeit;
+
+    // A record's full results, from the server (kept for good for paid rooms): over the history,
+    // which comes back when they are closed.
+    private void OpenResults(string matchId)
+    {
+        AudioManager.ButtonTap();
+        if (Meta == null || string.IsNullOrEmpty(matchId)) return;
+        int asked = version;
+        Meta.MatchResults(matchId, reply =>
+        {
+            if (!screen.activeSelf || asked != version) return;
+            if (reply.TimedOut || reply.Error != MetaError.None)
+            {
+                Notices.Show(NoticeKind.Error, Problem(reply.TimedOut, reply.Error));
+                return;
+            }
+            if (!reply.Found)
+            {
+                Notices.Show(NoticeKind.Info, L.T("This match's results were not kept"), L.T("Results are kept for matches played from this version on."), 4f);
+                return;
+            }
+
+            screen.SetActive(false);
+            OnlineMatches.ShowResults(reply.Table, () =>
+            {
+                if (asked == version) screen.SetActive(true);
+            });
+        });
     }
 
     // ---- Table pieces ----
@@ -416,7 +463,7 @@ public class OnlineHistory : MonoBehaviour
     {
         var root = new GameObject("OnlineHistoryUI");
         root.transform.SetParent(transform, false);
-        // Over the wallet screen (60), which opens it too.
+        // Over the other online screens.
         Transform canvas = OnlineUI.CreateCanvas("OnlineHistoryCanvas", root.transform, 62).transform;
 
         PaintboxPage page = PaintboxPage.Build(canvas, "HistoryScreen", "Multiplayer", Close,
@@ -436,8 +483,8 @@ public class OnlineHistory : MonoBehaviour
 
         matchTable = Table(page.Content, "MatchTable", new[]
         {
-            ("MATCH", 0f, 0.4f, TextAnchor.MiddleLeft), ("RESULT", 0.4f, 0.56f, TextAnchor.MiddleLeft), ("NOTE", 0.56f, 0.74f, TextAnchor.MiddleLeft),
-            ("POINTS", 0.74f, 0.86f, TextAnchor.MiddleRight), ("COINS", 0.86f, 1f, TextAnchor.MiddleRight),
+            ("MATCH", 0f, 0.34f, TextAnchor.MiddleLeft), ("RESULT", 0.34f, 0.5f, TextAnchor.MiddleLeft), ("NOTE", 0.5f, 0.66f, TextAnchor.MiddleLeft),
+            ("POINTS", 0.66f, 0.76f, TextAnchor.MiddleRight), ("COINS", 0.76f, 0.87f, TextAnchor.MiddleRight),
         }, "Records", out matchList);
         walletTable = Table(page.Content, "WalletTable", new[]
         {

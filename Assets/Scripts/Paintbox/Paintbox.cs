@@ -577,7 +577,7 @@ public static class Paintbox
 
     /// <summary>
     /// The coin balance pill of every screen's top right: paper, a soft outline, the coin and the
-    /// server's balance (CoinBalance); a tap opens the wallet (OnlineWallet).
+    /// server's balance (CoinBalance); a tap opens the Shop on its Coins (PaintboxPage.OpenCoins).
     /// </summary>
     public static Text CoinPill(Transform parent, out RectTransform pill)
     {
@@ -588,7 +588,7 @@ public static class Paintbox
         Fill(row, 18f, 18f, 0f, 0f);
         row.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleCenter;
         CoinBalance.Bind(amount);
-        OnlineWallet.MakeOpener(amount);
+        PaintboxPage.MakeCoinsOpener(amount);
         return amount;
     }
 
@@ -627,6 +627,7 @@ public static class Paintbox
         {
             Button backButton = IconButton(bar, "ArrowLeft", Tone.Paper, back, 76f);
             backButton.name = "Back";
+            BackKey.Mark(backButton);   // the phone's Back does what this does
             Pin((RectTransform)backButton.transform, new Vector2(0f, 0.5f), Vector2.zero, new Vector2(76f, 76f));
             x = 100f;
         }

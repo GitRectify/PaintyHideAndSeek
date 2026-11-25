@@ -427,6 +427,7 @@ public class SettingsUI : MonoBehaviour
             yes.gameObject.AddComponent<LayoutElement>().preferredWidth = 190f;
             Button no = Paintbox.Button(row, "Stay", Paintbox.Tone.Primary, "Play", () => { AudioManager.ButtonTap(); ShowExitConfirm(false); }, 28f);
             no.name = "ExitNo";
+            BackKey.Mark(no);
             no.gameObject.AddComponent<LayoutElement>().preferredWidth = 190f;
         }
 
@@ -457,6 +458,13 @@ public class SettingsUI : MonoBehaviour
         EnsureBuilt();
         LoadState();
         Hide();
+    }
+
+    /// <summary>The phone's Back at Home (2026-11-25): Settings with "Exit the game?" over it.</summary>
+    public void AskExit()
+    {
+        Show();
+        ShowExitConfirm(true);
     }
 
     public void Show()

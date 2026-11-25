@@ -163,6 +163,13 @@ public class OnlineMatches : MonoBehaviour
         instance.OpenResults(table, new MatchEndButtons());
     }
 
+    /// <summary>The same, from the match history (2026-11-25): <paramref name="closed"/> runs on its Close.</summary>
+    public static void ShowResults(MatchResultTable table, Action closed)
+    {
+        if (instance == null) Create();
+        instance.OpenResults(table, new MatchEndButtons { Close = closed });
+    }
+
     /// <summary>What the results offer at the end of the player's own match (OnlineRound).</summary>
     public struct MatchEndButtons
     {
@@ -733,6 +740,7 @@ public class OnlineMatches : MonoBehaviour
             CloseResults();
             close?.Invoke();
         }, 200f);
+        BackKey.Mark(resultsClose);   // the phone's Back closes the results
         resultsHome = results.FootButton("Home", Paintbox.Tone.Paper, "House", () =>
         {
             Action home = onResultsHome;

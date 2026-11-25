@@ -547,6 +547,8 @@ public static class OnlinePlayTest
 
             case Step.Match:
                 if (!lobbyLaidOut) { lobbyLaidOut = true; CheckLobbyLayout(); }
+                if (!OnlineRound.Active) SampleLobby();
+                if (OnlineRound.Active && !lobbyJudged) JudgeLobby();
                 if (OnlineRound.Active && !splashChecked)
                 {
                     splashChecked = true;
@@ -674,12 +676,49 @@ public static class OnlinePlayTest
                     Check(rows || (status != null && status.text.StartsWith("No matches")),
                           "MATCH HISTORY loads from the server" + (status != null ? $" (\"{status.text}\")" : rows ? " (records listed)" : ""));
                     Check(FindByName("Extra_WALLET") == null && FindByName("Extra_HISTORY") != null,
-                          "the Multiplayer setup has HISTORY and no WALLET button (the coin balance opens the wallet)");
+                          "the Multiplayer setup has HISTORY and no WALLET button (the coin balance opens the Shop's Coins)");
+                    string listed = string.Join(" | ", historyScreen.GetComponentsInChildren<Text>(false).Select(t => t.text));
+                    Check(!listed.Contains("Cancelled") && !listed.Contains("Refunded"), "no cancelled or refunded match is listed");
+                    Shot("history_matches");
+
+                    // A played match's Results: its full table, as it ended (2026-11-25).
+                    Button results = historyScreen.GetComponentsInChildren<Button>(false).FirstOrDefault(b => b.name == "RecordResults");
+                    Check(!rows || results != null, "each match listed has its Results");
+                    if (results != null) results.onClick.Invoke();
+                    nextAction = results != null ? 0.5f : 0.75f;
+                    stepStarted = Time.realtimeSinceStartup;
+                    return;
+                }
+
+                if (nextAction == 0.5f)
+                {
+                    if (InStep < 3f) return;
+                    GameObject page = FindByName("MatchResultsScreen");
+                    string table = page != null && page.activeInHierarchy ? string.Join(" | ", page.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "";
+                    Check(OnlineMatches.ResultsOpen && table.Contains("RANK") && page.GetComponentsInChildren<Transform>(false).Count(t => t.name.StartsWith("Row")) >= 2,
+                          $"a record's Results open the match's whole table ({(table.Length > 160 ? table.Substring(0, 160) + "..." : table)})");
+                    Shot("history_results");
+                    BackKey.Press();   // the phone's Back closes them
+                    nextAction = 0.6f;
+                    stepStarted = Time.realtimeSinceStartup;
+                    return;
+                }
+
+                if (nextAction == 0.6f)
+                {
+                    if (InStep < 1f) return;
+                    Check(!OnlineMatches.ResultsOpen && historyScreen != null && historyScreen.activeInHierarchy, "Back closes them, and the history is there again");
+                    nextAction = 0.75f;
+                    return;
+                }
+
+                if (nextAction == 0.75f)
+                {
                     Button walletTab = FindButton("HistoryScreen", "WALLET HISTORY");
                     Check(walletTab != null, "the history has a WALLET HISTORY tab");
-                    Shot("history_matches");
                     if (walletTab != null) walletTab.onClick.Invoke();
                     nextAction = 1f;
+                    stepStarted = Time.realtimeSinceStartup - 2f;
                     return;
                 }
 
@@ -816,6 +855,8 @@ public static class OnlinePlayTest
                     Check(mapCards.Count > 0 && mapCards.All(b => b.interactable) && locks == 0 && prices == 0
                           && FindByName("SetupRooms") is not { activeInHierarchy: true } && FindByName("PlaySetupExtras") is not { activeInHierarchy: true },
                           $"Single Play's setup: every map free, no lock or price, no rooms or online buttons ({mapCards.Count} maps, {locks} locks, {prices} prices)");
+                    Check(FindByName("PageRate") is not { activeInHierarchy: true } && FindByName("Ratebtn") is not { activeInHierarchy: true },
+                          "Single Play's setup has no Rate button (no server rating in Single Play)");
                     Shot("single_setup");
                     PlaySetupUI.CloseIfOpen();
                     Object.FindAnyObjectByType<HomeUI>()?.HidePlaySetup(true);
@@ -877,9 +918,76 @@ public static class OnlinePlayTest
                     Check(state.ToString() == "Grace" && FindByName("CaughtPopup") is not { activeInHierarchy: true },
                           $"Revive is free: the round starts again from the grace ({state})");
                 }
+                // End round from the round menu, then the seeker round from Single Player's setup.
+                singlePlayStage = 10;
+                stepStarted = Time.realtimeSinceStartup;
+                return;
+
+            case 4:     // the free camera, panning down from the high place
+                if (!FreeCameraFromHigh(stage: 1)) return;
+                gmm.ShowMenu();
+                Check(!WallsOpen(), "and nobody can from the Home screen");
+                Go(Step.Done);
+                return;
+
+            // End round, from the round menu: back to Single Player's setup, not Home (2026-11-25).
+            case 10:
+                // This test starts its rounds with BeginRound itself; the game's Play shows the HUD first.
+                Object.FindAnyObjectByType<HomeUI>()?.SetGameplayUIVisible(true);
+                if (InStep < 0.5f) return;
+                Check(PaintboxHud.ToggleMenu() && PaintboxHud.MenuOpen, "the round menu opens in Single Play");
+                singlePlayStage = 11;
+                stepStarted = Time.realtimeSinceStartup;
+                return;
+
+            case 11:
+            {
+                if (InStep < 0.5f) return;
+                Button leave = MenuItem("MenuLeave");
+                string label = leave != null ? leave.GetComponentInChildren<Text>(true).text : "none";
+                Check(label == "End round" && MenuItem("MenuShop") == null, $"with End round and no Shop ('{label}')");
+                leave?.onClick.Invoke();
+                singlePlayStage = 12;
+                stepStarted = Time.realtimeSinceStartup;
+                return;
+            }
+
+            case 12:
+            {
+                if (InStep < 0.5f) return;
+                GameObject ask = FindByName("EndRoundConfirm");
+                string words = ask != null ? string.Join(" | ", ask.GetComponentsInChildren<Text>(false).Select(t => t.text)) : "";
+                Check(ask != null && ask.activeInHierarchy && words.Contains("Single Player"), $"it asks first, saying it goes back to Single Player ('{words}')");
+                FindByName("EndRoundYes")?.GetComponent<Button>()?.onClick.Invoke();
+                singlePlayStage = 13;
+                stepStarted = Time.realtimeSinceStartup;
+                return;
+            }
+
+            case 13:
+            {
+                if (InStep < 1f) return;
+                Text title = FindByName("SetupTitle")?.GetComponent<Text>();
+                Check(!gmm.RoundActive && PlaySetupUI.IsOpen && title != null && title.text == "Single Player" && FindByName("HomeCanvas") is not { activeInHierarchy: true },
+                      $"End round goes back to Single Player's setup, not Home (title '{title?.text}', setup open {PlaySetupUI.IsOpen}, round on {gmm.RoundActive})");
+                Shot("single_after_end_round");
+
+                // The phone's Back from there: Home.
+                BackKey.Press();
+                singlePlayStage = 14;
+                stepStarted = Time.realtimeSinceStartup;
+                return;
+            }
+
+            case 14:
+                if (InStep < 1f) return;
+                Check(!PlaySetupUI.IsOpen && FindByName("HomeCanvas") is { activeInHierarchy: true }, "and Back from Single Player's setup goes Home");
+
+                // On to Single Play's seeker round.
                 gmm.ShowMenu();
                 OpenPanelsBeforeRound();
                 gmm.BeginRound(true);       // the player seeks, the bots hide
+                Object.FindAnyObjectByType<HomeUI>()?.SetGameplayUIVisible(true);   // as the game's Play does
                 {
                     // They go straight on to their hiding places, some in this same frame: where each started is kept.
                     IReadOnlyList<Vector3> starts = hide.RoundStarts;
@@ -894,12 +1002,7 @@ public static class OnlinePlayTest
                 stepStarted = Time.realtimeSinceStartup;
                 return;
 
-            case 4:     // the free camera, panning down from the high place
-                if (!FreeCameraFromHigh(stage: 1)) return;
-                gmm.ShowMenu();
-                Check(!WallsOpen(), "and nobody can from the Home screen");
-                Go(Step.Done);
-                return;
+
 
             case 3:
                 if (InStep < 3f) return;
@@ -915,6 +1018,8 @@ public static class OnlinePlayTest
                     Check(after - before > 29f, $"+30s is free: 30 more seconds to seek ({before:F0} -> {after:F0})");
                 }
                 Check(WallsOpen(), "Single Play: a seeker can use the walls");
+                Check(PaintboxHud.InRound, "Single Play's seeker round has the match HUD (the menu button, the minimap)");
+                CheckMinimap("Single Play seeker");
                 Check(FallGuard.Rescues == 0, $"Single Play: nobody fell out of the room ({FallGuard.Rescues} times put back)");
                 if (!FreeCameraFromHigh(stage: 0)) { singlePlayStage = 4; stepStarted = Time.realtimeSinceStartup; return; }
                 gmm.ShowMenu();
@@ -2371,6 +2476,262 @@ public static class OnlinePlayTest
         }
     }
 
+    // ================= The match HUD (2026-11-25) =================
+    //
+    // A hider in the hide phase, once: the minimap (the room drawn, the player's arrow on it), the
+    // stick's centre following the thumb and coming back, Jump yellow while in the air and back on
+    // landing, Climb beside the stick, Pose / Rotate / Paint one at a time with the Rotate tray over
+    // the Camera button, and the phone's Back (the round menu, a panel closed). The seeker's
+    // minimap is looked at too.
+    private static int hudStage;
+    private static float hudAt;
+    private static bool hudSeekerSeen;
+    private static PointerEventData hudPointer;
+
+    private static bool CheckHud()
+    {
+        if (ExitTest || AwayTest || Pair || Kills || Chase) return false;
+        float now = Time.realtimeSinceStartup;
+
+        if (Seeker)
+        {
+            if (hudSeekerSeen || Net.Phase != MatchPhase.Seek || !PaintboxHud.InRound) return false;
+            hudSeekerSeen = true;
+            CheckMinimap("seeker");
+            return false;
+        }
+
+        if (hudStage >= 99 || Net.Phase != MatchPhase.Hide || !PaintboxHud.InRound || OnlineRound.AwaitingPlacement) return false;
+        if (now < hudAt) return true;
+
+        JoystickMover mover = Object.FindAnyObjectByType<JoystickMover>();
+        Joystick stick = mover != null ? Get<Joystick>(mover, "joystick") : null;
+        RectTransform handle = stick != null ? typeof(Joystick).GetField("handle", Any).GetValue(stick) as RectTransform : null;   // the base class's field
+        GameObject paintUi = FindByName("PaintUICanvas");
+
+        switch (hudStage)
+        {
+            case 0:
+                DriveJoystick(false);
+                hudAt = now + 2f;
+                hudStage = 1;
+                return true;
+
+            case 1:
+            {
+                CheckMinimap("hider");
+                Shot("hud_minimap");
+
+                // A finger on the stick, off its middle: the centre goes with it.
+                RectTransform area = stick != null ? stick.transform as RectTransform : null;
+                if (stick == null || area == null) { Check(false, "the stick is there"); hudStage = 99; return false; }
+                Rect r = ScreenRect(area);
+                hudPointer = new PointerEventData(EventSystem.current) { position = r.center + new Vector2(r.width * 0.3f, r.height * 0.2f), button = PointerEventData.InputButton.Left };
+                stick.OnPointerDown(hudPointer);
+                hudAt = now + 0.3f;
+                hudStage = 2;
+                return true;
+            }
+
+            case 2:
+            {
+                Vector2 moved = handle != null ? handle.anchoredPosition : Vector2.zero;
+                Check(moved.x > 5f && moved.y > 2f, $"the stick's centre follows the thumb (at {moved})");
+                Shot("stick_held");
+                stick.OnPointerUp(hudPointer);
+                hudAt = now + 0.3f;
+                hudStage = 3;
+                return true;
+            }
+
+            case 3:
+            {
+                Vector2 back = handle != null ? handle.anchoredPosition : Vector2.one;
+                Check(back.sqrMagnitude < 0.01f, $"and goes back to the middle when let go ({back})");
+
+                // Jump: yellow from take-off until it lands.
+                RectTransform jump = FindByName("FireButtonCanvas")?.transform.Find("Jump") as RectTransform;
+                RectTransform pose = paintUi != null ? paintUi.transform.Find("Btn_DoiDang") as RectTransform : null;
+                Check(jump != null && pose != null && Mathf.Abs(ScreenRect(jump).center.y - ScreenRect(pose).center.y) < 20f
+                      && ScreenRect(jump).xMax <= ScreenRect(pose).xMin + 2f && ScreenRect(pose).xMin - ScreenRect(jump).xMax < 60f,
+                      $"the hider's Jump is beside Pose (Jump {(jump != null ? ScreenRect(jump).ToString() : "none")}, Pose {(pose != null ? ScreenRect(pose).ToString() : "none")})");
+                jump?.GetComponent<Button>()?.onClick.Invoke();
+                if (mover != null && !mover.InJump) mover.Jump();
+                hudAt = now + 0.25f;
+                hudStage = 4;
+                return true;
+            }
+
+            case 4:
+            {
+                Color fill = JumpFill();
+                Check(mover != null && mover.InJump && Near(fill, Paintbox.Yellow), $"Jump is yellow while in the air (in the air {mover != null && mover.InJump}, colour {fill})");
+                Shot("jump_yellow");
+                hudAt = now + 0.1f;
+                hudStage = 5;
+                return true;
+            }
+
+            case 5:
+                if (mover != null && mover.InJump && now < hudAt + 4f) return true;   // still in the air
+                hudAt = now + 0.4f;
+                hudStage = 6;
+                return true;
+
+            case 6:
+            {
+                Color fill = JumpFill();
+                Check(mover != null && !mover.InJump && !Near(fill, Paintbox.Yellow), $"and back to its own colour on landing ({fill})");
+
+                // Climb sits beside the stick (it shows only by a wall, so its layout is read, not its place on screen).
+                RectTransform climb = FindByName("ClimbButtonsCanvas")?.transform.Find("ClimbUp") as RectTransform;
+                RectTransform down = FindByName("ClimbButtonsCanvas")?.transform.Find("ClimbDown") as RectTransform;
+                if (climb != null && down != null)
+                {
+                    float unit = PaintboxHud.Unit(climb.GetComponentInParent<Canvas>(true).rootCanvas.transform);
+                    float x = climb.anchoredPosition.x / unit;
+                    Check(climb.anchorMin == Vector2.zero && down.anchorMin == Vector2.zero && x > 260f && x < 340f && climb.anchoredPosition.y > down.anchoredPosition.y,
+                          $"Climb is beside the stick, up over down (anchored bottom left at {x:F0} design units; the stick reaches 296)");
+                    PaintboxHudButton climbSkin = climb.GetComponent<PaintboxHudButton>();
+                    Image climbFill = climbSkin != null ? Get<Image>(climbSkin, "fill") : null;
+                    WallClimber climber = Object.FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
+                    Check(climbFill != null && climber != null && !climber.IsOnWall && !Near(climbFill.color, Paintbox.Yellow) && !Near(climbFill.color, Paintbox.Hot),
+                          $"Climb is not yellow while the player is off the walls ({(climbFill != null ? climbFill.color.ToString() : "no skin")})");
+                }
+
+                // Pose, then Rotate: the pose tray closes. Then Paint: the Rotate tray closes.
+                paintUi.transform.Find("Btn_DoiDang")?.GetComponent<Button>()?.onClick.Invoke();
+                hudAt = now + 0.4f;
+                hudStage = 7;
+                return true;
+            }
+
+            case 7:
+            {
+                Check(paintUi.transform.Find("PosePanel") is { gameObject: { activeSelf: true } }, "Pose opens its tray");
+                paintUi.transform.Find("Btn_XoayNhanVat")?.GetComponent<Button>()?.onClick.Invoke();
+                hudAt = now + 0.4f;
+                hudStage = 8;
+                return true;
+            }
+
+            case 8:
+            {
+                bool rotateOpen = paintUi.transform.Find("ButtonRotationLeft") is { gameObject: { activeSelf: true } };
+                Check(rotateOpen && !(paintUi.transform.Find("PosePanel") is { gameObject: { activeSelf: true } }),
+                      "Rotate opens its tray and the pose tray closes (one at a time)");
+                RectTransform tray = FindByName("RotateTray")?.transform as RectTransform;
+                RectTransform camera = paintUi.transform.Find("ButtonCamera") as RectTransform;
+                Check(tray != null && camera != null && ScreenRect(tray).yMin >= ScreenRect(camera).yMax - 2f
+                      && Mathf.Abs(ScreenRect(tray).xMax - ScreenRect(camera).xMax) < 40f,
+                      $"the Rotate tray is over the Camera button, not in the middle (tray {(tray != null ? ScreenRect(tray).ToString() : "none")}, Camera {(camera != null ? ScreenRect(camera).ToString() : "none")})");
+                Shot("rotate_tray");
+                Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include)?.OpenDrawing();
+                hudAt = now + 0.4f;
+                hudStage = 9;
+                return true;
+            }
+
+            case 9:
+            {
+                ChameleonPaint painter = Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include);
+                Check(painter != null && painter.DrawingActive && !(paintUi.transform.Find("ButtonRotationLeft") is { gameObject: { activeSelf: true } }),
+                      "Paint opens its sheet and the Rotate tray closes");
+
+                // The phone's Back: the paint sheet first, then the round menu, then the menu closes.
+                BackKey.Press();
+                hudAt = now + 0.4f;
+                hudStage = 10;
+                return true;
+            }
+
+            case 10:
+            {
+                ChameleonPaint painter = Object.FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include);
+                Check(painter != null && !painter.DrawingActive && !PaintboxHud.MenuOpen, "Back closes the paint sheet first");
+                BackKey.Press();
+                hudAt = now + 0.4f;
+                hudStage = 11;
+                return true;
+            }
+
+            case 11:
+                Check(PaintboxHud.MenuOpen, "Back with nothing open opens the round menu");
+                BackKey.Press();
+                hudAt = now + 0.4f;
+                hudStage = 12;
+                return true;
+
+            case 12:
+                Check(!PaintboxHud.MenuOpen, "and Back again closes it");
+                hudStage = 99;
+                return false;
+        }
+        return false;
+    }
+
+    private static void CheckMinimap(string who)
+    {
+        GameObject map = FindByName("Minimap");
+        RawImage picture = map != null ? map.GetComponentsInChildren<RawImage>(true).FirstOrDefault() : null;
+        Check(map != null && map.activeInHierarchy && picture != null && picture.texture != null,
+              $"the {who} has a minimap of the room under the role chip (shown {map != null && map.activeInHierarchy}, drawn {picture != null && picture.texture != null})");
+        RectTransform me = picture != null ? picture.transform.parent.Find("Me") as RectTransform : null;
+        Check(me != null && me.anchoredPosition.sqrMagnitude > 0.01f, $"with the player's arrow on it ({(me != null ? me.anchoredPosition.ToString() : "none")})");
+    }
+
+    private static Color JumpFill()
+    {
+        PaintboxHudButton skin = FindByName("FireButtonCanvas")?.transform.Find("Jump")?.GetComponent<PaintboxHudButton>();
+        Image fill = skin != null ? Get<Image>(skin, "fill") : null;
+        return fill != null ? fill.color : Color.clear;
+    }
+
+    private static bool Near(Color a, Color b) => Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b) < 0.08f;
+
+    // ================= The lobby, frame by frame (2026-11-25) =================
+    //
+    // Every change of what the lobby shows (the page's title, its banner, the countdown, the bar's
+    // message), with when it happened. A value that goes away and comes straight back is a blink:
+    // the user saw the status bar blink before the countdown when a player got ready.
+    private static readonly Dictionary<string, List<(float t, string v)>> lobbySeen = new Dictionary<string, List<(float t, string v)>>();
+    private static bool lobbyJudged;
+
+    private static void SampleLobby()
+    {
+        float t = Time.realtimeSinceStartup;
+        void Note(string what, string value)
+        {
+            if (!lobbySeen.TryGetValue(what, out List<(float t, string v)> list)) lobbySeen[what] = list = new List<(float t, string v)>();
+            if (list.Count > 0 && list[list.Count - 1].v == value) return;
+            list.Add((t, value));
+        }
+
+        MatchmakingUI ui = Object.FindAnyObjectByType<MatchmakingUI>(FindObjectsInactive.Include);
+        PaintboxPage page = ui != null ? Get<PaintboxPage>(ui, "page") : null;
+        Note("canvas", FindByName("MatchmakingCanvas") is { activeInHierarchy: true } ? "on" : "off");
+        Note("title", page?.Title != null && page.Title.isActiveAndEnabled ? page.Title.text : "-");
+        Note("banner", FindByName("QueueCount") is { activeInHierarchy: true } b ? b.GetComponent<Text>().text : "-");
+        Note("countdown", FindByName("QueueCountdown") is { activeInHierarchy: true } c ? c.GetComponent<Text>().text : "-");
+        GameObject bar = FindByName("LobbyBar");
+        Note("bar", bar != null && bar.activeInHierarchy ? string.Join(" ", bar.GetComponentsInChildren<Text>(false).Select(x => x.text)) : "-");
+    }
+
+    private static void JudgeLobby()
+    {
+        lobbyJudged = true;
+        var blinks = new List<string>();
+        foreach (KeyValuePair<string, List<(float t, string v)>> pair in lobbySeen)
+        {
+            List<(float t, string v)> list = pair.Value;
+            for (int i = 2; i < list.Count; i++)
+                if (list[i].v == list[i - 2].v && list[i].t - list[i - 2].t < 1.5f)
+                    blinks.Add($"{pair.Key}: '{list[i - 2].v}' -> '{list[i - 1].v}' -> '{list[i].v}' in {list[i].t - list[i - 2].t:F2} s");
+            report.Add($"INFO  lobby {pair.Key}: " + string.Join(" | ", list.Select(x => $"{x.t:F1}s '{x.v}'")));
+        }
+        Check(blinks.Count == 0, $"the lobby shows steadily until the match: nothing blinks ({(blinks.Count == 0 ? "no value went away and came straight back" : string.Join(" ; ", blinks.Take(4)))})");
+    }
+
     private static void PlayRound()
     {
         if (ExitTest && exitStage == 5) { CheckExit(); return; }   // left: nothing of the round to look at any more
@@ -2385,6 +2746,7 @@ public static class OnlinePlayTest
         CheckAway();
         CheckFireCooldown();
         if (step != Step.Round) return;   // Exit left the match
+        if (CheckHud()) return;           // the HUD's own checks hold the stick and the buttons meanwhile
         CheckReadyList();
         CheckBodies();
         if (Kills || Mixed) WatchKillBullet();
@@ -2425,8 +2787,8 @@ public static class OnlinePlayTest
         {
             if (Net.Phase != MatchPhase.Seek || Time.realtimeSinceStartup < nextAction) return;
 
-            // Switch to the roller once with the weapon dock, tapped where a finger would tap it
-            // (whatever is on top there gets the tap), then keep shooting its rounds.
+            // Switch to the roller once with the weapon switch over Fire (2026-11-25), tapped where a
+            // finger would tap it (whatever is on top there gets the tap), then keep shooting its rounds.
             if (!chosenSpecial && Net.Weapons.Any(w => w.WeaponId == TestWeapon && w.Ammo > 0))
             {
                 chosenSpecial = true;
@@ -2436,9 +2798,14 @@ public static class OnlinePlayTest
                 string before = DockText(dock);
                 if (Net.WeaponId != TestWeapon)
                 {
+                    Image swap = dock != null ? dock.GetComponentsInChildren<Image>(true).FirstOrDefault(i => i.sprite == Paintbox.Icon("ArrowLeftRight")) : null;
+                    Check(dock != null && dock.gameObject.activeInHierarchy && before.Contains("\u221e") && swap != null && swap.enabled,
+                          $"the seeker's weapon switch shows the weapon held (the standard one's unlimited rounds) and that it switches ('{before}')");
+                    RectTransform fire = FindByName("FireBtn")?.transform as RectTransform;
+                    Check(dock != null && fire != null && ScreenRect(dock.transform as RectTransform).yMin >= ScreenRect(fire).yMax - 2f
+                          && Mathf.Abs(ScreenRect(dock.transform as RectTransform).xMax - ScreenRect(fire).xMax) < 30f,
+                          $"and it sits over the Fire button (switch {(dock != null ? ScreenRect(dock.transform as RectTransform).ToString() : "none")}, Fire {(fire != null ? ScreenRect(fire).ToString() : "none")})");
                     GameObject hit = TapAt(dock);
-                    Check(dock != null && dock.gameObject.activeInHierarchy && before.Contains("Tap to switch weapon"),
-                          $"the seeker has a weapon dock showing the weapon held and that it switches ('{before}')");
                     Check(hit != null && hit.transform.IsChildOf(dock.transform), $"a tap on it reaches it, nothing covers it (hit {(hit != null ? hit.name : "nothing")})");
                 }
                 nextAction = Time.realtimeSinceStartup + 0.6f;
@@ -2449,8 +2816,8 @@ public static class OnlinePlayTest
             {
                 weaponTapAt = -1f;
                 string after = DockText(FindByName("WeaponSwitch")?.GetComponent<Button>());
-                Check(Net.WeaponId == TestWeapon && after.Contains(ShopInventory.WeaponName(TestWeapon)) && after.Contains("left"),
-                      $"the tap switched to the roller, and the dock says so with its rounds ('{after}', server: weapon {Net.WeaponId})");
+                Check(Net.WeaponId == TestWeapon && after.Contains(ShopInventory.WeaponName(TestWeapon)) && after.Contains(Net.CurrentWeapon.Ammo.ToString()),
+                      $"the tap switched to the roller, and the switch says so with its rounds ('{after}', server: weapon {Net.WeaponId}, {Net.CurrentWeapon.Ammo} left)");
                 Check(Mathf.Abs(Net.CooldownAfterShot - 2f) < 0.01f, $"and the roller's own cooldown applies ({Net.CooldownAfterShot} s)");
                 Shot("weapon_dock");
             }
@@ -4167,12 +4534,49 @@ public static class OnlinePlayTest
 
             case 19:
                 if (Shoes.Equipped != ShoeSpecs.Standard && now - purchaseTappedAt < 5f) return;
+                // A sale the test server runs (its server.json's "Sales": the Taunt pose 25% off).
+                // The open shop goes to Poses (opened again, it would forget to bring Home back).
+                if (ShopScreen.IsOpen)
+                {
+                    object shopNow = typeof(ShopScreen).GetField("instance", Any).GetValue(null);
+                    typeof(ShopScreen).GetMethod("SelectCategory", Any).Invoke(shopNow, new object[] { "poses" });
+                }
+                else ShopScreen.Open(null, "poses");
+                shopAt = now + 2.5f;
+                shopStage = 20;
+                return;
+
+            case 20:
+            {
+                GameObject taunt = FindByName("Item_pose-taunt");
+                string text = taunt != null ? CardText(taunt) : "none";
+                ShopInventory.TryItem("pose-taunt", out MetaItem item);
+                bool tag = taunt != null && taunt.GetComponentsInChildren<Transform>(false).Any(t => t.name == "SaleTag");
+                Text usual = taunt != null ? taunt.GetComponentsInChildren<Text>(false).FirstOrDefault(t => t.name == "UsualPrice") : null;
+                Check(item.OnSale && item.PercentOff == 25 && item.OriginalPriceCents == 250000 && item.PriceCents == 187500,
+                      $"the server lists the Taunt pose on sale, 25% off 2 500 coins ({item.PriceCents} cents, usual {item.OriginalPriceCents}, '{item.SaleName}')");
+                Check(tag && text.Contains("-25%") && text.Contains("1 875") && usual != null && usual.text == "2 500" && usual.transform.Find("Strike") != null,
+                      $"its card shows -25%, the sale price and the usual one struck through ('{text}')");
+                Shot("shop_sale");
+                ShopScreen.ShowItem("pose-taunt");
+                shopAt = now + 1f;
+                shopStage = 21;
+                return;
+            }
+
+            case 21:
+            {
+                string page = FindByName("Detail") is { activeInHierarchy: true } detail ? CardText(detail) : "";
+                Check(page.Contains("Playtest Sale") && page.Contains("25% off") && page.Contains("1 875"),
+                      $"its page names the sale and when it ends, with the sale price ('{(page.Length > 200 ? page.Substring(0, 200) + "..." : page)}')");
+                Shot("shop_sale_item");
                 Check(tabMismatches == 0, $"every tab shows its own cards ({(tabProblems.Count == 0 ? "all right" : string.Join(" | ", tabProblems))})");
                 Check(comingSoonToasts == 0, $"no 'Coming soon' for an item on sale ({comingSoonToasts})");
                 ShopScreen.CloseIfOpen();
                 Check(!ShopScreen.IsOpen && FindByName("HomeCanvas") is { activeInHierarchy: true }, "closing the shop goes back to Home");
                 Go(Step.Done);
                 return;
+            }
         }
     }
 
@@ -4191,7 +4595,7 @@ public static class OnlinePlayTest
     {
         Text home = HomeCoinLabel();
         bool noScreens = Object.FindAnyObjectByType<OnlineSignIn>() == null && Object.FindAnyObjectByType<OnlineLobby>() == null &&
-                         Object.FindAnyObjectByType<OnlineWallet>() == null;
+                         !ShopScreen.IsOpen;
 
         if (!QuietOffline)
         {
@@ -4200,7 +4604,7 @@ public static class OnlinePlayTest
                 if (!Awaited(CoinBalance.Known, 12f, "signed in at launch with nothing tapped")) return;
                 quietJudged = true;
                 Check(home != null && home.text == CoinBalance.Text && home.text != CoinBalance.Unknown, $"Home shows the server's balance ('{home?.text}', {Net?.CoinCents} cents)");
-                Check(noScreens, "no sign-in, lobby or wallet screen appeared");
+                Check(noScreens, "no sign-in, lobby or shop screen appeared");
                 Check(FindByName("HomeCanvas") is { activeInHierarchy: true } && !(FindByName("RoleSelectCanvas") is { activeInHierarchy: true }), "Home is still the screen showing");
                 Check(Net != null && !Net.InMatch && !NetBootstrap.Asked, "nothing online was started beyond signing in");
                 return;
@@ -4229,12 +4633,14 @@ public static class OnlinePlayTest
         Finish();
     }
 
-    // ================= -playtestWallet: the wallet screen and every coin label =================
+    // ================= -playtestWallet: coins from the Shop, and every coin label =================
     //
-    // Against a server running the mock wallet and giving new accounts no coins: a deposit paid on
-    // the wallet's own page (this test presses its Pay button over HTTP, as the browser would), the
-    // ledger on the History screen, and a shop purchase. After each, every label that shows coins has to show the
-    // server's balance without anyone refreshing it by hand, and none may show a number of its own.
+    // Against a server running the mock wallet and giving new accounts no coins. There is no wallet
+    // screen any more (2026-11-25): a tap on any coin balance opens the Shop on its Coins. A coin
+    // pack is paid on the wallet's own page (this test presses its Pay button over HTTP, as the
+    // browser would), then the ledger on the History screen, and a shop purchase. After each, every
+    // label that shows coins has to show the server's balance without anyone refreshing it by
+    // hand, and none may show a number of its own.
     private static bool Wallet => System.Environment.GetCommandLineArgs().Contains("-playtestWallet");
 
     private static int walletStage, walletStageSeen = -1;
@@ -4255,21 +4661,13 @@ public static class OnlinePlayTest
         return menu != null ? Get<Text>(menu, "coinText") : null;
     }
 
-    private static OnlineWallet WalletScreen() => Object.FindAnyObjectByType<OnlineWallet>();
+    // The shop's Coins category: the one the server marks "coins".
+    private static string CoinsCategoryId() =>
+        ShopInventory.Categories.FirstOrDefault(c => c.Special == "coins").Id;
 
-    private static string WalletField(string field)
-    {
-        OnlineWallet screen = WalletScreen();
-        return screen != null ? Get<Text>(screen, field)?.text ?? "" : "";
-    }
-
-    /// <summary>Every text showing on the wallet screen, joined: what the player can read there now.</summary>
-    private static string WalletShown()
-    {
-        GameObject root = FindByName("WalletScreen");
-        if (root == null || !root.activeInHierarchy) return "";
-        return string.Join(" | ", root.GetComponentsInChildren<Text>(false).Select(t => t.text));
-    }
+    // The balance over the open shop.
+    private static Text ShopCoinLabel() =>
+        FindByName("ShopScreenCanvas")?.GetComponentsInChildren<Text>(false).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null);
 
     /// <summary>Every text showing on the history screen, joined.</summary>
     private static string HistoryShown()
@@ -4309,7 +4707,6 @@ public static class OnlinePlayTest
         if (Time.realtimeSinceStartup < walletNotBefore) return;
 
         OnlineLobby lobby = Object.FindAnyObjectByType<OnlineLobby>();
-        OnlineWallet screen = WalletScreen();
 
         switch (walletStage)
         {
@@ -4320,7 +4717,7 @@ public static class OnlinePlayTest
                 Check(CoinBalance.Known && CoinBalance.Cents == Net.CoinCents, "signed in: the balance is the server's");
                 Check(Net.CoinCents == 0, $"a new account starts with what the server gives it, here nothing ({Net.CoinCents})");
                 Check(home != null && home.text == CoinBalance.Text, $"Home shows it ('{home?.text}')");
-                Check(home != null && home.GetComponent<Button>() != null, "tapping the Home balance opens the wallet");
+                Check(home != null && home.GetComponent<Button>() != null, "tapping the Home balance opens the Shop's Coins");
 
                 PendingTopUp.OpenUrl = url => walletOpenedUrl = url;     // this test is the browser
                 OnlineLobby.Open(profile, null);                         // shows the role screen
@@ -4339,35 +4736,28 @@ public static class OnlinePlayTest
 
             case 1:
             {
-                // No WALLET button in the setup (2026-11-24): the coin balance over it opens the wallet.
+                // No wallet screen (2026-11-25): the coin balance over the setup opens the Shop's Coins.
                 Text pill = SetupCoinLabel();
                 if (!Awaited(FindByName("Extra_HISTORY") != null, 8f, "the play setup is up")) return;
                 Check(FindByName("Extra_WALLET") == null, "the play setup has no WALLET button");
                 Check(pill != null && pill.gameObject.activeInHierarchy && pill.text == "0", $"the coin balance over the setup shows the same balance ('{pill?.text}')");
                 Button open = pill != null ? pill.GetComponent<Button>() : null;
-                Check(open != null, "tapping that balance opens the wallet");
+                Check(open != null, "the balance can be tapped");
                 if (open != null) open.onClick.Invoke();
-                walletStage = 2;
-                return;
-            }
-
-            case 2:
-            {
-                if (!Awaited(WalletField("account").Contains("XTS"), 15f, "the wallet screen shows the wallet account")) return;
-                Text testBanner = Get<Text>(screen, "banner");
-                Check(testBanner != null && testBanner.gameObject.activeInHierarchy && testBanner.text.Contains("TEST"), $"it says it is a test wallet ('{testBanner?.text}')");
-                Check(WalletField("account").Contains("100.00 XTS"), $"the account holds test currency ('{WalletField("account")}')");
-                Check(WalletShown().Contains("Coins: <b>0</b>"), "and the coins are the server's 0");
                 walletStage = 3;
                 return;
             }
 
             case 3:
             {
-                Button pack = FindButton("WalletScreen", "550 coins");
-                if (!Awaited(pack != null, 10f, "DEPOSIT lists the server's coin packs")) return;
-                Check(WalletShown().Contains("4.99 XTS"), "priced in test currency");
-                Shot("wallet");
+                bool onCoins = ShopScreen.IsOpen && ShopInventory.Loaded && ShopInventory.TopUpsLoaded && ShopScreen.CurrentCategory != null
+                               && ShopScreen.CurrentCategory == CoinsCategoryId();
+                if (!Awaited(onCoins, 15f, "tapping it opened the Shop on its Coins")) return;
+                Check(FindByName("WalletScreen") == null && Resources.FindObjectsOfTypeAll<Canvas>().All(c => c.name != "OnlineWalletCanvas"),
+                      "there is no wallet screen any more");
+                Button pack = FindByName("Pack_coins-550")?.GetComponent<Button>();
+                Check(pack != null && pack.gameObject.activeInHierarchy, "the Coins list the server's 550 coin pack");
+                Shot("shop_coins");
                 if (pack != null) pack.onClick.Invoke();
                 walletStage = pack != null ? 4 : 99;
                 return;
@@ -4392,24 +4782,16 @@ public static class OnlinePlayTest
                 return;
 
             case 6:
+            {
                 // Nothing here told the game it was paid: the wallet told the server, and the game asked.
                 if (!Awaited(Net.CoinCents == 55000, 25f, "the deposit reached the balance")) return;
-                Check(WalletShown().Contains("Coins: <b>550</b>"), $"the wallet screen shows 550 coins ({Net.CoinCents})");
-                Check(WalletField("status").Contains("Added 550"), $"and says so ('{WalletField("status")}')");
+                Text shopCoins = ShopCoinLabel();
+                Check(shopCoins != null && shopCoins.text == "550", $"the shop's balance shows 550 coins ('{shopCoins?.text}', {Net.CoinCents})");
                 Check(CoinNotice.Shown > 0 && CoinNotice.Visible.Contains("550"),
                       $"a notice over everything confirms the coins were added ('{CoinNotice.Visible.Replace("\n", " / ")}')");
-                walletStage = 7;
-                return;
-
-            case 7:
-            {
-                if (!Awaited(WalletField("account").Contains("95.01 XTS"), 10f, $"the wallet account is down by the price ('{WalletField("account")}')")) return;
-                Check(FindButton("WalletScreen", "WITHDRAW") == null && Get<GameObject>(screen, "withdrawControls") == null,
-                      "the wallet offers no withdrawal");
-                // The ledger is the History screen's, one tap away.
-                Button history = FindButton("WalletScreen", "HISTORY");
-                Check(history != null, "the wallet has a HISTORY button");
-                if (history != null) history.onClick.Invoke();
+                // The ledger is the History screen's (Multiplayer's History tab).
+                ShopScreen.CloseIfOpen();
+                OnlineHistory.Show(null, OnlineHistory.Tab.Wallet, null);
                 walletStage = 8;
                 return;
             }
@@ -4446,11 +4828,10 @@ public static class OnlinePlayTest
                 if (!Awaited(HistoryShown().Contains("Shop: next-player"), 10f, "the open history lists the purchase as it happens")) return;
                 Check(walletAfterPurchase >= 0 && walletAfterPurchase < 55000 && Net.CoinCents == walletAfterPurchase,
                       $"the purchase took its price ({Net.CoinCents}, the receipt says {walletAfterPurchase})");
-                Button closeHistory = FindButton("HistoryScreen", "CLOSE");
-                if (closeHistory != null) closeHistory.onClick.Invoke();
-                Check(WalletShown().Contains($"Coins: <b>{WalletAfterText}</b>"), $"the wallet under it followed, with no refresh asked for ({WalletAfterText})");
-                Button close = FindButton("WalletScreen", "CLOSE");
-                if (close != null) close.onClick.Invoke();
+                Text historyCoins = FindByName("HistoryScreen")?.GetComponentsInChildren<Text>(false).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null);
+                Check(historyCoins == null || historyCoins.text == WalletAfterText, $"the balance over the history followed, with no refresh asked for ('{historyCoins?.text}', {WalletAfterText})");
+                Object.FindAnyObjectByType<OnlineHistory>()?.SendMessage("Close");
+                if (!(FindByName("PlaySetup") is { activeInHierarchy: true })) typeof(OnlineLobby).GetMethod("ShowSetup", Any).Invoke(lobby, new object[] { null });
                 walletStage = 13;
                 return;
             }
@@ -4458,7 +4839,7 @@ public static class OnlinePlayTest
             case 13:
             {
                 GameObject rooms = FindByName("PlaySetup");
-                if (!Awaited(rooms != null && rooms.activeInHierarchy, 5f, "closing the wallet leaves the play setup there")) return;
+                if (!Awaited(rooms != null && rooms.activeInHierarchy, 5f, "the play setup is there after the history")) return;
                 Text pill = SetupCoinLabel();
                 Check(pill != null && pill.text == WalletAfterText, $"and the balance over it is the new one ('{pill?.text}')");
 
@@ -4494,7 +4875,7 @@ public static class OnlinePlayTest
 
                 Text shopCoins = FindByName("ShopScreenCanvas")?.GetComponentsInChildren<Text>(false).FirstOrDefault(t => t.GetComponent<CoinLabel>() != null);
                 Check(shopCoins != null && shopCoins.text == WalletAfterText, $"the shop shows it ('{shopCoins?.text}')");
-                Check(shopCoins != null && shopCoins.GetComponent<Button>() != null, "and its balance opens the wallet too");
+                Check(shopCoins != null && shopCoins.GetComponent<Button>() != null, "and its balance goes to its Coins too");
 
                 // The coin pack cards: the server's amounts, as the server lists its packs.
                 var amounts = Resources.FindObjectsOfTypeAll<GameObject>().Where(g => g.activeInHierarchy && g.name.StartsWith("Pack_"))
@@ -4581,6 +4962,16 @@ public static class OnlinePlayTest
 
     private static void Call(object target, string method) =>
         target.GetType().GetMethod(method, Any, null, Type.EmptyTypes, null).Invoke(target, null);
+
+    // Where a UI element is on the screen, in pixels.
+    private static Rect ScreenRect(RectTransform rt)
+    {
+        if (rt == null) return default;
+        var corners = new Vector3[4];
+        rt.GetWorldCorners(corners);
+        Vector2 a = RectTransformUtility.WorldToScreenPoint(null, corners[0]), b = RectTransformUtility.WorldToScreenPoint(null, corners[2]);
+        return Rect.MinMaxRect(a.x, a.y, b.x, b.y);
+    }
 
     private static string DockText(Button dock) =>
         dock != null ? string.Join(" / ", dock.GetComponentsInChildren<Text>(true).Select(t => t.text)) : "none";

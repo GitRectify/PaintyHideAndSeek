@@ -3,11 +3,12 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 
 /// <summary>
-/// Design B's match HUD (2026-11-25), laid out as the prototype's: the role chip top left, the
-/// round's pill top centre (hiders left, the clock, seekers left), the menu top right, the stick
-/// bottom left and the actions bottom right (the main one large and yellow, the others around
-/// it), Start along the bottom, the pose picker as a tray, turning as a tray under the character
-/// and painting as a sheet on the right edge.
+/// Design B's match HUD (2026-11-25), laid out as the prototype's: the role chip top left with the
+/// minimap under it, the round's pill top centre (hiders left, the clock, seekers left), the menu
+/// top right, the stick bottom left with Climb beside it, and the actions bottom right (the main
+/// one large and yellow, the others around it: a hider's Jump beside Pose, a seeker's weapon switch
+/// over Fire), Start along the bottom, the pose picker as a tray, turning as a tray over the Camera
+/// button and painting as a sheet on the right edge. One of those three is open at a time.
 /// The scene's own buttons keep their scripts and events: they are only moved and sized here,
 /// every frame, in design units (a 1080-tall screen) on whatever canvas each one is on. The menu
 /// button opens the round menu (Resume, Settings, Shop and the balance online, Leave).
@@ -38,20 +39,37 @@ public sealed class PaintboxHud : MonoBehaviour
     private static readonly Vector2 LeftOfMain = new Vector2(-(EdgeX + 140f), EdgeY);
     private static readonly Vector2 AboveLeft = new Vector2(-(EdgeX + 130f), EdgeY + 112f);
     private static readonly Vector2 AboveMain = new Vector2(-EdgeX, EdgeY + Main + 18f);
-    private static readonly Vector2 ClimbUpAt = new Vector2(-(EdgeX + 262f), EdgeY + 112f);
-    private static readonly Vector2 ClimbDownAt = new Vector2(-(EdgeX + 262f), EdgeY);
+    private static readonly Vector2 LeftOfPose = new Vector2(-(EdgeX + 140f + 104f + 14f), EdgeY);   // a hider's Jump
+
+    /// <summary>The seeker's weapon switch: over Fire (its own bottom right corner, from the screen's).</summary>
+    public static readonly Vector2 WeaponSwitchAt = AboveMain;
+    public static readonly Vector2 WeaponSwitchSize = new Vector2(124f, 104f);
+
+    // The stick, bottom left, and Climb beside it (up over down), shown only by a wall.
+    private const float Stick = 260f;
+    private static readonly Vector2 StickAt = new Vector2(EdgeX + Stick * 0.5f, EdgeY + Stick * 0.5f);
+    private static readonly Vector2 ClimbUpAt = new Vector2(EdgeX + Stick + 24f, EdgeY + 112f);
+    private static readonly Vector2 ClimbDownAt = new Vector2(EdgeX + Stick + 24f, EdgeY);
 
     /// <summary>The pose tray and the paint sheet start this far down (under the menu and the pill).</summary>
     public const float TrayTop = 140f;
     private const float TrayBottom = 290f;      // over the actions
-    private const float RotateTrayY = EdgeY + 100f;
     private const float PaintSheetWidth = 470f;
+
+    // Turning: a tray over the Camera button, bottom right, the two turn buttons in it.
+    private static readonly Vector2 RotateTraySize = new Vector2(460f, 200f);
+    private const float RotateTrayBottom = EdgeY + Main + 18f + 90f + 16f;   // over the Camera button
 
     private Transform paintUi, fireUi, climbUi, joyUi, paintSheetUi;
     private GameModeManager gmm;
     private CameraController cam;
     private ChameleonPaint painter;
-    private bool showing;
+    private JoystickMover mover;
+    private WallClimber climber;
+    private PoseSelectorUI poses;
+    private PaintboxMinimap minimap;
+    private bool showing, statesHooked;
+    private bool poseWasOpen, rotateWasOpen, paintWasOpen;
 
     private Button menuButton, shopButton;
     private CanvasGroup shopHidden;
@@ -91,6 +109,9 @@ public sealed class PaintboxHud : MonoBehaviour
         gmm = FindAnyObjectByType<GameModeManager>(FindObjectsInactive.Include);
         cam = FindAnyObjectByType<CameraController>(FindObjectsInactive.Include);
         painter = FindAnyObjectByType<ChameleonPaint>(FindObjectsInactive.Include);
+        mover = FindAnyObjectByType<JoystickMover>(FindObjectsInactive.Include);
+        climber = FindAnyObjectByType<WallClimber>(FindObjectsInactive.Include);
+        poses = FindAnyObjectByType<PoseSelectorUI>(FindObjectsInactive.Include);
 
         menuButton = ui.Find("Btn_Setting")?.GetComponent<Button>();
         shopButton = ui.Find("Btn_Shop")?.GetComponent<Button>();
@@ -107,6 +128,7 @@ public sealed class PaintboxHud : MonoBehaviour
         overlay.SetAsFirstSibling();   // behind the scene's buttons (the rotate tray is under its two)
         BuildRoleChip();
         BuildRotateTray();
+        minimap = PaintboxMinimap.Create(overlay, transform);
         BuildMenu();
         RouteMenuButton();
         LayoutNow();
@@ -124,6 +146,7 @@ public sealed class PaintboxHud : MonoBehaviour
     private void LateUpdate()
     {
         showing = paintUi != null && paintUi.gameObject.activeInHierarchy && gmm != null && gmm.RoundActive;
+        if (minimap != null) minimap.Tick(showing);
         if (!showing)
         {
             Notices.RightClear = 0f;
@@ -133,6 +156,8 @@ public sealed class PaintboxHud : MonoBehaviour
         }
 
         LayoutNow();
+        HookButtonStates();
+        OnePanelAtATime();
         // Notices keep clear of the paint sheet and the pose tray on the right.
         Transform poses = paintUi.Find("PosePanel");
         Notices.RightClear = painter != null && painter.DrawingActive ? EdgeX + PaintSheetWidth + 24f
@@ -188,40 +213,45 @@ public sealed class PaintboxHud : MonoBehaviour
         Put(paintUi, "Btn_DoiDang", BottomRight, BottomRight, LeftOfMain, Slot, k);
         Put(paintUi, "Btn_XoayNhanVat", BottomRight, BottomRight, AboveLeft, Slot, k);
         Put(paintUi, "ButtonCamera", BottomRight, BottomRight, AboveMain, Slot, k);
-        bool dock = OnlineRound.WeaponDockShown;
-        Put(paintUi, "ButtonStart", BottomCentre, BottomCentre, new Vector2(0f, EdgeY + (dock ? 124f : 0f)), new Vector2(430f, 84f), k);
-        Put(paintUi, "ButtonRotationLeft", BottomCentre, Centre, new Vector2(-62f, RotateTrayY + 70f), new Vector2(100f, 100f), k);
-        Put(paintUi, "ButtonRotationRight", BottomCentre, Centre, new Vector2(52f, RotateTrayY + 70f), new Vector2(100f, 100f), k);
+        Put(paintUi, "ButtonStart", BottomCentre, BottomCentre, new Vector2(0f, EdgeY), new Vector2(430f, 84f), k);
+
+        // The turn buttons in their tray, over the Camera button.
+        float trayLeft = -(EdgeX + RotateTraySize.x);
+        Put(paintUi, "ButtonRotationLeft", BottomRight, Centre, new Vector2(trayLeft + 70f, RotateTrayBottom + 70f), new Vector2(100f, 100f), k);
+        Put(paintUi, "ButtonRotationRight", BottomRight, Centre, new Vector2(trayLeft + 182f, RotateTrayBottom + 70f), new Vector2(100f, 100f), k);
         LayoutPoseTray(paintUi.Find("PosePanel") as RectTransform, k);
 
-        // The seeker's: Fire, Lie down beside it, Jump above. A hider's Jump is by the stick.
+        // The seeker's: Fire, Lie down beside it, Jump above (the weapon switch is over Fire). A
+        // hider's Jump is beside Pose (2026-11-25).
         if (fireUi != null)
         {
             float f = Unit(fireUi);
             Put(fireUi, "FireBtn", BottomRight, BottomRight, MainAt, new Vector2(Main, Main), f);
             Put(fireUi, "btnnam", BottomRight, BottomRight, LeftOfMain, Slot, f);
-            if (seeker) Put(fireUi, "Jump", BottomRight, BottomRight, AboveLeft, Slot, f);
-            else Put(fireUi, "Jump", BottomLeft, BottomLeft, new Vector2(EdgeX + 276f, EdgeY + 128f), new Vector2(100f, 90f), f);
+            Put(fireUi, "Jump", BottomRight, BottomRight, seeker ? AboveLeft : LeftOfPose, Slot, f);
         }
 
-        // Climbing, left of the actions.
+        // Climbing, beside the stick, so a thumb on the stick reaches it (shown only by a wall).
         if (climbUi != null)
         {
             float c = Unit(climbUi);
-            Put(climbUi, "ClimbUp", BottomRight, BottomRight, ClimbUpAt, Climb, c);
-            Put(climbUi, "ClimbDown", BottomRight, BottomRight, ClimbDownAt, Climb, c);
+            Put(climbUi, "ClimbUp", BottomLeft, BottomLeft, ClimbUpAt, Climb, c);
+            Put(climbUi, "ClimbDown", BottomLeft, BottomLeft, ClimbDownAt, Climb, c);
         }
 
-        // The stick, bottom left.
+        // The stick, bottom left. Its handle is only sized: the stick moves it with the thumb
+        // (setting its place here every frame held it in the middle).
         if (joyUi != null)
         {
             float j = Unit(joyUi);
             var stick = joyUi.Find("Fixed Joystick") as RectTransform;
-            Put(stick, BottomLeft, Centre, new Vector2(EdgeX + 130f, EdgeY + 130f), new Vector2(260f, 260f), j);
+            Put(stick, BottomLeft, Centre, StickAt, new Vector2(Stick, Stick), j);
             if (stick != null)
             {
-                Put(stick.Find("JoyOutline") as RectTransform, Centre, Centre, Vector2.zero, new Vector2(260f, 260f), j);
-                Put(stick.Find("Handle") as RectTransform, Centre, Centre, Vector2.zero, new Vector2(104f, 104f), j);
+                Put(stick.Find("JoyOutline") as RectTransform, Centre, Centre, Vector2.zero, new Vector2(Stick, Stick), j);
+                var handle = stick.Find("Handle") as RectTransform;
+                Vector2 size = new Vector2(104f, 104f) * j;
+                if (handle != null && (handle.sizeDelta - size).sqrMagnitude > 0.01f) handle.sizeDelta = size;
             }
         }
 
@@ -285,27 +315,21 @@ public sealed class PaintboxHud : MonoBehaviour
 
     // ================= Turning =================
 
-    // A paper tray under the two turn buttons: what they do, and Done (the Rotate button's own toggle).
+    // A paper tray over the Camera button (2026-11-25: no longer in the middle of the screen): its
+    // name and what it does along the top, the two turn buttons in it and Done (the Rotate button's
+    // own toggle) at its right.
     private void BuildRotateTray()
     {
         PaintboxFrame tray = Paintbox.Frame(overlay, "RotateTray", Paintbox.Paper, Paintbox.Radius, 3f, 5f, Paintbox.Ink, Paintbox.Ink);
         rotateTray = tray.Root;
-        Paintbox.Pin(rotateTray, BottomCentre, new Vector2(0f, RotateTrayY), new Vector2(600f, 140f));
+        Paintbox.Pin(rotateTray, BottomRight, new Vector2(-EdgeX, RotateTrayBottom), RotateTraySize);
 
-        Text title = Paintbox.Label(tray.Body, "Rotate", 34f, Paintbox.Ink, Paintbox.Weight.Bold);
-        title.rectTransform.anchorMin = new Vector2(0f, 0.5f);
-        title.rectTransform.anchorMax = new Vector2(0f, 1f);
-        title.rectTransform.pivot = new Vector2(0f, 0.5f);
-        title.rectTransform.offsetMin = new Vector2(30f, -4f);
-        title.rectTransform.offsetMax = new Vector2(220f, -14f);
-        title.alignment = TextAnchor.LowerLeft;
+        Text title = Paintbox.Label(tray.Body, "Rotate", 32f, Paintbox.Ink, Paintbox.Weight.Bold);
+        Paintbox.TopBand(title.rectTransform, 12f, 46f, 24f, 200f);
+        title.alignment = TextAnchor.MiddleLeft;
         Text hint = Paintbox.Label(tray.Body, "Hold to turn", 22f, Paintbox.Muted);
-        hint.rectTransform.anchorMin = new Vector2(0f, 0f);
-        hint.rectTransform.anchorMax = new Vector2(0f, 0.5f);
-        hint.rectTransform.pivot = new Vector2(0f, 0.5f);
-        hint.rectTransform.offsetMin = new Vector2(30f, 14f);
-        hint.rectTransform.offsetMax = new Vector2(220f, 2f);
-        hint.alignment = TextAnchor.UpperLeft;
+        Paintbox.TopBand(hint.rectTransform, 14f, 44f, 160f, 22f);
+        hint.alignment = TextAnchor.MiddleRight;
         Paintbox.Fit(hint, 14);
 
         Button done = Paintbox.Button(tray.Body, "Done", Paintbox.Tone.Primary, "Check", () =>
@@ -314,7 +338,12 @@ public sealed class PaintboxHud : MonoBehaviour
             paintUi.Find("Btn_XoayNhanVat")?.GetComponent<Button>()?.onClick.Invoke();
         }, 26f);
         done.name = "RotateDone";
-        Paintbox.Pin((RectTransform)done.transform, new Vector2(1f, 0.5f), new Vector2(-22f, 0f), new Vector2(150f, 76f));
+        BackKey.Mark(done);
+        RectTransform d = (RectTransform)done.transform;
+        d.anchorMin = d.anchorMax = new Vector2(1f, 0f);
+        d.pivot = new Vector2(1f, 0.5f);
+        d.anchoredPosition = new Vector2(-22f, 70f);
+        d.sizeDelta = new Vector2(150f, 76f);
         rotateTray.gameObject.SetActive(false);
     }
 
@@ -323,6 +352,48 @@ public sealed class PaintboxHud : MonoBehaviour
         Transform left = paintUi.Find("ButtonRotationLeft");
         bool open = left != null && left.gameObject.activeInHierarchy;
         if (rotateTray.gameObject.activeSelf != open) rotateTray.gameObject.SetActive(open);
+    }
+
+    // ================= What the buttons show =================
+
+    // Jump turns yellow from take-off until it lands, Climb while the player is on a wall
+    // (2026-11-25); the buttons fade between their colours (PaintboxHudButton).
+    private void HookButtonStates()
+    {
+        if (statesHooked) return;
+        PaintboxHudButton jump = fireUi != null ? fireUi.Find("Jump")?.GetComponent<PaintboxHudButton>() : null;
+        PaintboxHudButton up = climbUi != null ? climbUi.Find("ClimbUp")?.GetComponent<PaintboxHudButton>() : null;
+        PaintboxHudButton down = climbUi != null ? climbUi.Find("ClimbDown")?.GetComponent<PaintboxHudButton>() : null;
+        if (jump == null || up == null || down == null) return;
+
+        statesHooked = true;
+        jump.OnTone = up.OnTone = down.OnTone = Paintbox.Tone.Primary;
+        jump.OnWhen = () => mover != null && mover.InJump;
+        up.OnWhen = () => climber != null && climber.IsOnWall;
+        down.OnWhen = () => climber != null && climber.IsOnWall;
+    }
+
+    // Pose, Rotate and Paint: one open at a time (2026-11-25). The one just opened stays; the
+    // others close as their own buttons would close them.
+    private void OnePanelAtATime()
+    {
+        Transform panel = paintUi.Find("PosePanel");
+        Transform left = paintUi.Find("ButtonRotationLeft");
+        bool pose = panel != null && panel.gameObject.activeSelf;
+        bool rotate = left != null && left.gameObject.activeSelf;
+        bool paint = painter != null && painter.DrawingActive;
+
+        bool poseOpened = pose && !poseWasOpen, rotateOpened = rotate && !rotateWasOpen, paintOpened = paint && !paintWasOpen;
+        if (poseOpened || rotateOpened || paintOpened)
+        {
+            if (!poseOpened && pose) { if (poses != null) poses.Close(); else panel.gameObject.SetActive(false); pose = false; }
+            if (!rotateOpened && rotate) { if (mover != null) mover.ToggleRotateButtons(); rotate = false; }
+            if (!paintOpened && paint) { painter.CloseDrawingNow(); paint = false; }
+        }
+
+        poseWasOpen = pose;
+        rotateWasOpen = rotate;
+        paintWasOpen = paint;
     }
 
     // ================= The round menu =================
@@ -359,7 +430,9 @@ public sealed class PaintboxHud : MonoBehaviour
         v.childForceExpandHeight = false;
         v.childAlignment = TextAnchor.UpperCenter;
 
-        Row(MenuButton(stack, "Resume", Paintbox.Tone.Primary, "Play", CloseMenu), "MenuResume");
+        Button resume = MenuButton(stack, "Resume", Paintbox.Tone.Primary, "Play", CloseMenu);
+        Row(resume, "MenuResume");
+        BackKey.Mark(resume);
         Row(MenuButton(stack, "Settings", Paintbox.Tone.Paper, "Settings", () =>
         {
             CloseMenu();
@@ -381,8 +454,10 @@ public sealed class PaintboxHud : MonoBehaviour
         });
         shop.name = "MenuShop";
         shop.GetComponent<LayoutElement>().flexibleWidth = 1f;
-        Paintbox.CoinPill(shopRow, out RectTransform pill);
+        Text balance = Paintbox.CoinPill(shopRow, out RectTransform pill);
         pill.name = "MenuBalance";
+        Button balanceButton = balance.GetComponent<Button>();
+        if (balanceButton != null) balanceButton.onClick.AddListener(CloseMenu);   // the Shop's Coins open over the round
         pill.gameObject.AddComponent<LayoutElement>().preferredWidth = 220f;
         menuShopRow = shopRow.gameObject;
 
@@ -395,15 +470,17 @@ public sealed class PaintboxHud : MonoBehaviour
         // Single Play's own question before the round ends.
         PaintboxDialog end = PaintboxDialog.Build(canvas, "EndRoundConfirm", "DoorOpen", "End this round?", new Vector2(860f, 420f));
         endRoot = end.Root;
-        end.Body.text = "Leave this round and go back to Home.";
+        end.Body.text = "Leave this round and go back to Single Player.";
         Button endYes = end.DangerButton("End round", "LogOut", () =>
         {
             AudioManager.ButtonTap();
             endRoot.SetActive(false);
+            // Back to Single Player's setup (2026-11-25), not Home: the next round is one tap away.
             FindAnyObjectByType<HomeUI>(FindObjectsInactive.Include)?.GoHome();
+            PlaySetupUI.OpenSingle();
         }, 240f);
         endYes.name = "EndRoundYes";
-        end.Button("Stay", Paintbox.Tone.Primary, "Play", () =>
+        end.BackButton("Stay", Paintbox.Tone.Primary, "Play", () =>
         {
             AudioManager.ButtonTap();
             endRoot.SetActive(false);
@@ -488,6 +565,7 @@ public sealed class PaintboxHud : MonoBehaviour
             Paintbox.Pin(close, Vector2.one, new Vector2(-20f, -18f), new Vector2(66f, 66f));
             close.localScale = Vector3.one;
             PaintboxSkin.Hud(close, "X", null, false, Paintbox.Tone.Paper, "X");
+            BackKey.Mark(close.GetComponent<Button>());
         }
 
         var list = panel.Find("List") as RectTransform;
@@ -595,6 +673,7 @@ public sealed class PaintboxHud : MonoBehaviour
             Paintbox.Pin(close, Vector2.one, new Vector2(-20f, -18f), new Vector2(70f, 70f));
             close.localScale = Vector3.one;
             PaintboxSkin.Hud(close, "X", null, false, Paintbox.Tone.Paper, "X");
+            BackKey.Mark(close.GetComponent<Button>());
         }
 
         SheetLabel(panel, "Colour", 98f);

@@ -5,7 +5,7 @@ using UnityEngine;
 
 // Main home menu: Play / Multiplayer / Shop buttons plus the coin balance. The one currency is the
 // server wallet: the label is bound to the server's balance (CoinBalance: "-" until signed in, never
-// a number of its own), and tapping it signs in and opens the wallet (OnlineWallet). The Shop signs
+// a number of its own), and tapping it signs in and opens the Shop's Coins (PaintboxPage.OpenCoins). The Shop signs
 // in first too. A player who has signed in before is signed in quietly when Home first shows
 // (NetBootstrap.QuietSignIn), so the balance is simply there.
 // Play opens the play setup (PlaySetupUI, 2026-11-21: side, character and map on one screen, over
@@ -46,7 +46,7 @@ public class HomeMenuUI : MonoBehaviour
         if (roleSelectBackButton != null) roleSelectBackButton.onClick.AddListener(ShowHome);
 
         CoinBalance.Bind(coinText);
-        OnlineWallet.MakeOpener(coinText);
+        PaintboxPage.MakeCoinsOpener(coinText);
 
         // Every Ad button is a Shop button (2026-11-13): the round's HUD, the side screen and the
         // matchmaking screen. They need the server, so they show in Multiple Play only.
@@ -58,7 +58,7 @@ public class HomeMenuUI : MonoBehaviour
         // nothing updated: it showed the number it was saved with in the scene.
         if (roleSelectCanvas != null)
         {
-            foreach (UnityEngine.UI.Text label in CoinBalance.BindNamed(roleSelectCanvas.transform)) OnlineWallet.MakeOpener(label);
+            foreach (UnityEngine.UI.Text label in CoinBalance.BindNamed(roleSelectCanvas.transform)) PaintboxPage.MakeCoinsOpener(label);
         }
     }
 

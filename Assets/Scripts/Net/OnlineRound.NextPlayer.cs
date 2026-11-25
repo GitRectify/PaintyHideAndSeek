@@ -77,7 +77,7 @@ public partial class OnlineRound
         nextOfferStatus.rectTransform.anchorMax = new Vector2(1f, 0f);
         nextOfferStatus.rectTransform.offsetMin = new Vector2(40f, 124f);
         nextOfferStatus.rectTransform.offsetMax = new Vector2(-40f, 166f);
-        offer.Button("Not now", Paintbox.Tone.Paper, null, () =>
+        offer.BackButton("Not now", Paintbox.Tone.Paper, null, () =>
         {
             AudioManager.ButtonTap();
             CloseNextPlayerOffer();

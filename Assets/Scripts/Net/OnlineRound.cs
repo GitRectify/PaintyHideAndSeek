@@ -117,7 +117,8 @@ public partial class OnlineRound : MonoBehaviour
 
     private Text banner;
     private float bannerUntil;
-    private Button weaponButton;   // the seeker's weapon dock: the weapon held and its rounds, tap to switch
+    private Button weaponButton;   // the seeker's weapon switch over Fire: the weapon held and its rounds, tap to switch
+    private Image weaponSwapIcon;  // shown when a tap has another weapon to switch to
     private Text weaponTitle, weaponHint;
     private Image weaponBadge;
     private int lastWeapon;                     // the weapon held at the last LoadoutState
@@ -350,6 +351,9 @@ public partial class OnlineRound : MonoBehaviour
         leaveArmed = false;
         roster = entries;
         eliminated.Clear();
+        laidDown.Clear();
+        outSeenAt.Clear();
+        firstRefreshAt = -1f;
         nameTags.Clear();
         nextFireAt = 0f;
         lastWeapon = WeaponSpecs.Standard;
@@ -844,10 +848,12 @@ public partial class OnlineRound : MonoBehaviour
         foreach (WeaponState w in Net.Weapons)
             if (w.WeaponId != held.WeaponId && w.CanFire) others++;
 
+        // The switch over Fire: the rounds left big ("\u221e" for the standard weapon), its name under them.
         string name = ShopInventory.WeaponName(held.WeaponId);
-        weaponTitle.text = held.Unlimited ? $"{name} \u00b7 \u221e" : $"{name} \u00b7 {L.F("{0} left", held.Ammo)}";
-        weaponHint.text = others > 0 ? "Tap to switch weapon" : held.Unlimited ? "Standard weapon" : "Buy more rounds in the Shop";
-        weaponBadge.color = !held.Unlimited && held.Ammo <= 3 ? Paintbox.Bad : held.Unlimited ? Paintbox.Glass : Paintbox.Hot;
+        weaponTitle.text = held.Unlimited ? "\u221e" : held.Ammo.ToString();
+        weaponHint.text = name;
+        weaponSwapIcon.enabled = others > 0;
+        weaponBadge.color = !held.Unlimited && held.Ammo <= 3 ? Paintbox.Bad : held.Unlimited ? Paintbox.GlassEdge : Paintbox.Hot;
         weaponTitle.color = !held.Unlimited && held.Ammo <= 3 ? Paintbox.Hex(0xffb4a8) : Color.white;
 
         if (hunter && lastWeapon != WeaponSpecs.Standard && held.WeaponId == WeaponSpecs.Standard)
@@ -869,8 +875,6 @@ public partial class OnlineRound : MonoBehaviour
         AudioManager.ButtonTap();
 
         IReadOnlyList<WeaponState> weapons = Net.Weapons;
-        if (weapons.Count < 2) return;
-
         int at = 0;
         for (int i = 0; i < weapons.Count; i++) if (weapons[i].WeaponId == Net.WeaponId) at = i;
         for (int step = 1; step < weapons.Count; step++)
@@ -881,6 +885,14 @@ public partial class OnlineRound : MonoBehaviour
             Net.SelectWeapon(candidate.WeaponId);   // answered with LoadoutState
             return;
         }
+
+        // Nothing to switch to: say why, rather than a tap doing nothing.
+        bool emptyOnes = false;
+        foreach (WeaponState w in weapons) if (w.WeaponId != Net.WeaponId && !w.CanFire) emptyOnes = true;
+        if (emptyOnes)
+            Notices.Show(NoticeKind.Error, L.T("No rounds left in your other weapons"), L.T("Buy rounds for each weapon in the Shop."), 3f);
+        else
+            Notices.Show(NoticeKind.Info, L.T("Only the standard weapon"), L.T("Get more weapons in the Shop."), 3f);
     }
 
     // ================= The hiders' Start button =================
@@ -956,6 +968,8 @@ public partial class OnlineRound : MonoBehaviour
 
         int fugitives = 0;
         int hunters = 0;
+        float now = Time.unscaledTime;
+        if (firstRefreshAt < 0f && NetEntityRegistry.Get(Net.LocalSlot) != null) firstRefreshAt = now;
         foreach (MecchaNetClient.RosterEntry e in roster)
         {
             // Snapshots carry the Eliminated flag too: it covers anyone whose elimination event
@@ -970,7 +984,21 @@ public partial class OnlineRound : MonoBehaviour
                     localOut = true;
                     gmm.PlayerFrozen = true;
                     ClearSpot();
-                    spectateAt = Time.unscaledTime + spectateDelaySeconds;
+                    spectateAt = now + spectateDelaySeconds;
+                }
+
+                // An elimination this client watches has its event once the bullet it draws gets
+                // there (the flag can come first); one from before this client was in the round (a
+                // rejoin) never has. Then the body lies down where it fell and stays down, and the
+                // player is told they are out (2026-11-25: a dead hider who rejoined stood up).
+                if (!outSeenAt.ContainsKey(e.Slot)) outSeenAt[e.Slot] = now;
+                bool rejoined = firstRefreshAt >= 0f && outSeenAt[e.Slot] - firstRefreshAt < 1f;
+                bool missed = rejoined || now - outSeenAt[e.Slot] > 2.5f;
+                Transform body = e.Slot == Net.LocalSlot ? localBody : view != null ? view.transform : null;
+                if (missed && body != null && !laidDown.Contains(body))
+                {
+                    LayDown(body, e.Slot != Net.LocalSlot);
+                    if (e.Slot == Net.LocalSlot) ShowBanner("You are out of this round. Watch the rest of it.", 4f, NoticeKind.Match);
                 }
                 continue;
             }
@@ -985,6 +1013,22 @@ public partial class OnlineRound : MonoBehaviour
 
     // ================= Eliminations =================
 
+    // Bodies already lying down: an elimination this client saw, or one the snapshots told it of.
+    private readonly HashSet<Transform> laidDown = new HashSet<Transform>();
+
+    // When each seat was first seen out in a snapshot, and when this client first had its own body
+    // in the round's snapshots (a rejoin sees everyone already out at once).
+    private readonly Dictionary<byte, float> outSeenAt = new Dictionary<byte, float>();
+    private float firstRefreshAt = -1f;
+
+    // A body that was out before this client knew (it rejoined): down at once, without the shove an
+    // elimination it watched gets.
+    private void LayDown(Transform body, bool remote)
+    {
+        if (body == null || !laidDown.Add(body)) return;
+        Ragdoll.Trigger(body, body.position + Vector3.up, -body.forward, 0.05f, remote);
+    }
+
     private void HandleEliminated(byte victim, byte by, EliminationCause cause)
     {
         eliminated.Add(victim);
@@ -993,7 +1037,7 @@ public partial class OnlineRound : MonoBehaviour
         NetEntityView killer = NetEntityRegistry.Get(by);
         Transform body = victim == Net.LocalSlot ? localBody : view != null ? view.transform : null;
 
-        if (body != null && (cause == EliminationCause.Shot || cause == EliminationCause.Caught))
+        if (body != null && (cause == EliminationCause.Shot || cause == EliminationCause.Caught) && laidDown.Add(body))
         {
             Vector3 from = killer != null ? killer.transform.position : body.position - body.forward;
             Vector3 push = body.position - from;
@@ -1198,43 +1242,43 @@ public partial class OnlineRound : MonoBehaviour
 
         banner.gameObject.SetActive(false);
 
-        // Seeker's weapon dock, bottom centre, clear of the joystick, the fire buttons and the HUD
-        // column (design B's ammo dock): the weapon held and its rounds. A tap switches to the next
-        // weapon with rounds left (KeyBindings: Switch weapon).
-        weaponButton = Paintbox.Button(canvas.transform, "", Paintbox.Tone.Glass, null, CycleWeapon, 30f, 30f);
+        // The seeker's weapon switch, over Fire (2026-11-25; it was a wide dock along the bottom): the
+        // weapon held (its colour square), its rounds left and its name. A tap switches to the next
+        // weapon with rounds left (KeyBindings: Switch weapon); with none, it says why.
+        weaponButton = Paintbox.Button(canvas.transform, "", Paintbox.Tone.Glass, null, CycleWeapon, 24f, 26f);
         weaponButton.name = "WeaponSwitch";
         RectTransform brt = (RectTransform)weaponButton.transform;
-        Paintbox.Pin(brt, new Vector2(0.5f, 0f), weaponDockOffset, new Vector2(520f, 104f));
+        Paintbox.Pin(brt, new Vector2(1f, 0f), PaintboxHud.WeaponSwitchAt, PaintboxHud.WeaponSwitchSize);
         PaintboxFrame dock = weaponButton.GetComponent<PaintboxFrame>();
         Transform oldContent = dock.Body.Find("Content");
         if (oldContent != null) DestroyImmediate(oldContent.gameObject);
 
-        weaponBadge = Paintbox.Rounded(dock.Body, "Badge", Paintbox.Hot, 20f);
-        Paintbox.Pin(weaponBadge.rectTransform, new Vector2(0f, 0.5f), new Vector2(14f, 0f), new Vector2(70f, 70f));
-        weaponBadge.rectTransform.pivot = new Vector2(0f, 0.5f);
-        Paintbox.IconImage(weaponBadge.rectTransform, "Crosshair", 42f, Paintbox.HotInk);
+        weaponBadge = Paintbox.Rounded(dock.Body, "Badge", Paintbox.Hot, 10f);
+        Paintbox.Pin(weaponBadge.rectTransform, new Vector2(0f, 1f), new Vector2(8f, -8f), new Vector2(32f, 32f));
+        Paintbox.IconImage(weaponBadge.rectTransform, "Crosshair", 22f, Paintbox.HotInk);
 
-        weaponTitle = Paintbox.Label(dock.Body, "", 30f, Color.white, Paintbox.Weight.Bold);
-        Paintbox.Fit(weaponTitle, 18);
+        weaponSwapIcon = Paintbox.IconImage(dock.Body, "ArrowLeftRight", 24f, Color.white);
+        Paintbox.Pin(weaponSwapIcon.rectTransform, new Vector2(1f, 1f), new Vector2(-10f, -12f), new Vector2(24f, 24f));
+
+        // The rounds left, big in the middle (between the corners and the name).
+        weaponTitle = Paintbox.Label(dock.Body, "", 32f, Color.white, Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
+        weaponTitle.name = "Rounds";
+        weaponTitle.horizontalOverflow = HorizontalWrapMode.Overflow;
+        weaponTitle.verticalOverflow = VerticalWrapMode.Overflow;
         RectTransform wt = weaponTitle.rectTransform;
-        wt.anchorMin = new Vector2(0f, 0.48f);
+        wt.anchorMin = new Vector2(0f, 0f);
         wt.anchorMax = new Vector2(1f, 1f);
-        wt.offsetMin = new Vector2(100f, 0f);
-        wt.offsetMax = new Vector2(-70f, -8f);
-        weaponTitle.alignment = TextAnchor.LowerLeft;
+        wt.offsetMin = new Vector2(4f, 26f);
+        wt.offsetMax = new Vector2(-4f, -30f);
 
-        weaponHint = Paintbox.Label(dock.Body, "", 22f, new Color(1f, 1f, 1f, 0.75f));
-        Paintbox.Fit(weaponHint, 14);
+        weaponHint = Paintbox.Label(dock.Body, "", 18f, new Color(1f, 1f, 1f, 0.8f), Paintbox.Weight.Bold, TextAnchor.MiddleCenter);
+        Paintbox.Fit(weaponHint, 11);
         RectTransform wh = weaponHint.rectTransform;
         wh.anchorMin = new Vector2(0f, 0f);
-        wh.anchorMax = new Vector2(1f, 0.48f);
-        wh.offsetMin = new Vector2(100f, 8f);
-        wh.offsetMax = new Vector2(-70f, 0f);
-        weaponHint.alignment = TextAnchor.UpperLeft;
-
-        Image swap = Paintbox.IconImage(dock.Body, "ArrowLeftRight", 40f, Color.white);
-        Paintbox.Pin(swap.rectTransform, new Vector2(1f, 0.5f), new Vector2(-22f, 0f), new Vector2(40f, 40f));
-        swap.rectTransform.pivot = new Vector2(1f, 0.5f);
+        wh.anchorMax = new Vector2(1f, 0f);
+        wh.pivot = new Vector2(0.5f, 0f);
+        wh.offsetMin = new Vector2(6f, 6f);
+        wh.offsetMax = new Vector2(-6f, 28f);
         weaponButton.gameObject.SetActive(false);
 
         BuildMatchControls(canvas.transform);

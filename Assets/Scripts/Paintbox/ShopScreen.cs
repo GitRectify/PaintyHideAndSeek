@@ -50,6 +50,20 @@ public sealed class ShopScreen : MonoBehaviour
     /// <summary>Whether the shop is on screen.</summary>
     public static bool IsOpen => instance != null && instance.canvas != null && instance.canvas.gameObject.activeSelf;
 
+    /// <summary>Opens the shop on its Coins: the category the server marks "coins" (the coin balance's tap).</summary>
+    public const string CoinsCategory = "@coins";
+    private bool wantCoins;
+
+    /// <summary>The open shop goes to its Coins (the balance tapped inside it).</summary>
+    public static void ShowCoins()
+    {
+        if (!IsOpen) return;
+        instance.CloseModal();
+        instance.CloseDetail();
+        foreach (MetaShopCategory c in ShopInventory.Categories)
+            if (c.Special == "coins") { instance.SelectCategory(c.Id); return; }
+    }
+
     /// <summary>The category on show (the play tests read it).</summary>
     public static string CurrentCategory => instance != null ? instance.currentCategory : null;
 
@@ -87,7 +101,8 @@ public sealed class ShopScreen : MonoBehaviour
         canvas.gameObject.SetActive(true);
         CloseModal();
         CloseDetail();
-        if (!string.IsNullOrEmpty(category)) currentCategory = category;
+        wantCoins = category == CoinsCategory;
+        if (!wantCoins && !string.IsNullOrEmpty(category)) currentCategory = category;
         if (currentCategory == null && ShopInventory.Categories.Count > 0) currentCategory = ShopInventory.Categories[0].Id;
         currentFilter = -1;
         dirty = true;
@@ -128,10 +143,25 @@ public sealed class ShopScreen : MonoBehaviour
         if (state != PaymentState.Credited) Notices.Show(NoticeKind.Error, PendingTopUp.MessageFor(entry, state));
     }
 
+    private float saleCheckAt;
+    private bool saleRefreshing;
+
     private void Update()
     {
         if (!IsOpen) return;
         if (spinner != null && spinner.gameObject.activeInHierarchy) spinner.rectTransform.Rotate(0f, 0f, -300f * Time.unscaledDeltaTime);
+
+        // A sale that ends while the shop is open: its prices again, from the server (SDK 0.9.9).
+        if (Time.unscaledTime >= saleCheckAt && !saleRefreshing)
+        {
+            saleCheckAt = Time.unscaledTime + 5f;
+            long ends = ShopInventory.NextSaleEndUnix;
+            if (ends > 0 && DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= ends)
+            {
+                saleRefreshing = true;
+                ShopInventory.Refresh(_ => { saleRefreshing = false; dirty = true; });
+            }
+        }
 
         float width = gridScroll != null ? ((RectTransform)gridScroll.transform).rect.width : 0f;
         if (Mathf.Abs(width - lastWidth) > 1f)
@@ -298,6 +328,12 @@ public sealed class ShopScreen : MonoBehaviour
     private void RebuildTabs()
     {
         IReadOnlyList<MetaShopCategory> cats = ShopInventory.Categories;
+        if (wantCoins && cats.Count > 0)
+        {
+            // Opened from the coin balance: the Coins, once the server has said which they are.
+            foreach (MetaShopCategory c in cats) if (c.Special == "coins") { currentCategory = c.Id; break; }
+            wantCoins = false;
+        }
         if (currentCategory == null || !HasCategory(cats, currentCategory))
             currentCategory = cats.Count > 0 ? cats[0].Id : null;
 
@@ -531,6 +567,15 @@ public sealed class ShopScreen : MonoBehaviour
             t.anchoredPosition = new Vector2(-8f, -8f);
         }
 
+        // On sale (SDK 0.9.9): how much off, in the picture's other corner.
+        if (item.OnSale && !(owned && item.Kind != ItemKind.Ammo))
+        {
+            RectTransform sale = Paintbox.Tag(w, $"-{item.PercentOff}%", Paintbox.Bad, Color.white, "Tag");
+            sale.name = "SaleTag";
+            sale.anchorMin = sale.anchorMax = sale.pivot = new Vector2(0f, 1f);
+            sale.anchoredPosition = new Vector2(8f, -8f);
+        }
+
         // Name, a line about it, and its price or state.
         Text name = Paintbox.Label(frame.Body, DisplayName(item), 28f, Paintbox.Ink, Paintbox.Weight.Bold);
         Paintbox.Fit(name, 18);
@@ -574,6 +619,12 @@ public sealed class ShopScreen : MonoBehaviour
             return;
         }
 
+        if (item.OnSale)
+        {
+            SalePrice(parent, item.PriceCents, item.OriginalPriceCents, size);
+            return;
+        }
+
         if (item.PriceCents <= 0)
         {
             Text free = Paintbox.Label(parent, "Free", size, Paintbox.Ink, Paintbox.Weight.Bold);
@@ -583,6 +634,33 @@ public sealed class ShopScreen : MonoBehaviour
 
         Paintbox.CoinAmount(parent, CoinBalance.Format(item.PriceCents), size, Paintbox.Ink, out RectTransform row);
         Paintbox.Fill(row);
+    }
+
+    // A price on sale (SDK 0.9.9): the sale price with its coin, in red, then the usual one struck through.
+    private static void SalePrice(RectTransform parent, long cents, long usualCents, float size)
+    {
+        Paintbox.CoinAmount(parent, cents <= 0 ? L.T("Free") : CoinBalance.Format(cents), size, Paintbox.Bad, out RectTransform row);
+        row.name = "SalePrice";
+        Paintbox.Fill(row);
+        Text was = Paintbox.Label(row, CoinBalance.Format(usualCents), size * 0.8f, Paintbox.Muted, Paintbox.Weight.Regular);
+        was.name = "UsualPrice";
+        was.horizontalOverflow = HorizontalWrapMode.Overflow;
+        Image strike = Paintbox.Image(was.rectTransform, "Strike", null, Paintbox.Muted);
+        strike.raycastTarget = false;
+        RectTransform s = strike.rectTransform;
+        s.anchorMin = new Vector2(0f, 0.5f);
+        s.anchorMax = new Vector2(1f, 0.5f);
+        s.pivot = new Vector2(0.5f, 0.5f);
+        s.anchoredPosition = Vector2.zero;
+        s.sizeDelta = new Vector2(6f, Mathf.Max(2f, size * 0.09f));
+    }
+
+    // The sale's words over an item's price: its name, how much off and when it ends.
+    private static string SaleLine(MetaItem item)
+    {
+        string ends = DateTimeOffset.FromUnixTimeSeconds(item.SaleEndsUnix).ToLocalTime().ToString("MMM d \u00b7 HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        string what = string.IsNullOrEmpty(item.SaleName) ? L.T("Sale") : item.SaleName;
+        return L.F("{0} \u00b7 {1}% off \u00b7 until {2}", what, item.PercentOff, ends);
     }
 
     private void PackCard(MetaTopUpPackage package)
@@ -804,8 +882,16 @@ public sealed class ShopScreen : MonoBehaviour
         }
         detailStats.gameObject.SetActive(detailStats.childCount > 0 || item.Kind == ItemKind.Weapon || item.Kind == ItemKind.Ammo || item.Kind == ItemKind.Shoes);
 
-        // The price, and what can be done.
+        // The price, and what can be done. On sale, the label over it says which sale and until when.
         detailPriceLabel.gameObject.SetActive(true);
+        bool saleShown = item.OnSale && !(owned && item.Kind != ItemKind.Ammo);
+        detailPriceLabel.text = saleShown ? SaleLine(item) : L.T("PRICE");
+        detailPriceLabel.color = saleShown ? Paintbox.Bad : Paintbox.Muted;
+        detailPriceLabel.horizontalOverflow = saleShown ? HorizontalWrapMode.Overflow : HorizontalWrapMode.Wrap;
+        // On sale the sale's line goes over the price; otherwise PRICE sits beside it.
+        detailPriceLabel.rectTransform.anchoredPosition = saleShown ? new Vector2(0f, 24f) : Vector2.zero;
+        detailPriceLabel.rectTransform.sizeDelta = saleShown ? new Vector2(640f, 34f) : new Vector2(110f, 40f);
+        detailPrice.anchoredPosition = saleShown ? new Vector2(0f, -16f) : new Vector2(110f, 0f);
         if (item.Kind == ItemKind.Ammo) AmmoActions(item);
         else ItemActions(item, owned);
     }
@@ -845,6 +931,7 @@ public sealed class ShopScreen : MonoBehaviour
             Text free = Paintbox.Label(detailPrice, "Free", 30f, Paintbox.Ink, Paintbox.Weight.Bold);
             Paintbox.Fill(free.rectTransform);
         }
+        else if (item.OnSale) SalePrice(detailPrice, item.PriceCents, item.OriginalPriceCents, 30f);
         else
         {
             Paintbox.CoinAmount(detailPrice, CoinBalance.Format(item.PriceCents), 30f, Paintbox.Ink, out RectTransform row);
@@ -862,8 +949,12 @@ public sealed class ShopScreen : MonoBehaviour
         uint most = (uint)Mathf.Max(0, Mathf.Min(item.MaxQuantity == 0 ? 99 : (int)item.MaxQuantity, room / perPack));
         if (ammoPacks > most) ammoPacks = Math.Max(1u, most);
 
-        Paintbox.CoinAmount(detailPrice, CoinBalance.Format(item.PriceCents * ammoPacks), 30f, Paintbox.Ink, out RectTransform row);
-        Paintbox.Fill(row);
+        if (item.OnSale) SalePrice(detailPrice, item.PriceCents * ammoPacks, item.OriginalPriceCents * ammoPacks, 30f);
+        else
+        {
+            Paintbox.CoinAmount(detailPrice, CoinBalance.Format(item.PriceCents * ammoPacks), 30f, Paintbox.Ink, out RectTransform row);
+            Paintbox.Fill(row);
+        }
 
         if (!hasWeapon)
         {
@@ -969,7 +1060,12 @@ public sealed class ShopScreen : MonoBehaviour
         {
             Row(panel, ref y, "Quantity", L.F("{0} x {1} rounds", quantity, Mathf.Max(1, item.Ammo)), Paintbox.Ink);
         }
-        Row(panel, ref y, "Price", L.F("{0} coins", CoinBalance.Format(price)), Paintbox.Ink);
+        if (item.OnSale)
+        {
+            long usual = item.OriginalPriceCents * (item.Kind == ItemKind.Ammo ? quantity : 1u);
+            Row(panel, ref y, "Price", L.F("{0} coins (was {1}, -{2}%)", CoinBalance.Format(price), CoinBalance.Format(usual), item.PercentOff), Paintbox.Bad);
+        }
+        else Row(panel, ref y, "Price", L.F("{0} coins", CoinBalance.Format(price)), Paintbox.Ink);
         Row(panel, ref y, "Current balance", L.F("{0} coins", CoinBalance.Text), Paintbox.Ink);
         if (short_)
         {

@@ -1748,24 +1748,11 @@ public class BotSeekController : MonoBehaviour
 
         if (sniffed || b.sightTimer >= spotHold || dist < reach)
         {
-            if (onlineHuman)
-            {
-                // Single Play's BeginSpot: the server freezes them and fires after the delay.
-                online.BotSpot(b.tf, target);
-                b.onlineSpot = target;
-                b.onlineSpotUntil = Time.time + spotShootDelay + 1.5f;
-                return;
-            }
-
-            if (!isPlayer || !chasePlayer)
-            {
-                FireAtTarget(b, target, isPlayer);
-                return;
-            }
-            if (!_spotting)
-            {
-                BeginSpot(b);
-            }
+            // Found: it shoots at once (2026-11-25), the player, a human hider online or a bot
+            // alike. There is no Spot first any more (it froze the hider and turned their camera to
+            // the bot, and shot after a delay); the bot's own fire interval paces its shots, and the
+            // bullet's hit (online, the server's judgement) is what catches, as for every shot.
+            FireAtTarget(b, target, isPlayer && !onlineHuman);
         }
     }
 

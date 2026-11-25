@@ -698,3 +698,15 @@ Sample	取色	Пипетка
 Lie down	趴下	Лечь
 Climb	攀爬	Залезть
 Down	下来	Слезть
+Map	地图	Карта
+Leave this round and go back to Single Player.	离开本回合并返回单人游戏。	Покинуть раунд и вернуться в одиночную игру.
+No rounds left in your other weapons	你的其他武器已没有弹药	В другом оружии не осталось патронов
+Buy rounds for each weapon in the Shop.	在商店为每件武器购买弹药。	Покупайте патроны для каждого оружия в магазине.
+Only the standard weapon	只有标准武器	Только стандартное оружие
+Get more weapons in the Shop.	在商店获取更多武器。	Больше оружия — в магазине.
+You are out of this round. Watch the rest of it.	你已出局。观看本回合剩余部分吧。	Вы выбыли из раунда. Досмотрите его до конца.
+This match's results were not kept	这场对局的结果未被保存	Итоги этого матча не сохранились
+Results are kept for matches played from this version on.	从此版本起进行的对局会保存结果。	Итоги сохраняются для матчей, сыгранных начиная с этой версии.
+Sale	促销	Распродажа
+{0} · {1}% off · until {2}	{0} · 优惠 {1}% · 截至 {2}	{0} · скидка {1}% · до {2}
+{0} coins (was {1}, -{2}%)	{0} 金币（原价 {1}，-{2}%）	{0} монет (было {1}, −{2}%)

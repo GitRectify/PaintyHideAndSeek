@@ -342,13 +342,6 @@ public class PlaySetupUI : MonoBehaviour
         FindAnyObjectByType<HomeMenuUI>()?.ShowHome();
     }
 
-    // Single Play's star: the side screen's Rate button (the rating page).
-    private void OpenRate()
-    {
-        AudioManager.ButtonTap();
-        RateScreen.Open(false);
-    }
-
     // ================= Maps =================
 
     private int MapCount => levels != null ? levels.Count : 0;
@@ -546,10 +539,9 @@ public class PlaySetupUI : MonoBehaviour
         offlineChip = page.Right.Find("OfflineChip")?.gameObject;
         balance = page.Right.Find("PageBalance")?.gameObject;
         shopButton = page.Right.Find("PageShop")?.gameObject;
-        Button rate = Paintbox.IconButton(page.Right, "Star", Paintbox.Tone.Paper, OpenRate, 76f);
-        rate.name = "PageRate";
-        rate.transform.SetSiblingIndex(page.Right.Find("PageSettings").GetSiblingIndex());
-        rateButton = rate.gameObject;
+        // No Rate here (2026-11-25): Single Play shows nothing of the server's, and the rating is.
+        // Online, Rate is one of Multiplayer's tabs.
+        rateButton = null;
 
         summary = page.FootDetail;
         summary.name = "SetupSummary";

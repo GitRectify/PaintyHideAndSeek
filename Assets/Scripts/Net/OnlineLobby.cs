@@ -225,10 +225,14 @@ public class OnlineLobby : MonoBehaviour
     // starts its clock when the last seat fills and sends MatchStart when it runs out, so every
     // screen shows the same number. Before that the lobby has no clock (PhaseSecondsLeft is 0).
     private int countdownShown = -1;
+    private bool lobbyFull;
 
     private void ShowCountdown()
     {
         int left = Net.Phase == MatchPhase.Lobby ? Net.PhaseSecondsLeft : 0;
+        // The clock's last second stays until the match starts (MatchStart follows the clock's
+        // end), rather than "Finding players" coming back for a moment (2026-11-25: the lobby blinked).
+        if (left == 0 && countdownShown == 1 && lobbyFull && Net.Phase == MatchPhase.Lobby) left = 1;
         if (left == countdownShown) return;
         countdownShown = left;
 
@@ -810,6 +814,7 @@ public class OnlineLobby : MonoBehaviour
         }
 
         matchmaking.SetOnlineRoster(seats);
+        lobbyFull = Net.MatchSeats > 0 && entries.Length >= Net.MatchSeats;
     }
 
     // ================= The round =================
@@ -875,7 +880,7 @@ public class OnlineLobby : MonoBehaviour
 
     // History and profile open over the setup (their screens sort above it); it is still there
     // when they close. The Shop is the side screen's own button (HomeMenuUI), and the wallet opens
-    // from the coin balance (OnlineWallet.MakeOpener).
+    // from the coin balance (PaintboxPage.MakeCoinsOpener: the Shop's Coins).
 
     /// <summary>The coin ledger and the player's own match records (OnlineHistory).</summary>
     public void OpenHistory()
@@ -922,6 +927,7 @@ public class OnlineLobby : MonoBehaviour
         lobbyMessage.alignment = TextAnchor.UpperLeft;
         Button cancel = Paintbox.Button(barRect, "Cancel", Paintbox.Tone.Paper, "X", CancelSearch, 30f);
         cancel.name = "CancelSearch";
+        BackKey.Mark(cancel);   // Back in the lobby: stop looking
         RectTransform crt = (RectTransform)cancel.transform;
         crt.anchorMin = new Vector2(1f, 0f);
         crt.anchorMax = new Vector2(1f, 1f);
@@ -940,7 +946,7 @@ public class OnlineLobby : MonoBehaviour
         payStatus.rectTransform.offsetMin = new Vector2(40f, 124f);
         payStatus.rectTransform.offsetMax = new Vector2(-40f, 166f);
         CoinBalance.Bind(payStatus, "Your coins: {0}");
-        pay.Button("Back", Paintbox.Tone.Paper, null, () =>
+        pay.BackButton("Back", Paintbox.Tone.Paper, null, () =>
         {
             AudioManager.ButtonTap();
             afterPay = null;
@@ -955,7 +961,7 @@ public class OnlineLobby : MonoBehaviour
         PaintboxDialog notice = PaintboxDialog.Build(canvas, "NoticeScreen", "Info", "Match update", new Vector2(900f, 440f));
         noticeScreen = notice.Root;
         noticeText = notice.Body;
-        notice.Button("OK", Paintbox.Tone.Primary, "Check", () =>
+        notice.BackButton("OK", Paintbox.Tone.Primary, "Check", () =>
         {
             AudioManager.ButtonTap();
             noticeScreen.SetActive(false);
@@ -965,7 +971,7 @@ public class OnlineLobby : MonoBehaviour
         PaintboxDialog rejoin = PaintboxDialog.Build(canvas, "RejoinScreen", "LogIn", "Rejoin your match?", new Vector2(900f, 420f));
         rejoinScreen = rejoin.Root;
         rejoin.Body.text = "Your online round is still going. Your place is kept while it runs.";
-        rejoin.Button("No", Paintbox.Tone.Paper, null, DeclineRejoin, 160f);
+        rejoin.BackButton("No", Paintbox.Tone.Paper, null, DeclineRejoin, 160f);
         rejoin.Button("Rejoin", Paintbox.Tone.Primary, "LogIn", StartRejoin, 220f);
         payScreen.SetActive(false);
         noticeScreen.SetActive(false);

@@ -17,6 +17,9 @@ public class CheckRateGame : MonoBehaviour
     // player has already rated.
     private void OnEnable()
     {
+        // Single Play asks for no rating (2026-11-25): ratings are the server's, and Single Play
+        // shows nothing of the server's. Online, Rate is one of Multiplayer's tabs.
+        if (!OnlineRound.Active) return;
         SingletonMonoBehavior<GameController>.Instance.numberRate++;
         if (SingletonMonoBehavior<GameController>.Instance.numberRate != 1) return;
         SingletonMonoBehavior<GameController>.Instance.popupRate.SetActive(GameData.isRate == 0);

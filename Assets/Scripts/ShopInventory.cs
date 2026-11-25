@@ -511,6 +511,18 @@ public static class ShopInventory
         }
     }
 
+    /// <summary>When the first sale on show ends (Unix seconds, UTC); 0 when nothing is on sale (SDK 0.9.9).</summary>
+    public static long NextSaleEndUnix
+    {
+        get
+        {
+            long first = 0;
+            foreach (MetaItem item in ordered)
+                if (item.OnSale && item.SaleEndsUnix > 0 && (first == 0 || item.SaleEndsUnix < first)) first = item.SaleEndsUnix;
+            return first;
+        }
+    }
+
     /// <summary>
     /// The items of a category in the server's order. Bullet types are no longer sold to players
     /// (their numbers moved to the weapons), so an old catalog's bullets are left out.

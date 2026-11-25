@@ -451,10 +451,25 @@ public class JoystickMover : MonoBehaviour
         if (gmm != null && (gmm.PlayerFrozen || gmm.SeekerHideCountdown)) return;
         _vy = Mathf.Sqrt(2f * gravity * Mathf.Max(0f, jumpHeight));
         LastJumpTime = Time.unscaledTime;
+        InJump = true;
     }
 
     /// <summary>When Jump last took off (unscaled time); the online input stream sends it as a press.</summary>
     public float LastJumpTime { get; private set; } = -1f;
+
+    /// <summary>
+    /// From a jump's take-off until the body stands on something again (2026-11-25: the Jump button
+    /// stays yellow while it is in the air). Off too when the round stops or the body is put on a wall.
+    /// </summary>
+    public bool InJump { get; private set; }
+
+    private void LateUpdate()
+    {
+        if (!InJump || Time.unscaledTime - LastJumpTime < 0.12f) return;
+        bool landed = cc == null || !cc.enabled || cc.isGrounded || _vy == 0f;
+        bool stopped = (gmm != null && !gmm.RoundActive) || (climber != null && climber.IsOnWall);
+        if (landed || stopped) InJump = false;
+    }
 
     private void SetSpeed(float v)
     {

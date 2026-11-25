@@ -49,7 +49,8 @@ public static class PaintboxSkin
         Try(Popups);
         Try(Results);
         Try(Matchmaking);
-        Try(Loading);
+        // The loading screen (at launch, and between the lobby and a match) keeps its own look:
+        // the original splash, as it was before design B (2026-11-25, the user's request).
         GameObject settings = Find("SettingsCanvas");
         if (settings != null) Try(() => Settings(settings.transform));
         Try(Fonts);
@@ -331,7 +332,9 @@ public static class PaintboxSkin
         if (!Mark(role)) return;
         Hud(Under(role.transform, "BackBtn"), "ArrowLeft", null, false, Paintbox.Tone.Paper, "Icon");
         Hud(Under(role.transform, "SettingsBtn"), "Settings", null, false, Paintbox.Tone.Paper);
-        Hud(Under(role.transform, "Ratebtn"), "Star", null, false, Paintbox.Tone.Paper);
+        // The side screen's Rate is not shown (2026-11-25): no rating in Single Play, and Multiplayer has its Rate tab.
+        Transform rate = Under(role.transform, "Ratebtn");
+        if (rate != null) rate.gameObject.SetActive(false);
         Hud(Under(role.transform, "RoleShopBtn"), "ShoppingBag", "Shop", false, Paintbox.Tone.Secondary, "Icon", "Label");
     }
 
@@ -375,7 +378,8 @@ public static class PaintboxSkin
         GameObject climb = Find("ClimbButtonsCanvas");
         if (Mark(climb))
         {
-            Hud(Under(climb.transform, "ClimbUp"), "ChevronsUp", "Climb", false, Paintbox.Tone.Hot, "Arrow");
+            // Dark like the other buttons; yellow only while the player is on a wall (PaintboxHud, 2026-11-25).
+            Hud(Under(climb.transform, "ClimbUp"), "ChevronsUp", "Climb", false, Paintbox.Tone.Glass, "Arrow");
             Hud(Under(climb.transform, "ClimbDown"), "ChevronsDown", "Down", false, Paintbox.Tone.Glass, "Arrow");
         }
 
@@ -431,6 +435,7 @@ public static class PaintboxSkin
             Header(popup, "Rate us", "Do you enjoy the game?");
             Button(Under(popup, "ButtonRateNow")?.GetComponent<Image>(), Paintbox.Tone.Primary, null, "Star");
             Button(Under(popup, "ButtonLate")?.GetComponent<Image>(), Paintbox.Tone.Paper);
+            MarkBack(Under(popup, "ButtonLate"));
         }
 
         GameObject help = Find("HelpCanvas");
@@ -455,6 +460,7 @@ public static class PaintboxSkin
             Title(Under(popup, "Image")?.GetComponent<Image>(), "Thank you!", 54f);
             Ink(Under(popup, "text")?.GetComponent<Text>(), Paintbox.Muted);
             Button(Under(popup, "ButtonContinue")?.GetComponent<Image>(), Paintbox.Tone.Primary, "Continue");
+            MarkBack(Under(popup, "ButtonContinue"));
         }
     }
 
@@ -487,6 +493,7 @@ public static class PaintboxSkin
             Ink(Under(panel, "Body")?.GetComponent<Text>(), Paintbox.Muted);
             Button(Under(panel, "ActionBtn")?.GetComponent<Image>(), Paintbox.Tone.Primary);
             Button(Under(panel, "GiveUpBtn")?.GetComponent<Image>(), Paintbox.Tone.Paper);
+            MarkBack(Under(panel, "GiveUpBtn"));
         }
 
         foreach (string name in new[] { "VictoryPopup", "DefeatPopup" })
@@ -504,6 +511,7 @@ public static class PaintboxSkin
                 Ink(Under(row.transform, "Value")?.GetComponent<Text>(), Paintbox.Ink, true);
             }
             Button(Under(popup, "HomeBtn")?.GetComponent<Image>(), Paintbox.Tone.Paper, null, "House");
+            MarkBack(Under(popup, "HomeBtn"));
             Button(Under(popup, "GoldBtn")?.GetComponent<Image>(), Paintbox.Tone.Secondary);
             Button(Under(popup, "NextBtn")?.GetComponent<Image>(), Paintbox.Tone.Primary, null, "ArrowRight");
         }
@@ -553,72 +561,6 @@ public static class PaintboxSkin
         {
             NoOutline(label);
             label.color = taken ? Paintbox.WashInk : Paintbox.Muted;
-        }
-    }
-
-    // ================= Loading =================
-
-    private static void Loading()
-    {
-        GameObject loading = Find("LoadingCanvas");
-        if (!Mark(loading)) return;
-        Image bg = Under(loading.transform, "Bg")?.GetComponent<Image>();
-        if (bg == null) return;
-        bg.sprite = null;
-        bg.color = Paintbox.Ink;
-        Image art = Paintbox.Image(bg.rectTransform, "PbHero", Paintbox.Art("heroA"), Color.white);
-        art.transform.SetAsFirstSibling();
-        Paintbox.Fill(art.rectTransform);
-        AspectRatioFitter fit = art.gameObject.AddComponent<AspectRatioFitter>();
-        fit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
-        fit.aspectRatio = 764f / 508f;
-
-        // The bar: centred along the foot, an ink edge, paper inside, filling with yellow; its word
-        // over it. LoadingScreen only moves the fill (fillAmount), so the shapes are free to change.
-        Image border = Under(bg.transform, "Pro")?.GetComponent<Image>();
-        if (border != null)
-        {
-            border.sprite = null;
-            border.color = Paintbox.Ink;
-            RectTransform b = border.rectTransform;
-            b.anchorMin = new Vector2(0.2f, 0f);
-            b.anchorMax = new Vector2(0.8f, 0f);
-            b.pivot = new Vector2(0.5f, 0f);
-            b.anchoredPosition = new Vector2(0f, 130f);
-            b.sizeDelta = new Vector2(0f, 44f);
-        }
-        Image back = Under(bg.transform, "Pro/mg")?.GetComponent<Image>();
-        if (back != null)
-        {
-            back.sprite = null;
-            back.color = Paintbox.Paper;
-            Paintbox.Fill(back.rectTransform, 6f, 6f, 6f, 6f);
-        }
-        Image fill = Under(bg.transform, "Pro/Fill")?.GetComponent<Image>();
-        if (fill != null)
-        {
-            fill.sprite = Paintbox.WhiteSprite;   // filled partway: it needs a sprite to cut
-            fill.color = Paintbox.Yellow;
-            Paintbox.Fill(fill.rectTransform, 6f, 6f, 6f, 6f);
-        }
-        Text words = Under(bg.transform, "Pro/Text (Legacy)")?.GetComponent<Text>();
-        if (words != null)
-        {
-            UiTranslator.Restyle(words, Paintbox.Title);
-            words.color = Color.white;
-            words.fontSize = 64;
-            words.alignment = TextAnchor.LowerLeft;
-            words.verticalOverflow = VerticalWrapMode.Overflow;
-            RectTransform w = words.rectTransform;
-            w.anchorMin = new Vector2(0f, 1f);
-            w.anchorMax = new Vector2(1f, 1f);
-            w.pivot = new Vector2(0f, 0f);
-            w.anchoredPosition = new Vector2(0f, 14f);
-            w.sizeDelta = new Vector2(0f, 90f);
-            Outline o = Paintbox.Ensure<Outline>(words.gameObject);
-            o.enabled = true;
-            o.effectColor = Paintbox.Ink;
-            o.effectDistance = new Vector2(3f, -3f);
         }
     }
 
@@ -700,9 +642,11 @@ public static class PaintboxSkin
     // The scene's labels still in the old fonts take Rubik (bold, as the game's labels were).
     private static void Fonts()
     {
+        Transform splash = Find("LoadingCanvas")?.transform;
         foreach (Text t in Resources.FindObjectsOfTypeAll<Text>())
         {
             if (!t.gameObject.scene.IsValid() || t.font == null) continue;
+            if (splash != null && t.transform.IsChildOf(splash)) continue;   // the original splash keeps its font
             string f = t.font.name;
             if (f == "MikadoMedium" || f == "aline_font" || f == "LegacyRuntime")
             {
@@ -711,6 +655,12 @@ public static class PaintboxSkin
                 Loose(t);
             }
         }
+    }
+
+    // A scene popup's way out, for the phone's Back (BackKey).
+    private static void MarkBack(Transform button)
+    {
+        if (button != null) BackKey.Mark(button.GetComponent<UnityEngine.UI.Button>());
     }
 
     private static bool IsWide(string s)

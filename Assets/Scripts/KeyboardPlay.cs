@@ -70,7 +70,8 @@ public sealed class KeyboardPlay : MonoBehaviour
         if (gun == null) gun = FindAnyObjectByType<Mode1FirstPersonGun>(FindObjectsInactive.Include);
         if (settings == null) settings = FindAnyObjectByType<SettingsUI>(FindObjectsInactive.Include);
 
-        if (KeyBindings.Pressed(GameAction.Settings) && settings != null)
+        // Esc is the phone's Back too (BackKey does it); another key bound to Settings still toggles them.
+        if (KeyBindings.Get(GameAction.Settings) != Key.Escape && KeyBindings.Pressed(GameAction.Settings) && settings != null)
         {
             if (KeyBindingsUI.IsOpen) KeyBindingsUI.Close();
             else if (settings.IsShown) settings.Hide();

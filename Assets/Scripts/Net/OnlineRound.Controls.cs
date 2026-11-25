@@ -43,7 +43,7 @@ public partial class OnlineRound
         exitConfirmText = dialog.Body;
         Button leave = dialog.DangerButton("Leave", "LogOut", ConfirmExit, 200f);
         leave.name = "ConfirmExit";
-        dialog.Button("Stay", Paintbox.Tone.Primary, "Play", () =>
+        dialog.BackButton("Stay", Paintbox.Tone.Primary, "Play", () =>
         {
             AudioManager.ButtonTap();
             exitConfirm.SetActive(false);
@@ -53,7 +53,8 @@ public partial class OnlineRound
         // Who is ready: a glass chip under the role chip; a tap lists every hider.
         readyChip = Paintbox.Button(canvas, "", Paintbox.Tone.Glass, "UsersRound", OpenReadyRoster, 24f, 30f);
         readyChip.name = "HidersReady";
-        Paintbox.Pin((RectTransform)readyChip.transform, new Vector2(0f, 1f), new Vector2(PaintboxHud.EdgeX, -(PaintboxHud.EdgeY + 80f)), new Vector2(200f, 56f));
+        // Under the role chip and the minimap (2026-11-25).
+        Paintbox.Pin((RectTransform)readyChip.transform, new Vector2(0f, 1f), new Vector2(PaintboxHud.EdgeX, -(PaintboxMinimap.Bottom + 14f)), new Vector2(200f, 56f));
         readyChipText = readyChip.GetComponentInChildren<Text>(true);
         readyChipText.gameObject.SetActive(true);   // made without words: they come with the roster
         readyChip.gameObject.SetActive(false);
@@ -71,7 +72,7 @@ public partial class OnlineRound
         v.childControlWidth = v.childControlHeight = true;
         v.childForceExpandWidth = true;
         v.childForceExpandHeight = false;
-        roster.Button("Done", Paintbox.Tone.Primary, "Check", () =>
+        roster.BackButton("Done", Paintbox.Tone.Primary, "Check", () =>
         {
             AudioManager.ButtonTap();
             readyRoster.SetActive(false);

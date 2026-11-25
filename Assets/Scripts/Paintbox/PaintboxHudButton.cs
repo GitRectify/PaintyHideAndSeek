@@ -34,6 +34,20 @@ public sealed class PaintboxHudButton : MonoBehaviour
     /// <summary>When set, the button is "on" while this child of it is shown (the paint tools' Icon).</summary>
     public string OnWhenChildShown;
 
+    /// <summary>
+    /// When set, the button is "on" while this says so (2026-11-25: Jump from take-off until it
+    /// lands, Climb while on a wall). Wins over the picture and the child.
+    /// </summary>
+    public System.Func<bool> OnWhen;
+
+    /// <summary>The colour the button turns while on; unset, hot yellow (violet on a hot button).</summary>
+    public Paintbox.Tone? OnTone;
+
+    // The colours fade over this long when the button turns on or off, so a change reads as one.
+    private const float FadeSeconds = 0.14f;
+    private Color fromFill, fromInk, toFill, toInk;
+    private float fadeStarted = -1f;
+
     /// <summary>Gives <paramref name="go"/> the look; <paramref name="hide"/> names old children not to draw any more.</summary>
     public static PaintboxHudButton Apply(GameObject go, string icon, string label, bool round, Paintbox.Tone tone, params string[] hide) =>
         ApplyWide(go, icon, label, null, round, tone, hide);
@@ -211,17 +225,29 @@ public sealed class PaintboxHudButton : MonoBehaviour
 
         // "On": a script swapped the button's picture for its on one (or showed its on child).
         bool on;
-        if (!string.IsNullOrEmpty(OnWhenChildShown))
+        if (OnWhen != null) on = OnWhen();
+        else if (!string.IsNullOrEmpty(OnWhenChildShown))
         {
             Transform child = transform.Find(OnWhenChildShown);
             on = child != null && child.gameObject.activeSelf;
         }
         else on = root != null && haveOff && offSprite != null && root.sprite != offSprite;
-        if (on == wasOn) return;
-        wasOn = on;
-        Paintbox.Tone shown = on ? (tone == Paintbox.Tone.Hot ? Paintbox.Tone.Secondary : Paintbox.Tone.Hot) : tone;
-        if (fill != null) fill.color = Paintbox.FillOf(shown);
-        Color ink = Paintbox.InkOf(shown);
+        if (on != wasOn)
+        {
+            wasOn = on;
+            Paintbox.Tone shown = on ? OnTone ?? (tone == Paintbox.Tone.Hot ? Paintbox.Tone.Secondary : Paintbox.Tone.Hot) : tone;
+            fromFill = fill != null ? fill.color : Paintbox.FillOf(tone);
+            fromInk = glyph != null ? glyph.color : Paintbox.InkOf(tone);
+            toFill = Paintbox.FillOf(shown);
+            toInk = Paintbox.InkOf(shown);
+            fadeStarted = Time.unscaledTime;
+        }
+
+        if (fadeStarted < 0f) return;
+        float t = Mathf.Clamp01((Time.unscaledTime - fadeStarted) / FadeSeconds);
+        if (t >= 1f) fadeStarted = -1f;
+        Color ink = Color.Lerp(fromInk, toInk, t);
+        if (fill != null) fill.color = Color.Lerp(fromFill, toFill, t);
         if (glyph != null) glyph.color = ink;
         if (word != null) word.color = ink;
         if (sub != null) sub.color = new Color(ink.r, ink.g, ink.b, 0.8f);

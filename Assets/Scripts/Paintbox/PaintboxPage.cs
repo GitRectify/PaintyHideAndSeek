@@ -243,6 +243,35 @@ public sealed class PaintboxPage
 
     // ================= Where the bar's buttons go =================
 
+    /// <summary>
+    /// The coin balance's tap, on every screen (2026-11-25; it opened the wallet, which is gone):
+    /// the Shop on its Coins, signed in first when need be. In the Shop itself, its Coins tab.
+    /// </summary>
+    public static void OpenCoins()
+    {
+        AudioManager.ButtonTap();
+        if (ShopScreen.IsOpen) { ShopScreen.ShowCoins(); return; }
+        ShopUI shop = UnityEngine.Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
+        if (shop == null) return;
+        OnlineSignIn.Open(_ => shop.OpenFrom(null, ShopScreen.CoinsCategory), null);
+    }
+
+    /// <summary>Makes a coin label open the Shop's Coins when tapped.</summary>
+    public static void MakeCoinsOpener(Text label)
+    {
+        if (label == null) return;
+        Button button = label.GetComponent<Button>();
+        if (button == null)
+        {
+            label.raycastTarget = true;
+            button = label.gameObject.AddComponent<Button>();
+            button.targetGraphic = label;
+            button.transition = Selectable.Transition.None;
+        }
+        button.onClick.RemoveListener(OpenCoins);
+        button.onClick.AddListener(OpenCoins);
+    }
+
     public static void OpenShop()
     {
         ShopUI shop = UnityEngine.Object.FindAnyObjectByType<ShopUI>(FindObjectsInactive.Include);
@@ -441,6 +470,14 @@ public sealed class PaintboxDialog
     {
         Button b = Paintbox.Button(Buttons, text, tone, icon, onClick, 28f);
         b.gameObject.AddComponent<LayoutElement>().preferredWidth = width > 0f ? width : Mathf.Max(190f, text.Length * 17f + (icon != null ? 110f : 70f));
+        return b;
+    }
+
+    /// <summary>A button in the row that is also the dialog's way back: the phone's Back presses it (Cancel, Stay, OK, Done).</summary>
+    public Button BackButton(string text, Paintbox.Tone tone, string icon, UnityAction onClick, float width = 0f)
+    {
+        Button b = Button(text, tone, icon, onClick, width);
+        BackKey.Mark(b);
         return b;
     }
 
