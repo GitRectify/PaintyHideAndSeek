@@ -259,10 +259,11 @@ public class Mode1FirstPersonGun : MonoBehaviour
 
         if (fireCooldownText == null)
         {
-            Image shade = OnlineUI.NewImage("CooldownShade", fireBtn.transform, new Color(0f, 0f, 0f, 0.55f));
+            // Clear at a glance mid-fight (2026-11-26): a dark disc over the whole button that
+            // sweeps away as the wait runs out, and the seconds in big white figures on it. (The
+            // faint shade used the button's old picture, which design B's button no longer shows.)
+            Image shade = Paintbox.Image(fireBtn.transform, "CooldownShade", UiArt.Circle, new Color(Paintbox.Ink.r, Paintbox.Ink.g, Paintbox.Ink.b, 0.82f));
             OnlineUI.Stretch(shade.rectTransform);
-            Image fireImage = fireBtn.GetComponent<Image>();
-            if (fireImage != null) shade.sprite = fireImage.sprite;
             shade.preserveAspect = true;
             shade.type = Image.Type.Filled;
             shade.fillMethod = Image.FillMethod.Radial360;
@@ -271,17 +272,26 @@ public class Mode1FirstPersonGun : MonoBehaviour
             shade.raycastTarget = false;
             fireCooldownShade = shade;
 
-            fireCooldownText = OnlineUI.NewLabel(fireBtn.transform, "", 60, Vector2.zero, new Vector2(180f, 100f), TextAnchor.MiddleCenter, true);
+            fireCooldownText = Paintbox.Label(fireBtn.transform, "", 64f, Color.white, Paintbox.Weight.Title, TextAnchor.MiddleCenter);
             fireCooldownText.name = "CooldownText";
             OnlineUI.Stretch(fireCooldownText.rectTransform);
+            fireCooldownText.horizontalOverflow = HorizontalWrapMode.Overflow;
             fireCooldownText.raycastTarget = false;
             Outline outline = fireCooldownText.gameObject.AddComponent<Outline>();
-            outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            outline.effectColor = Paintbox.Ink;
             outline.effectDistance = new Vector2(3f, -3f);
         }
 
+        int last = fireCooldownText.transform.parent.childCount - 1;
+        if (fireCooldownText.transform.GetSiblingIndex() != last || fireCooldownShade.transform.GetSiblingIndex() != last - 1)
+        {
+            fireCooldownShade.transform.SetAsLastSibling();   // over the restyled button's body
+            fireCooldownText.transform.SetAsLastSibling();
+        }
         fireCooldownShade.fillAmount = Mathf.Clamp01(left / total);
         fireCooldownText.text = left.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+        // The last half second in the game's yellow: about to fire again.
+        fireCooldownText.color = left <= 0.5f ? Paintbox.Yellow : Color.white;
         fireCooldownShade.gameObject.SetActive(true);
         fireCooldownText.gameObject.SetActive(true);
     }
@@ -742,7 +752,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
     }
 
     // Nearest hit along the camera ray, skipping the player's own colliders and anything that
-    // neither is a CharacterController nor Bullet.BlocksShot. Nothing hit = 200 units ahead.
+    // neither is a CharacterController nor stops a shot (Bullet.StopsShot). Nothing hit = 200 units ahead.
     private void CrosshairTarget(Camera cam, out Vector3 point, out GameObject hitGo)
     {
         Ray ray = new Ray(cam.transform.position, cam.transform.forward);
@@ -754,7 +764,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
             Collider col = _aimHits[i].collider;
             Transform t = col.transform;
             if (playerTf != null && (t == playerTf || t.IsChildOf(playerTf))) continue;
-            if (!(col is CharacterController) && !Bullet.BlocksShot(col.gameObject)) continue;
+            if (!(col is CharacterController) && !Bullet.StopsShot(col)) continue;
             if (_aimHits[i].distance < bestDist)
             {
                 bestDist = _aimHits[i].distance;
@@ -801,7 +811,9 @@ public class Mode1FirstPersonGun : MonoBehaviour
         Vector3 sp = cam.WorldToScreenPoint(target);
         if (sp.z > 0f)
         {
-            float maxY = Mathf.Clamp01(crosshairMaxScreenY01) * Screen.height;
+            // Where the shot lands, exactly: the height cap (kept for the fixed-distance crosshair)
+            // put it under the impact when aiming high (2026-11-26).
+            float maxY = crosshairAtImpact ? float.MaxValue : Mathf.Clamp01(crosshairMaxScreenY01) * Screen.height;
             Vector2 screen = new Vector2(sp.x, Mathf.Min(sp.y, maxY));
             if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_crosshairParentRT, screen, null, out Vector2 localPos))
             {
@@ -823,7 +835,7 @@ public class Mode1FirstPersonGun : MonoBehaviour
             Collider col = _aimHits[i].collider;
             Transform t = col.transform;
             if (playerTf != null && (t == playerTf || t.IsChildOf(playerTf))) continue;
-            if (!(col is CharacterController) && !Bullet.BlocksShot(col.gameObject)) continue;
+            if (!(col is CharacterController) && !Bullet.StopsShot(col)) continue;
             if (_aimHits[i].distance < bestDist)
             {
                 bestDist = _aimHits[i].distance;

@@ -686,7 +686,10 @@ public class BotHideController : MonoBehaviour
             if (!(along > 1f && along <= maxRange)) continue;
             if (!(to.magnitude * 0.5f <= along)) continue;
             if (!(along < bestAlong)) continue;
-            if (WallBetween(origin, bb.center)) continue;
+            // Along the shot itself, up to where it reaches the hider: a hider half behind a
+            // cupboard is hit where the aim is on them, and not through the cupboard (2026-11-26).
+            bb.IntersectRay(ray, out float enter);
+            if (ShotStoppedBefore(ray, Mathf.Max(0f, enter))) continue;
 
             best = b;
             bestAlong = along;
@@ -701,7 +704,7 @@ public class BotHideController : MonoBehaviour
     private void KillHider(Bot b, Vector3 impulseDir)
     {
         Vector3 hitPoint = b.smr != null ? b.smr.bounds.center : b.tf.position + Vector3.up * 6f;
-        b.ragdoll = Ragdoll.Trigger(b.tf, hitPoint, impulseDir, 1f, true);
+        b.ragdoll = Ragdoll.Trigger(b.tf, hitPoint, impulseDir, 1f, false);   // stays where it fell (2026-11-26)
         if (b.ragdoll == null)
         {
             b.tf.gameObject.SetActive(false);
@@ -713,20 +716,14 @@ public class BotHideController : MonoBehaviour
         Debug.Log("[BotHide] Hider shot: " + b.tf.name + " (" + BotCount.ToString() + " left)");
     }
 
-    // True if something that blocks shots (not a character) is between origin and target.
-    private bool WallBetween(Vector3 origin, Vector3 target)
+    // True if something solid stops a shot along the ray before this distance (Bullet.StopsShot).
+    private bool ShotStoppedBefore(Ray ray, float distance)
     {
-        Vector3 d = target - origin;
-        float dist = d.magnitude;
-        if (dist < 0.5f) return false;
-
-        int n = Physics.RaycastNonAlloc(origin, d / dist, _rayHits, dist - 0.5f);
+        if (distance < 0.05f) return false;
+        int n = Physics.RaycastNonAlloc(ray, _rayHits, distance, ~0, QueryTriggerInteraction.Ignore);
         for (int i = 0; i < n; i++)
         {
-            Collider col = _rayHits[i].collider;
-            if (col is CharacterController) continue;
-            if (IsCharacter(col)) continue;
-            if (Bullet.BlocksShot(col.gameObject)) return true;
+            if (Bullet.StopsShot(_rayHits[i].collider)) return true;
         }
         return false;
     }

@@ -13,6 +13,7 @@ public sealed class PaintboxPress : MonoBehaviour, IPointerDownHandler, IPointer
     private PaintboxFrame frame;
     private Selectable selectable;
     private bool down;
+    private bool shadeWasOn;
 
     private void Awake()
     {
@@ -37,7 +38,12 @@ public sealed class PaintboxPress : MonoBehaviour, IPointerDownHandler, IPointer
         float depth = pressed ? frame.ShadowDepth * 0.7f : 0f;
         frame.Body.offsetMin = new Vector2(0f, -depth);
         frame.Body.offsetMax = new Vector2(0f, -depth);
-        if (frame.Shade != null) frame.Shade.enabled = !pressed;
+        if (frame.Shade == null) return;
+
+        // Back as it was, not simply on: an unpicked tab has no shadow, and one switched on behind
+        // its clear fill turned the tab black (2026-11-26).
+        if (pressed) shadeWasOn = frame.Shade.enabled;
+        frame.Shade.enabled = !pressed && shadeWasOn;
     }
 }
 

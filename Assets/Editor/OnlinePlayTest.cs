@@ -990,8 +990,23 @@ public static class OnlinePlayTest
         }
         Check(off.Count == 0, $"each tab's icon and word are centred in it{(off.Count > 0 ? ": off by " + string.Join(", ", off) : "")}");
 
+        // An unpicked tab pressed and let go stays as it was (2026-11-26: it turned black).
+        GameObject other = HubPages.Select(h => InPage(page, h.tab)).FirstOrDefault(b => b != null && b != picked);
+        PaintboxFrame quiet = other != null ? other.GetComponent<PaintboxFrame>() : null;
+        if (quiet != null && quiet.Shade != null)
+        {
+            var press = new PointerEventData(EventSystem.current);
+            bool shadeBefore = quiet.Shade.enabled;
+            ExecuteEvents.Execute(other, press, ExecuteEvents.pointerDownHandler);
+            ExecuteEvents.Execute(other, press, ExecuteEvents.pointerUpHandler);
+            Check(quiet.Shade.enabled == shadeBefore && !quiet.Shade.enabled && quiet.Fill.color.a < 0.05f,
+                  $"an unpicked tab ({other.name}) pressed and let go stays unpicked, not black (shadow {quiet.Shade.enabled})");
+        }
+
         // The coin balance: coin and number inside the pill, centred.
         GameObject pill = InPage(page, "PageBalance");
+        Image coinArt = pill != null ? pill.GetComponentsInChildren<Image>(true).FirstOrDefault(i => i.name == "CoinArt") : null;
+        Check(coinArt != null && coinArt.sprite != null && coinArt.sprite.name == "single-gold-coin", $"the coin balance shows the gold coin ({(coinArt != null && coinArt.sprite != null ? coinArt.sprite.name : "none")})");
         Text number = pill != null ? pill.GetComponentsInChildren<Text>(false).FirstOrDefault(x => x.GetComponent<CoinLabel>() != null) : null;
         if (pill != null && number != null)
         {
@@ -2239,6 +2254,7 @@ public static class OnlinePlayTest
 
     // The free camera, once this hider is out.
     private static int freeLookStage;
+    private static bool catchNoticeChecked;
     private static float freeLookAt;
     private static Vector3 freeLookFrom;
 
@@ -2253,6 +2269,11 @@ public static class OnlinePlayTest
 
         if (freeLookStage == 0)
         {
+            Text said = Get<Text>(OnlineRoundInstance(), "banner");
+            // Once, at the catch itself: a rejoin while out says "You are out of this round" instead.
+            if (!catchNoticeChecked && (catchNoticeChecked = true))
+            Check(said != null && System.Text.RegularExpressions.Regex.IsMatch(said.text, @"^.+ caught .+\. Watch the rest of the round\.$"),
+                  $"the hider who is out is told who caught them, by name ('{said?.text}')");
             cam.SetFreeLook(true);
             freeLookFrom = (Vector3)pivot.GetValue(cam);
             freeLookAt = Time.realtimeSinceStartup;
@@ -2339,6 +2360,52 @@ public static class OnlinePlayTest
                 exitStage = 9;
                 Go(Step.Exited);
                 return;
+        }
+    }
+
+    // ================= The paint sheet's brush size (2026-11-26) =================
+
+    private static bool paintSheetChecked;
+
+    private static void CheckPaintSheet()
+    {
+        if (paintSheetChecked) return;
+        ChameleonPaint painter = Object.FindAnyObjectByType<ChameleonPaint>();
+        if (painter == null || !painter.DrawingActive) return;
+        var track = FindByName("SizeTrack")?.transform as RectTransform;
+        var handle = track != null ? track.Find("SizeHandle") as RectTransform : null;
+        var ring = FindByName("SizeRing")?.transform as RectTransform;
+        var dot = ring != null ? ring.Find("SizeDot") as RectTransform : null;
+        if (track == null || handle == null || FindByName("PbSheet") == null) return;
+        paintSheetChecked = true;
+        float x = handle.anchoredPosition.x;
+        Check(x >= -1f && x <= track.rect.width + 1f, $"the brush size handle stays on its track ({x:F0} of {track.rect.width:F0}; it ran past the end)");
+        Check(dot == null || dot.rect.width <= ring.rect.width + 0.5f, $"and the size dot inside its ring ({(dot != null ? dot.rect.width : 0f):F0} in {(ring != null ? ring.rect.width : 0f):F0})");
+        Shot("paint_sheet");
+    }
+
+    // ================= Bodies that are out: where every game shows them (2026-11-26) =================
+
+    private static float bodiesAt;
+    private static int bodiesSeen, bodiesGone;
+    private static float worstBodyOff;
+    private static string worstBodyWhere = "";
+
+    private static void SampleBodies()
+    {
+        if (Net == null || Time.realtimeSinceStartup < bodiesAt) return;
+        bodiesAt = Time.realtimeSinceStartup + 1f;
+        for (byte s = 0; s < 16; s++)
+        {
+            NetEntityView v = NetEntityRegistry.Get(s);
+            if (v == null || !v.Eliminated || v.IsLocal) continue;
+            RestingBody rest = v.GetComponent<RestingBody>();
+            if (rest == null || !rest.Settled) continue;
+            bodiesSeen++;
+            if (!v.gameObject.activeInHierarchy || !v.GetComponentsInChildren<Renderer>(false).Any(r => r.enabled && !r.forceRenderingOff)) { bodiesGone++; continue; }
+            if (!Net.TryBodyRest(s, out Vector3 at)) continue;
+            float off = Vector3.Distance(OnlineRound.DrawnCentre(v.transform), at);
+            if (off > worstBodyOff) { worstBodyOff = off; worstBodyWhere = $"slot {s}"; }
         }
     }
 
@@ -2453,9 +2520,12 @@ public static class OnlinePlayTest
                 float gap = surface ? drawn.min.y - floor : float.NaN;
                 Check(surface && gap > -0.25f * h && gap < 0.25f * h,
                       $"and lies on the floor: not floating, not in it (lowest {drawn.min.y:F2}, floor {floor:F2}, gap {gap:F2} for a body {h:F2} tall)");
-                report.Add($"INFO  rejoined: the body at {drawn.center}, the server's feet {(me != null ? me.LastServerFeet.ToString() : "?")}, kept on this device '{PlayerPrefs.GetString("OnlineRound.OutRest", "")}'");
+                report.Add($"INFO  rejoined: the body at {drawn.center}, the server's feet {(me != null ? me.LastServerFeet.ToString() : "?")}");
                 Vector2 off = new Vector2(drawn.center.x - outFellAt.x, drawn.center.z - outFellAt.z);
                 Check(off.magnitude < 1.5f * h, $"where it fell ({off.magnitude:F2} from where it lay before the Exit, body {h:F2} tall)");
+                bool kept = Net.TryBodyRest(Net.LocalSlot, out Vector3 serverRest);
+                float fromServer = kept ? Vector3.Distance(drawn.center, serverRest) : -1f;
+                Check(kept && fromServer < 1f, $"at the place the server kept for it ({(kept ? fromServer.ToString("F2") + " away" : "the server sent none")})");
                 outFellAt = drawn.center;
                 Shot("out_rejoined");
                 outAt = now + 2f;
@@ -2853,6 +2923,9 @@ public static class OnlinePlayTest
         int seekerScores = texts.Count(t => System.Text.RegularExpressions.Regex.IsMatch(t.text, @"^\d+ Hiders? Caught$"));
         Check(!grouped && ranks.SequenceEqual(ranks.OrderBy(r => r)) && ranks[0] == 1 && hiderScores == GameTuning.FugitiveSlots && seekerScores == GameTuning.HunterSlots,
               $"one ranking, best first ({string.Join(",", ranks)}); scores as seconds of the seek ({hiderScores}) and hiders caught ({seekerScores})");
+        int balances = Object.FindObjectsByType<PaintboxCoinFit>(FindObjectsInactive.Exclude).Count(f => f.gameObject.activeInHierarchy);
+        Check(FindByName("GlobalCoinPill") is not { activeInHierarchy: true } && balances == 1,
+              $"and one coin balance on it, the page's own ({balances} shown; 2026-11-26: the shared pill showed over it too)");
         Shot("results_" + (AwayEndTest ? "away" : "end"));
     }
 
@@ -2865,6 +2938,9 @@ public static class OnlinePlayTest
         if (!float.TryParse(count.text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float left)) return;
         cooldownSeen = true;
         Check(left > 0f && left <= 3.05f, $"after a shot the Shoot button counts down the cooldown ({count.text})");
+        Image disc = FindByName("CooldownShade")?.GetComponent<Image>();
+        Check(count.fontSize >= 60 && disc != null && disc.sprite == UiArt.Circle && disc.color.a > 0.7f && count.transform.GetSiblingIndex() == count.transform.parent.childCount - 1,
+              $"in big figures ({count.fontSize}) over a dark disc that sweeps away (alpha {(disc != null ? disc.color.a : 0f):F2}), on top of the button");
         Shot("cooldown");
     }
 
@@ -3257,6 +3333,14 @@ public static class OnlinePlayTest
               $"the {who} has a minimap of the room under the role chip (shown {map != null && map.activeInHierarchy}, drawn {picture != null && picture.texture != null})");
         RectTransform me = picture != null ? picture.transform.parent.Find("Me") as RectTransform : null;
         Check(me != null && me.anchoredPosition.sqrMagnitude > 0.01f, $"with the player's arrow on it ({(me != null ? me.anchoredPosition.ToString() : "none")})");
+        Image drop = me != null ? me.GetComponent<Image>() : null;
+        Vector2 size = map != null ? ((RectTransform)map.transform).sizeDelta : Vector2.zero;
+        Check(drop != null && drop.sprite != null && drop.sprite.name == "minimap-arrow" && Near(drop.color, Paintbox.Yellow) && Mathf.Abs(size.x - 324f) < 1f && Mathf.Abs(size.y - 228f) < 1f,
+              $"at 120% ({size}), the player as the yellow drop of mini-map-arrow.svg ({(drop != null && drop.sprite != null ? drop.sprite.name : "none")})");
+        var marks = picture != null ? picture.transform.parent.GetComponentsInChildren<Image>(false).Where(i => i.name == "Player").ToList() : new List<Image>();
+        if (marks.Count > 0)
+            report.Add($"INFO  the {who}'s minimap shows {marks.Count} other players: {marks.Count(m => Near(m.color, new Color(0.30f, 0.85f, 0.45f)))} green, " +
+                       $"{marks.Count(m => Near(m.color, new Color(0.95f, 0.30f, 0.28f)))} red, {marks.Count(m => m.sprite != null && m.sprite.name == "minimap-arrow")} drops, {marks.Count(m => m.sprite == UiArt.Circle)} out (X)");
     }
 
     private static Color JumpFill()
@@ -3321,6 +3405,8 @@ public static class OnlinePlayTest
         CheckSeekerBodyLiesDown();
         CheckFreeLookWhenOut();
         CheckOutRejoin();
+        CheckPaintSheet();
+        SampleBodies();
         CheckNextPlayer();
         CheckExit();
         CheckAway();
@@ -4744,6 +4830,10 @@ public static class OnlinePlayTest
             foreach (string s in stallLog.Take(12)) report.Add("INFO  stall " + s);
         }
         else report.Add($"INFO  other players drawn from the network: {stalls}");
+        if (bodiesSeen > 0)
+            Check(bodiesGone == 0 && worstBodyOff < 1.5f,
+                  $"bodies that are out stay on the map where the server says they lie ({bodiesSeen} looks, {bodiesGone} gone, furthest {worstBodyOff:F2} off at {worstBodyWhere})");
+        else report.Add("INFO  no other player's body was out to look at this match");
         if (freeLookStage == 0) report.Add("INFO  this player was not eliminated, so the free camera was not tried out of the round");
         Check(matchEnds > 0, "the match ended with the server's result");
     }

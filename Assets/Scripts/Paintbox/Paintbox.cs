@@ -542,9 +542,27 @@ public static class Paintbox
         return rt;
     }
 
-    /// <summary>The coin: a yellow disc with an ink edge and a paint drop.</summary>
+    /// <summary>
+    /// The coin: the gold coin picture (Art/single-gold-coin, 2026-11-26), the coin itself as tall
+    /// as <paramref name="size"/>; a yellow disc with an ink edge and a paint drop without it.
+    /// </summary>
     public static RectTransform CoinGlyph(Transform parent, float size)
     {
+        Sprite gold = Art("single-gold-coin");
+        if (gold != null)
+        {
+            RectTransform holder = NewRect(parent, "Coin");
+            holder.sizeDelta = new Vector2(size, size);
+            Image picture = Image(holder, "CoinArt", gold, Color.white);
+            picture.preserveAspect = true;
+            picture.raycastTarget = false;
+            RectTransform p = picture.rectTransform;
+            p.anchorMin = p.anchorMax = p.pivot = new Vector2(0.5f, 0.5f);
+            p.anchoredPosition = Vector2.zero;
+            p.sizeDelta = new Vector2(size, size) * CoinArtScale;   // the picture's margins left outside
+            return holder;
+        }
+
         Image ring = Image(parent, "Coin", UiArt.Circle, Ink);
         RectTransform rt = ring.rectTransform;
         rt.sizeDelta = new Vector2(size, size);
@@ -555,6 +573,9 @@ public static class Paintbox
         Fill(drop.rectTransform, size * 0.24f, size * 0.24f, size * 0.24f, size * 0.24f);
         return rt;
     }
+
+    // The gold coin fills 74% of its picture's height (932 of 1254 pixels).
+    private const float CoinArtScale = 1254f / 932f;
 
     /// <summary>A coin amount: the coin and the number, side by side, sized to fit.</summary>
     public static Text CoinAmount(Transform parent, string amount, float size, Color ink, out RectTransform row)

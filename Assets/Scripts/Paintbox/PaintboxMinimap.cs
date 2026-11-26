@@ -25,8 +25,8 @@ using UnityEngine.UI;
 /// </summary>
 public sealed class PaintboxMinimap : MonoBehaviour
 {
-    // Design units (a 1080-tall screen), top left under the role chip.
-    public const float Width = 270f, Height = 190f;
+    // Design units (a 1080-tall screen), top left under the role chip; 120% of the first size (2026-11-26).
+    public const float Width = 324f, Height = 228f;
     public const float Top = PaintboxHud.EdgeY + 76f;
 
     /// <summary>How far down from the top the minimap reaches (what sits under it starts below this).</summary>
@@ -87,8 +87,8 @@ public sealed class PaintboxMinimap : MonoBehaviour
         Transform content = frame.Body.Find("Content");
         if (content != null) Destroy(content.gameObject);
         group = Paintbox.Ensure<CanvasGroup>(small.gameObject);
-        smallMap = MapArea(frame.Body, 6f, 20f, out smallArrow, 30f);
-        smallCam = Marker(smallArrow.parent, "FreeCamera", CameraBlue, "ArrowUp", 26f);
+        smallMap = MapArea(frame.Body, 6f, 20f, out smallArrow, 26f);
+        smallCam = Marker(smallArrow.parent, "FreeCamera", CameraBlue, 22f);
 
         // Large: dimmed screen, a big framed map in the middle, X in its corner; any tap closes it.
         Transform canvas = OnlineUI.CreateCanvas("MinimapCanvas", owner, 46).transform;
@@ -102,8 +102,8 @@ public sealed class PaintboxMinimap : MonoBehaviour
         PaintboxFrame big = Paintbox.Frame(dim.rectTransform, "Panel", Paintbox.Glass, Paintbox.RadiusLarge, 4f, 6f, Paintbox.GlassEdge, Paintbox.GlassShadow);
         largeFrame = big.Root;
         Paintbox.Pin(largeFrame, new Vector2(0.5f, 0.5f), new Vector2(0f, -10f), new Vector2(Height * 3.4f * aspect, Height * 3.4f));
-        largeMap = MapArea(big.Body, 10f, 30f, out largeArrow, 64f);
-        largeCam = Marker(largeArrow.parent, "FreeCamera", CameraBlue, "ArrowUp", 54f);
+        largeMap = MapArea(big.Body, 10f, 30f, out largeArrow, 56f);
+        largeCam = Marker(largeArrow.parent, "FreeCamera", CameraBlue, 46f);
 
         Text title = Paintbox.Label(dim.rectTransform, "Map", 40f, Color.white, Paintbox.Weight.Title, TextAnchor.LowerCenter);
         title.rectTransform.anchorMin = title.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
@@ -134,37 +134,55 @@ public sealed class PaintboxMinimap : MonoBehaviour
         map.color = new Color(0.82f, 0.82f, 0.86f, 1f);   // a little dimmed, so the arrow stands out
         Paintbox.Fill(map.rectTransform);
 
-        Image marker = Paintbox.Image(window.rectTransform, "Me", UiArt.Circle, Paintbox.Yellow);
-        marker.preserveAspect = true;
-        marker.raycastTarget = false;
-        arrow = marker.rectTransform;
-        arrow.anchorMin = arrow.anchorMax = arrow.pivot = new Vector2(0.5f, 0.5f);
-        arrow.sizeDelta = new Vector2(arrowSize, arrowSize);
-        Outline edge = marker.gameObject.AddComponent<Outline>();
-        edge.effectColor = Paintbox.Ink;
-        edge.effectDistance = new Vector2(2.5f, -2.5f);
-        Image pointer = Paintbox.IconImage(arrow, "ArrowUp", arrowSize * 0.68f, Paintbox.Ink);
-        pointer.raycastTarget = false;
+        arrow = Marker(window.rectTransform, "Me", Paintbox.Yellow, arrowSize);
+        arrow.gameObject.SetActive(true);
         return map;
     }
 
-    // A marker on the map: a filled circle with an ink edge and an icon (an arrow, or an X).
-    private static RectTransform Marker(Transform window, string name, Color fill, string icon, float size)
+    // The direction marker (2026-11-26): the drop of mini-map-arrow.svg, its tip the way the
+    // player faces, rendered to Art/minimap-arrow (white, tinted per marker, the SVG's outline).
+    private static Sprite Drop => Paintbox.Art("minimap-arrow");
+    private const float DropPivotY = 0.3826f;                              // the drop's round middle: where the player is
+    private const float DropTall = 21.3f / 14f, DropWide = 16.3f / 14f;   // its round part is `size` across
+
+    // A marker on the map: the drop pointing the way the player faces, or, once they are out, a
+    // filled circle with an ink edge and an X.
+    private static RectTransform Marker(Transform window, string name, Color fill, float size)
     {
-        Image dot = Paintbox.Image(window, name, UiArt.Circle, fill);
+        Image dot = Paintbox.Image(window, name, Drop, fill);
         dot.preserveAspect = true;
         dot.raycastTarget = false;
         RectTransform rt = dot.rectTransform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(size, size);
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
         Outline edge = dot.gameObject.AddComponent<Outline>();
         edge.effectColor = Paintbox.Ink;
         edge.effectDistance = new Vector2(2f, -2f);
-        Image glyph = Paintbox.IconImage(rt, icon, size * 0.66f, Paintbox.Ink);
+        Image glyph = Paintbox.IconImage(rt, "X", size * 0.66f, Paintbox.Ink);
         glyph.name = "Glyph";
         glyph.raycastTarget = false;
+        rt.gameObject.AddComponent<MarkerSize>().Size = size;
+        ShowAs(rt, false);
         rt.gameObject.SetActive(false);
         return rt;
+    }
+
+    private sealed class MarkerSize : MonoBehaviour { public float Size; public int Shown = -1; }
+
+    // The drop while in (a circle if the picture is missing), the circle with its X once out.
+    private static void ShowAs(RectTransform marker, bool down)
+    {
+        MarkerSize ms = marker.GetComponent<MarkerSize>();
+        int state = down ? 1 : 0;
+        if (ms.Shown == state) return;
+        ms.Shown = state;
+
+        Image dot = marker.GetComponent<Image>();
+        bool drop = !down && Drop != null;
+        dot.sprite = drop ? Drop : UiArt.Circle;
+        marker.GetComponent<Outline>().enabled = !drop;          // the drop has its own outline
+        marker.Find("Glyph").gameObject.SetActive(down);
+        marker.pivot = new Vector2(0.5f, drop ? DropPivotY : 0.5f);
+        marker.sizeDelta = drop ? new Vector2(ms.Size * DropWide, ms.Size * DropTall) : new Vector2(ms.Size, ms.Size);
     }
 
     private void OnDestroy()
@@ -213,8 +231,8 @@ public sealed class PaintboxMinimap : MonoBehaviour
 
         // Everyone else.
         CollectOthers(body);
-        DrawOthers(smallMarks, smallArrow.parent, smallMap.rectTransform, 20f);
-        if (largeRoot.activeSelf) DrawOthers(largeMarks, largeArrow.parent, largeMap.rectTransform, 44f);
+        DrawOthers(smallMarks, smallArrow.parent, smallMap.rectTransform, 22f);
+        if (largeRoot.activeSelf) DrawOthers(largeMarks, largeArrow.parent, largeMap.rectTransform, 48f);
         smallArrow.SetAsLastSibling();   // the player's own arrow over the others
         largeArrow.SetAsLastSibling();
     }
@@ -268,7 +286,9 @@ public sealed class PaintboxMinimap : MonoBehaviour
         if (body == null || !body.gameObject.activeInHierarchy) return;
         // A seeker never sees where a hider still hiding is.
         if (iSeek && !seeker && !down) return;
-        others.Add(new Other { Position = body.position, Forward = body.forward, Seeker = seeker, Out = down });
+        // A body that is out lies where its ragdoll took it: the mesh moved, not the body's transform.
+        Vector3 at = down ? OnlineRound.DrawnCentre(body) : body.position;
+        others.Add(new Other { Position = at, Forward = body.forward, Seeker = seeker, Out = down });
     }
 
     private static bool IsDown(Transform t) => t.GetComponent<Ragdoll>() != null;
@@ -293,7 +313,7 @@ public sealed class PaintboxMinimap : MonoBehaviour
     private void DrawOthers(List<RectTransform> pool, Transform window, RectTransform map, float size)
     {
         bool iSeek = gmm != null && gmm.PlayerIsSeeker;
-        while (pool.Count < others.Count) pool.Add(Marker(window, "Player", Teammate, "ArrowUp", size));
+        while (pool.Count < others.Count) pool.Add(Marker(window, "Player", Teammate, size));
         for (int i = 0; i < pool.Count; i++)
         {
             RectTransform m = pool[i];
@@ -305,9 +325,7 @@ public sealed class PaintboxMinimap : MonoBehaviour
             Color colour = o.Seeker == iSeek ? Teammate : Enemy;
             Image dot = m.GetComponent<Image>();
             if (dot.color != colour) dot.color = colour;
-            Image glyph = m.Find("Glyph").GetComponent<Image>();
-            Sprite icon = Paintbox.Icon(o.Out ? "X" : "ArrowUp");
-            if (glyph.sprite != icon) glyph.sprite = icon;
+            ShowAs(m, o.Out);
             PlaceAt(m, map, o.Position, o.Out ? Vector3.forward : o.Forward);
         }
     }

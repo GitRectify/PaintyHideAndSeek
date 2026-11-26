@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
 using Meccha.Client;
 using Meccha.Shared.Game;
 using Meccha.Shared.Protocol;
@@ -279,7 +278,7 @@ public partial class OnlineRound : MonoBehaviour
     // under them, with no fall speed carried over from before.
     private void SettleOnFloor()
     {
-        if (localView == null || localBody == null) return;
+        if (localView == null || localBody == null || localOut) return;   // out: the body lies where it fell
 
         Vector3 feet = localView.FeetPosition;
         float floor = float.NegativeInfinity;
@@ -355,8 +354,8 @@ public partial class OnlineRound : MonoBehaviour
         laidDown.Clear();
         outSeenAt.Clear();
         firstRefreshAt = -1f;
-        restSavedAt = 0f;
-        restSaved = Vector3.zero;
+        // The 2026-11-25 build kept a fallen body's place on the device; the server keeps it now.
+        if (PlayerPrefs.HasKey("OnlineRound.OutRest")) { PlayerPrefs.DeleteKey("OnlineRound.OutRest"); PlayerPrefs.Save(); }
         nameTags.Clear();
         nextFireAt = 0f;
         lastWeapon = WeaponSpecs.Standard;
@@ -386,6 +385,7 @@ public partial class OnlineRound : MonoBehaviour
 
         Net.OnPhaseChanged += HandlePhaseChanged;
         Net.OnEliminated += HandleEliminated;
+        Net.OnBodyRest += HandleBodyRest;
         Net.OnRoundEnd += HandleRoundEnd;
         Net.OnMatchEnd += HandleMatchEnd;
         Net.OnIdleWarning += HandleIdleWarning;
@@ -440,6 +440,7 @@ public partial class OnlineRound : MonoBehaviour
         {
             Net.OnPhaseChanged -= HandlePhaseChanged;
             Net.OnEliminated -= HandleEliminated;
+            Net.OnBodyRest -= HandleBodyRest;
             Net.OnRoundEnd -= HandleRoundEnd;
             Net.OnMatchEnd -= HandleMatchEnd;
             Net.OnIdleWarning -= HandleIdleWarning;
@@ -511,7 +512,6 @@ public partial class OnlineRound : MonoBehaviour
         FeedInput();
         PumpBots();
         RefreshCounters();
-        KeepRestingPlace();
         RefreshNameTags();
         ApplyCanvases();
         UpdateSpotView();
@@ -741,13 +741,13 @@ public partial class OnlineRound : MonoBehaviour
         return true;
     }
 
-    // How far along a line the room's shell stops a shot (the bullets' own rule), or -1.
+    // How far along a line something solid stops a shot (Bullet.StopsShot, the bullets' own rule), or -1.
     private static float WallDistanceAlong(Vector3 origin, Vector3 direction, float maxDistance)
     {
         float nearest = -1f;
         foreach (RaycastHit hit in Physics.RaycastAll(origin, direction, maxDistance, ~0, QueryTriggerInteraction.Ignore))
         {
-            if (Bullet.IsCharacter(hit.collider) || !Bullet.BlocksShot(hit.collider.gameObject)) continue;
+            if (!Bullet.StopsShot(hit.collider)) continue;
             if (nearest < 0f || hit.distance < nearest) nearest = hit.distance;
         }
         return nearest;
@@ -1001,7 +1001,7 @@ public partial class OnlineRound : MonoBehaviour
                 Transform body = e.Slot == Net.LocalSlot ? localBody : view != null ? view.transform : null;
                 if (missed && body != null && !laidDown.Contains(body))
                 {
-                    LayDown(body, e.Slot != Net.LocalSlot);
+                    LayDown(body, e.Slot);
                     if (e.Slot == Net.LocalSlot) ShowBanner("You are out of this round. Watch the rest of it.", 4f, NoticeKind.Match);
                 }
                 continue;
@@ -1028,7 +1028,7 @@ public partial class OnlineRound : MonoBehaviour
     // A body that was out before this client knew (it rejoined): down at once, without the shove an
     // elimination it watched gets, where the server has it and on the floor under it (2026-11-25:
     // it was laid down wherever this client had put it, and hung or fell through the air).
-    private void LayDown(Transform body, bool remote)
+    private void LayDown(Transform body, byte slot)
     {
         if (body == null || !laidDown.Add(body)) return;
 
@@ -1038,35 +1038,31 @@ public partial class OnlineRound : MonoBehaviour
         if (cc != null) cc.enabled = false;
         if (view != null && view.TryNewestFeet(out Vector3 feet))
             body.position += feet - view.FeetPosition;
-
-        // This player's own body: where it came to rest before they left, when this device saw it.
-        // Near the server's spot only: the shot's knock-back carries a body up to about four of its
-        // own heights (measured 2026-11-25); ten allows for a hard knock, not another place.
-        if (!remote && TryRestingPlace(out Vector3 rest))
-        {
-            Vector3 now = DrawnCentre(body);
-            var shift = new Vector3(rest.x - now.x, 0f, rest.z - now.z);
-            float tall = cc != null ? cc.height * body.lossyScale.y : 2f * body.lossyScale.y;
-            if (shift.magnitude < 10f * tall) body.position += shift;
-        }
         Grounding.ToFloor(body, body.GetComponentsInChildren<Renderer>());
         if (cc != null) cc.enabled = ccOn;
 
-        Ragdoll.Trigger(body, body.position + Vector3.up, -body.forward, 0.05f, remote);
+        // It went down before this game saw it (a rejoin): it settles out of sight and is drawn
+        // lying where the server says it lies (RestingBody), with no fall to watch again. It stays
+        // on the map for the rest of the round.
+        Ragdoll ragdoll = Ragdoll.Trigger(body, body.position + Vector3.up, -body.forward, 0.02f, false);
+        RestingBody.Attach(body, slot, ragdoll, ReportsBodyOf(slot, view), hidden: true);
     }
 
-    // ================= Where this player's body came to rest =================
-    //
-    // The server keeps the spot a player was caught on; the shot's knock-back carries the body on
-    // from there, and only this device saw where it stopped. Kept per match (through a closed game
-    // too), so a rejoin lays the body back where it lay (2026-11-25: it came back two bodies away).
-    private const string RestKey = "OnlineRound.OutRest";
-    private float restSavedAt;
-    private Vector3 restSaved;
+    // Whose fall this game ran, and so says where the body came to rest: its own, and its bots'.
+    private bool ReportsBodyOf(byte slot, NetEntityView view) => slot == Net.LocalSlot || (view != null && view.IsHosted);
+
+    // The server passes on where a body lies (BodyRestCodec): this game's copy goes there.
+    private void HandleBodyRest(byte slot, Vector3 at)
+    {
+        NetEntityView view = NetEntityRegistry.Get(slot);
+        Transform body = slot == Net.LocalSlot ? localBody : view != null ? view.transform : null;
+        RestingBody rest = body != null ? body.GetComponent<RestingBody>() : null;
+        if (rest != null) rest.RestAt(at);   // otherwise it is picked up when the body goes down (RestingBody.Attach)
+    }
 
     // The middle of the body as drawn: the ragdoll moves the mesh's bones, not the body's own
     // transform or the animator's (2026-11-25: the hips bone stayed on the spot of the shot).
-    private static Vector3 DrawnCentre(Transform body)
+    public static Vector3 DrawnCentre(Transform body)
     {
         bool any = false;
         Bounds all = default;
@@ -1077,42 +1073,6 @@ public partial class OnlineRound : MonoBehaviour
             else all.Encapsulate(r.bounds);
         }
         return any ? all.center : body.position;
-    }
-
-    private void KeepRestingPlace()
-    {
-        if (!localOut || localBody == null || !laidDown.Contains(localBody)) return;
-        float now = Time.unscaledTime;
-        if (now < restSavedAt + 1f) return;
-        restSavedAt = now;
-        Vector3 at = DrawnCentre(localBody);
-        if ((at - restSaved).sqrMagnitude < 0.01f) return;
-        restSaved = at;
-        PlayerPrefs.SetString(RestKey, string.Format(CultureInfo.InvariantCulture, "{0}|{1}|{2}|{3}|{4}|{5}",
-                                                     matchId, roomName, System.DateTime.UtcNow.Ticks, at.x, at.y, at.z));
-        PlayerPrefs.Save();
-    }
-
-    // The same match: its number, its map, and recent (a restarted server numbers matches from 1 again).
-    private bool TryRestingPlace(out Vector3 at)
-    {
-        at = Vector3.zero;
-        string[] p = PlayerPrefs.GetString(RestKey, "").Split('|');
-        return p.Length == 6
-               && int.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int id) && id == matchId
-               && p[1] == roomName
-               && long.TryParse(p[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out long ticks)
-               && System.DateTime.UtcNow.Ticks - ticks < System.TimeSpan.FromMinutes(15).Ticks
-               && float.TryParse(p[3], NumberStyles.Float, CultureInfo.InvariantCulture, out at.x)
-               && float.TryParse(p[4], NumberStyles.Float, CultureInfo.InvariantCulture, out at.y)
-               && float.TryParse(p[5], NumberStyles.Float, CultureInfo.InvariantCulture, out at.z);
-    }
-
-    private static void ForgetRestingPlace()
-    {
-        if (!PlayerPrefs.HasKey(RestKey)) return;
-        PlayerPrefs.DeleteKey(RestKey);
-        PlayerPrefs.Save();
     }
 
     private void HandleEliminated(byte victim, byte by, EliminationCause cause)
@@ -1128,9 +1088,16 @@ public partial class OnlineRound : MonoBehaviour
             Vector3 from = killer != null ? killer.transform.position : body.position - body.forward;
             Vector3 push = body.position - from;
             push.y = 0f;
-            Ragdoll.Trigger(body, body.position + Vector3.up, push.sqrMagnitude > 0.001f ? push.normalized : -body.forward,
-                            1f, victim != Net.LocalSlot);
+            // It stays on the map (2026-11-26: other players' bodies vanished 3 s after falling);
+            // once still it is frozen there and placed alike in every game (RestingBody).
+            Ragdoll ragdoll = Ragdoll.Trigger(body, body.position + Vector3.up, push.sqrMagnitude > 0.001f ? push.normalized : -body.forward,
+                                              1f, false);
+            RestingBody.Attach(body, victim, ragdoll, ReportsBodyOf(victim, view), hidden: false);
         }
+
+        // Everyone is told who caught whom, by name (2026-11-26): "Seeker123 caught Hider456".
+        bool named = by != victim && by != 0xFF && (cause == EliminationCause.Shot || cause == EliminationCause.Caught);
+        string caught = named ? $"{NameOf(by)} caught {NameOf(victim)}" : null;
 
         if (victim == Net.LocalSlot)
         {
@@ -1138,19 +1105,20 @@ public partial class OnlineRound : MonoBehaviour
             if (gmm != null) gmm.PlayerFrozen = true;
             ClearSpot();
             spectateAt = Time.unscaledTime + spectateDelaySeconds;
-            ShowBanner(cause == EliminationCause.Shot ? "You were shot! Watch the rest of the round."
-                                                      : "You were caught! Watch the rest of the round.", 5f, NoticeKind.Error);
+            ShowBanner(named ? $"{NameOf(by)} caught {NameOf(victim)}. Watch the rest of the round."
+                             : cause == EliminationCause.Shot ? "You were shot! Watch the rest of the round."
+                                                              : "You were caught! Watch the rest of the round.", 5f, NoticeKind.Error);
         }
         else if (by == Net.LocalSlot)
         {
             // A hit that took someone out asks no wait of the next shot; the server has lifted it too.
             if (cause == EliminationCause.Shot) nextFireAt = 0f;
 
-            ShowBanner($"You got {NameOf(victim)}!", 2.5f, NoticeKind.Reward);
+            ShowBanner(caught ?? $"You got {NameOf(victim)}!", 2.5f, NoticeKind.Reward);
         }
         else
         {
-            ShowBanner($"{NameOf(victim)} is out.", 2f);
+            ShowBanner(caught ?? $"{NameOf(victim)} is out.", 3f);
         }
     }
 
@@ -1275,7 +1243,6 @@ public partial class OnlineRound : MonoBehaviour
         if (camCtrl != null) camCtrl.SetFreeLook(false);
         StopSpectating();
         OnlineRejoin.Clear();   // the match is decided: nothing left to rejoin
-        ForgetRestingPlace();
         if (first) EnterAfterMatch(won);
         else UpdateRevealOffer();
     }

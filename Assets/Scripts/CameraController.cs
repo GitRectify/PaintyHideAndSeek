@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -847,9 +848,30 @@ public class CameraController : MonoBehaviour
         }
     }
 
+    private static readonly List<RaycastResult> uiHits = new List<RaycastResult>();
+
+    // Whether a panel or button is under this point of the screen. The paint canvas's full-screen
+    // "Scene" catcher (ChameleonPaint) is the world, not a panel.
+    private static bool UiAt(Vector2 screen)
+    {
+        EventSystem events = EventSystem.current;
+        if (events == null) return false;
+        uiHits.Clear();
+        events.RaycastAll(new PointerEventData(events) { position = screen }, uiHits);
+        foreach (RaycastResult hit in uiHits)
+        {
+            if (hit.gameObject == null) continue;
+            if (hit.gameObject.name == "Scene" && hit.gameObject.GetComponent<UIDrag>() != null) continue;
+            return true;
+        }
+        return false;
+    }
+
     private void HandleZoomGesture()
     {
-        if (Mouse.current != null)
+        // Not through a panel: the wheel over the Paint sheet (or any UI) zoomed the camera behind
+        // it (2026-11-26).
+        if (Mouse.current != null && !UiAt(Mouse.current.position.ReadValue()))
         {
             Vector2 scroll = Mouse.current.scroll.ReadValue();
             if (Mathf.Abs(scroll.y) > 0.01f)
@@ -864,6 +886,7 @@ public class CameraController : MonoBehaviour
         Vector2 a = Vector2.zero;
         Vector2 b = Vector2.zero;
         int pressed = 0;
+        bool onUi = false;
         for (int i = 0; i < touches.Count && pressed < 2; i++)
         {
             if (touches[i].press.isPressed)
@@ -876,8 +899,14 @@ public class CameraController : MonoBehaviour
                 {
                     b = touches[i].position.ReadValue();
                 }
+                onUi |= UiAt(touches[i].position.ReadValue());
                 pressed++;
             }
+        }
+        if (pressed > 1 && onUi)
+        {
+            prevPinchDist = -1f;   // a pinch on a panel is the panel's
+            return;
         }
         if (pressed > 1)
         {

@@ -493,6 +493,36 @@ public class Ragdoll : MonoBehaviour
         Destroy(this);
     }
 
+    /// <summary>Whether every part has come to rest (asleep, or barely moving).</summary>
+    public bool Resting
+    {
+        get
+        {
+            if (!IsRagdolling) return false;
+            foreach (Part part in parts)
+            {
+                if (part.rb == null || part.rb.isKinematic || part.rb.IsSleeping()) continue;
+                if (part.rb.linearVelocity.sqrMagnitude > 0.25f || part.rb.angularVelocity.sqrMagnitude > 0.5f) return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Holds the body as it lies: no more physics, so it cannot slide, sink or be knocked about,
+    /// and moving the body's transform carries it whole (RestingBody, 2026-11-26).
+    /// </summary>
+    public void Freeze()
+    {
+        foreach (Part part in parts)
+        {
+            if (part.rb == null) continue;
+            part.rb.linearVelocity = Vector3.zero;
+            part.rb.angularVelocity = Vector3.zero;
+            part.rb.isKinematic = true;
+        }
+    }
+
     public static Ragdoll Trigger(Transform character, Vector3 hitPoint, Vector3 dir, float forceScale, bool autoDespawn)
     {
         if (character == null)

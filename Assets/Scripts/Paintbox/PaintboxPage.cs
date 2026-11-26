@@ -57,6 +57,7 @@ public sealed class PaintboxPage
         {
             Paintbox.CoinPill(page.Right, out RectTransform pill);
             pill.name = "PageBalance";
+            pill.gameObject.AddComponent<PaintboxPageBalance>();
             pill.sizeDelta = new Vector2(240f, 76f);
         }
         if ((top & Top.Shop) != 0)
@@ -343,6 +344,17 @@ public sealed class MatchesBadge : MonoBehaviour
 /// others), Matches, History, Profile and Rate, each a page over it. Going to a tab puts the page
 /// that is up away and opens the other; New Match is what is left when none is up.
 /// </summary>
+/// <summary>
+/// A page's own coin balance, counted while it is on screen: the shared pill (OnlineMatches) stays
+/// away while one is, or a page such as the match results showed two (2026-11-26).
+/// </summary>
+public sealed class PaintboxPageBalance : MonoBehaviour
+{
+    public static int Shown { get; private set; }
+    private void OnEnable() => Shown++;
+    private void OnDisable() => Shown--;
+}
+
 public static class MultiplayerHub
 {
     private static HubTab current = HubTab.NewMatch;

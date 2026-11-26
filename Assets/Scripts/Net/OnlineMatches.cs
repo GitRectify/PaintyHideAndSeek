@@ -362,7 +362,8 @@ public class OnlineMatches : MonoBehaviour
     private void UpdateCoinPill()
     {
         // Home and the shop show the balance themselves; in a round it is in the round menu.
-        bool other = HomeShowing || ShopScreen.IsOpen || PlaySetupUI.IsOpen || MatchmakingUI.PageOpen || PaintboxHud.InRound;
+        bool other = HomeShowing || ShopScreen.IsOpen || PlaySetupUI.IsOpen || MatchmakingUI.PageOpen || PaintboxHud.InRound ||
+                     PaintboxPageBalance.Shown > 0;   // a page with its own balance (the match results, History...)
         GameObject loading = GameObject.Find("LoadingCanvas");
         bool show = OnlineLobby.InMultiplayer && !other && (loading == null || !loading.activeInHierarchy);
         if (coinPill.activeSelf != show) coinPill.SetActive(show);

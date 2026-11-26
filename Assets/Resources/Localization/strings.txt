@@ -109,6 +109,8 @@ You were shot! Watch the rest of the round.	你被击中了！观看本回合剩
 You were disconnected for too long.	你断开连接的时间过长。	Вы были отключены слишком долго.
 You were removed for being idle.	你因闲置被移出。	Вас удалили за бездействие.
 {0} is out.	{0} 出局了。	{0} выбывает.
+{0} caught {1}	{0} 抓到了 {1}	{0} поймал(а) {1}
+{0} caught {1}. Watch the rest of the round.	{0} 抓到了 {1}。观看本回合剩余部分。	{0} поймал(а) {1}. Смотрите остаток раунда.
 Still reconnecting... Tap Home to leave.	仍在重新连接……点击主页离开。	Переподключение... Нажмите «Главная», чтобы выйти.
 The match went on without you: you were away too long.	比赛已在没有你的情况下继续：你离开太久了。	Матч продолжился без вас: вас не было слишком долго.
 Changing poses too fast. Try again in a moment.	更换姿势太快了，请稍后再试。	Слишком частая смена позы. Попробуйте чуть позже.

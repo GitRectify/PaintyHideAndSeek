@@ -137,6 +137,7 @@ public static class ShopInventory
     {
         meta.ListTopUps(reply =>
         {
+            string before = TopUpsLoaded ? PackagesFingerprint() : null;
             packages.Clear();
             orderedPackages.Clear();
             if (!reply.TimedOut && reply.Error == MetaError.None)
@@ -153,8 +154,17 @@ public static class ShopInventory
             }
 
             TopUpsLoaded = true;
-            Changed?.Invoke();
+            // Redrawn only when the packs are different (one added, changed or turned off in the
+            // admin Shop page), not at every refresh of the open shop.
+            if (before == null || before != PackagesFingerprint()) Changed?.Invoke();
         });
+    }
+
+    private static string PackagesFingerprint()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (MetaTopUpPackage p in orderedPackages) sb.Append(p.Id).Append(':').Append(p.CoinCents).Append(':').Append(p.PriceMinor).Append(':').Append(p.Currency).Append('|');
+        return sb.ToString();
     }
 
     private static void Hook(MetaClient meta)

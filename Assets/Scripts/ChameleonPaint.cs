@@ -1229,6 +1229,7 @@ public class ChameleonPaint : MonoBehaviour
     {
         drawingOn = true;
         BeginPaintCollider();
+        RefreshBrushUI();   // the sheet's restyle sizes the track after the first refresh
         SlidePickerPanel(true);
         KeepPanelsOnTop();   // above every other piece of UI from the first frame it shows
         if (paintGateImg != null && gateOnSprite != null)
@@ -1484,8 +1485,11 @@ public class ChameleonPaint : MonoBehaviour
         float t = Mathf.Clamp01((brushPx - 5f) / 43f);
         if (_sizeHandleRt != null)
         {
-            // The handle's center reaches BOTH actual endpoints of SizeTrack.
-            _sizeHandleRt.anchoredPosition = new Vector2(_sizeTrackW * t, 0f);
+            // The handle's center reaches BOTH actual endpoints of SizeTrack, as it is now: the
+            // design B sheet makes the track shorter than when it was built, and the width kept
+            // from then put the handle past its end (2026-11-26).
+            float w = _sizeHandleRt.parent is RectTransform track && track.rect.width > 0f ? track.rect.width : _sizeTrackW;
+            _sizeHandleRt.anchoredPosition = new Vector2(w * t, 0f);
         }
         if (_sizeFill != null)
         {
@@ -1493,7 +1497,10 @@ public class ChameleonPaint : MonoBehaviour
         }
         if (_sizeDotRt != null)
         {
-            float d = Mathf.Lerp(sizePreviewDotMin, sizePreviewDotMax, t);
+            // Inside its ring, whatever size the ring is drawn at.
+            float most = sizePreviewDotMax;
+            if (_sizeDotRt.parent is RectTransform ring && ring.rect.width > 0f) most = Mathf.Min(most, ring.rect.width * 0.86f);
+            float d = Mathf.Lerp(Mathf.Min(sizePreviewDotMin, most * 0.2f), most, t);
             _sizeDotRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, d);
             _sizeDotRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, d);
         }

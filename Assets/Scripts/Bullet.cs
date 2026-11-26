@@ -73,9 +73,13 @@ public class Bullet : MonoBehaviour
 
             if (ignore) continue;
 
-            if (passThroughProps && !IsCharacter(col) && col != null && !BlocksShot(col.gameObject))
+            // A collider the sphere already touched where it set off reports no point (zero): it is
+            // not in the way of this step, and stopping on it put the bullet at the world origin.
+            if (_hits[i].distance <= 0f && _hits[i].point == Vector3.zero) continue;
+
+            if (passThroughProps && !IsCharacter(col) && !StopsShot(col))
             {
-                continue; // pass through non-blocking scenery/props
+                continue; // nothing solid: the bullets' ignore layer, a disabled collider
             }
 
             float dist = _hits[i].distance;
@@ -132,6 +136,21 @@ public class Bullet : MonoBehaviour
         if (col == null) return false;
 
         return col.GetComponentInParent<Animator>() != null;
+    }
+
+    /// <summary>
+    /// What stops a shot (2026-11-26): anything solid in the room — walls, furniture, floors, whatever
+    /// their names — but not characters (their own hit tests), triggers, or the bullets' ignore
+    /// layer (2). The gun's crosshair, its bullets, the wall a shot online reports to the server and
+    /// Single Play's hit test all go by it, so a shot lands where it is aimed. (BlocksShot, by name,
+    /// let shots through any wall or prop not named as the room's shell; the bots' sight still uses it.)
+    /// </summary>
+    public static bool StopsShot(Collider col)
+    {
+        if (col == null || !col.enabled || col.isTrigger) return false;
+        if (col.gameObject.layer == 2) return false;
+        if (IsCharacter(col)) return false;
+        return col.GetComponentInParent<Bullet>() == null;
     }
 
     // True for "structural" room geometry that should stop a bullet: the room shell itself, windows,
